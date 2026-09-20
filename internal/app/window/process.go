@@ -2,6 +2,9 @@ package window
 
 import (
 	"time"
+	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+	"sdmm/internal/app/ui/shortcut"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/platform"
 
@@ -38,6 +41,9 @@ func (w *Window) runFrame() {
 func (w *Window) startFrame() {
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 	platform.NewImGuiGLFWFrame()
+	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+	shortcut.BeginFrame()
+	// APHELION EDIT ADDITION END
 	imgui.NewFrame()
 	runLaterJobs()
 	runRepeatJobs()

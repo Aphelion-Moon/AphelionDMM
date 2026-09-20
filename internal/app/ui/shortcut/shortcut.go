@@ -102,6 +102,11 @@ func Process() {
 	if imgui.IsAnyItemActive() {
 		return
 	}
+	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+	if BackgroundInputBlocked() {
+		return
+	}
+	// APHELION EDIT ADDITION END
 
 	/* APHELION EDIT REMOVAL START - EDITABLE SHORTCUTS
 		var pressedShortcuts []*Shortcut
@@ -124,6 +129,12 @@ func Process() {
 		}
 	APHELION EDIT REMOVAL END */
 	// APHELION EDIT ADDITION START - EDITABLE SHORTCUTS
+	processCandidates(nil)
+	// APHELION EDIT ADDITION END
+}
+
+// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+func processCandidates(allow func(*Shortcut) bool) {
 	type candidate struct {
 		shortcut *Shortcut
 		weight   int
@@ -131,7 +142,7 @@ func Process() {
 	var pressedShortcuts []candidate
 
 	for _, shortcut := range shortcuts {
-		if shortcut.IsVisible {
+		if shortcut.IsVisible && (allow == nil || allow(shortcut)) {
 			if weight := shortcut.matchingWeight(); weight >= 0 {
 				pressedShortcuts = append(pressedShortcuts, candidate{shortcut, weight})
 			}
@@ -151,8 +162,9 @@ func Process() {
 			}
 		}
 	}
-	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION END
 
 func Combine(keys ...string) string {
 	return strings.Join(keys, "+")

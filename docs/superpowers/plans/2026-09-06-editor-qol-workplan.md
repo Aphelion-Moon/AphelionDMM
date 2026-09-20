@@ -2,6 +2,11 @@
 
 Baseline: commit `052e1acb02b790641d63466de40c91d56028383b`.
 
+September 20: [popup and dialog shortcut ownership](../../verification/2026-09-20-shortcut-popup-focus.md)
+now blocks background edits, including queued modals and popup-dismissal frames,
+while keeping contextual commands available. Native and ImGui focus/repeat
+regressions pass; OS layout and human interaction acceptance remain open.
+
 September 20: [editable shortcut bindings](../../verification/2026-09-20-shortcut-rebinding.md)
 now support saved alternatives, conflict acknowledgment and default resets.
 The [manufacturer graphics driver](../../verification/2026-09-20-graphics-driver.md)
@@ -183,8 +188,9 @@ fences are separate checks.
 3. **Shortcut usability.** A per-action catalog, potential conflict detection,
    saved rebinding and per-action/all-default resets now feed the dispatcher and
    shortcut reference. Left/right modifiers and keypad aliases are covered.
-   Qualify keyboard
-   layouts, text fields, popup focus, inactive maps, and repeated keys. The
+   Popup ownership, pending modals, dismissal, custom repeat, text input and
+   inactive/disabled registrations now have focused regressions. Complete OS
+   keyboard-layout and wider native focus-transition qualification. The
    reference consumes the same bindings, and missing/invalid preferences retain
    defaults. Human acceptance of the editing controls remains open.
 4. **Navigation and selection tools.** Audit existing Go to Coordinates and

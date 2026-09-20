@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"runtime"
 	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/app/ui/shortcut"
 	"testing"
 
 	"github.com/SpaiR/imgui-go"
@@ -127,7 +128,33 @@ func TestGrabEscapeCancelsDuringDrag(t *testing.T) {
 	before := e.m.Copy()
 	g.onStart(util.Point{X: 1, Y: 1, Z: 1})
 	g.onMove(util.Point{X: 2, Y: 1, Z: 1})
+	shortcut.BeginFrame()
+	imgui.NewFrame()
+	imgui.OpenPopup("Cancel input popup")
+	if !imgui.BeginPopup("Cancel input popup") {
+		t.Fatal("popup fixture did not open")
+	}
+	imgui.Text("Popup owns Escape")
+	imgui.EndPopup()
+	imgui.EndFrame()
 	io.KeyPress(int(glfw.KeyEscape))
+	shortcut.BeginFrame()
+	imgui.NewFrame()
+	if imgui.BeginPopup("Cancel input popup") {
+		imgui.CloseCurrentPopup()
+		imgui.EndPopup()
+	}
+	process(false)
+	imgui.EndFrame()
+	if g.Stale() {
+		t.Fatal("popup dismissal cancelled the map gesture")
+	}
+	io.KeyRelease(int(glfw.KeyEscape))
+	shortcut.BeginFrame()
+	imgui.NewFrame()
+	imgui.EndFrame()
+	io.KeyPress(int(glfw.KeyEscape))
+	shortcut.BeginFrame()
 	imgui.NewFrame()
 	process(false)
 	imgui.EndFrame()

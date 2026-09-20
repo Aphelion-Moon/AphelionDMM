@@ -191,6 +191,11 @@ func (m *Menu) Process() {
 				IconEmpty().
 				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(shortcut.Combine(platform.KeyModName(), "Q"))
 				Shortcut(shortcut.Label("menu#DoExit")),
+			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+			w.Custom(func() {
+				shortcut.ProcessPopup("menu#DoNewWorkspace", "menu#DoOpen", "menu#DoClose", "menu#DoCloseAll", "menu#DoSave", "menu#DoSaveAll", "menu#DoExit")
+			}),
+			// APHELION EDIT ADDITION END
 		}),
 
 		w.Menu("Edit", w.Layout{
@@ -237,6 +242,11 @@ func (m *Menu) Process() {
 				Enabled(m.app.HasActiveMap()).
 				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "G")
 				Shortcut(shortcut.Label("menu#DoOpenJumpWindow")),
+			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+			w.Custom(func() {
+				shortcut.ProcessPopup("menu#DoUndo", "menu#DoRedo", "menu#DoCopy", "menu#DoPaste", "menu#DoCut", "menu#DoDelete", "pmap#doDeselectAll", "menu#DoSearch", "menu#DoOpenJumpWindow")
+			}),
+			// APHELION EDIT ADDITION END
 		}),
 
 		// APHELION EDIT ADDITION START - COLLABORATION
@@ -304,12 +314,20 @@ func (m *Menu) Process() {
 			w.MenuItem("Mirror Canvas Camera", m.app.DoMirrorCanvasCamera).
 				IconEmpty().
 				Selected(m.app.MirrorCanvasCamera()),
+			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+			w.Custom(func() {
+				shortcut.ProcessPopup("pmap#doToggleArea", "pmap#doToggleTurf", "pmap#doToggleObject", "pmap#doToggleMob", "menu#DoMultiZRendering")
+			}),
+			// APHELION EDIT ADDITION END
 		}),
 
 		w.Menu("Window", w.Layout{
 			// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut("F5").
 			w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut(shortcut.Label("menu#DoResetLayout")).
 				Icon(icon.WindowRestore),
+			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+			w.Custom(func() { shortcut.ProcessPopup("menu#DoResetLayout") }),
+			// APHELION EDIT ADDITION END
 		}),
 
 		w.Menu("Help", w.Layout{
@@ -334,6 +352,9 @@ func (m *Menu) Process() {
 				Style(style.ButtonFireCoral{}).
 				Tooltip(rsc.SupportTxt).
 				Icon(icon.KoFi),
+			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+			w.Custom(func() { shortcut.ProcessPopup("menu#showHotkeys") }),
+			// APHELION EDIT ADDITION END
 		}),
 
 		w.Custom(func() {

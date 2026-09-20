@@ -1,6 +1,9 @@
 package dialog
 
 import (
+	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+	"sdmm/internal/app/ui/shortcut"
+	// APHELION EDIT ADDITION END
 	"github.com/SpaiR/imgui-go"
 	"github.com/rs/zerolog/log"
 )
@@ -49,6 +52,9 @@ func Process() {
 func Open(t Type) {
 	log.Print("opening dialog:", t.Name())
 	opened = append(opened, t)
+	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+	shortcut.SetModalOpen(true)
+	// APHELION EDIT ADDITION END
 }
 
 // Close closed the application dialog.
@@ -58,6 +64,9 @@ func Close(dialog Type) {
 		if dialog.Name() == t.Name() {
 			log.Print("dialog closed:", dialog.Name())
 			opened = append(opened[:idx], opened[idx+1:]...)
+			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+			shortcut.SetModalOpen(len(opened) != 0)
+			// APHELION EDIT ADDITION END
 			return
 		}
 	}

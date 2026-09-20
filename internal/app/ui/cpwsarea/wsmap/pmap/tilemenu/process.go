@@ -4,13 +4,18 @@ import (
 	"fmt"
 
 	"sdmm/internal/app/ui/layout/lnode"
+	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+	"sdmm/internal/app/ui/shortcut"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmicon"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 	"sdmm/internal/imguiext/icon"
 	w "sdmm/internal/imguiext/widget"
+	/* APHELION EDIT REMOVAL START - SHORTCUT FOCUS
 	"sdmm/internal/platform"
+	APHELION EDIT REMOVAL END */
 	"sdmm/internal/util"
 
 	"github.com/SpaiR/imgui-go"
@@ -26,6 +31,9 @@ func (t *TileMenu) Process() {
 
 	if imgui.BeginPopup("tileMenu") {
 		t.showControls()
+		// APHELION EDIT ADDITION START - SHORTCUT FOCUS
+		shortcut.ProcessPopup("tileMenu#close", "menu#DoUndo", "menu#DoRedo", "menu#DoCopy", "menu#DoPaste", "menu#DoCut", "menu#DoDelete")
+		// APHELION EDIT ADDITION END
 		imgui.EndPopup()
 	} else {
 		t.close()
@@ -42,25 +50,31 @@ func (t *TileMenu) showControls() {
 		w.MenuItem("Undo", t.app.DoUndo).
 			Icon(icon.Undo).
 			Enabled(t.app.CommandStorage().HasUndo()).
-			Shortcut(platform.KeyModName(), "Z"),
+			// APHELION EDIT CHANGE - SHORTCUT FOCUS - ORIGINAL: Shortcut(platform.KeyModName(), "Z")
+			Shortcut(shortcut.Label("menu#DoUndo")),
 		w.MenuItem("Redo", t.app.DoRedo).
 			Icon(icon.Redo).
 			Enabled(t.app.CommandStorage().HasRedo()).
-			Shortcut(platform.KeyModName(), "Shift", "Z"),
+			// APHELION EDIT CHANGE - SHORTCUT FOCUS - ORIGINAL: Shortcut(platform.KeyModName(), "Shift", "Z")
+			Shortcut(shortcut.Label("menu#DoRedo")),
 		w.Separator(),
 		w.MenuItem("Copy", t.app.DoCopy).
 			Icon(icon.ContentCopy).
-			Shortcut(platform.KeyModName(), "C"),
+			// APHELION EDIT CHANGE - SHORTCUT FOCUS - ORIGINAL: Shortcut(platform.KeyModName(), "C")
+			Shortcut(shortcut.Label("menu#DoCopy")),
 		w.MenuItem("Paste", t.app.DoPaste).
 			Icon(icon.ContentPaste).
 			Enabled(t.app.Clipboard().HasData()).
-			Shortcut(platform.KeyModName(), "V"),
+			// APHELION EDIT CHANGE - SHORTCUT FOCUS - ORIGINAL: Shortcut(platform.KeyModName(), "V")
+			Shortcut(shortcut.Label("menu#DoPaste")),
 		w.MenuItem("Cut", t.app.DoCut).
 			Icon(icon.ContentCut).
-			Shortcut(platform.KeyModName(), "X"),
+			// APHELION EDIT CHANGE - SHORTCUT FOCUS - ORIGINAL: Shortcut(platform.KeyModName(), "X")
+			Shortcut(shortcut.Label("menu#DoCut")),
 		w.MenuItem("Delete", t.app.DoDelete).
 			Icon(icon.Eraser).
-			Shortcut("Delete"),
+			// APHELION EDIT CHANGE - SHORTCUT FOCUS - ORIGINAL: Shortcut("Delete")
+			Shortcut(shortcut.Label("menu#DoDelete")),
 		w.Separator(),
 		w.Custom(func() {
 			for idx, instance := range t.tile.Instances().Sorted() {

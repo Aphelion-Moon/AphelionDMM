@@ -16,7 +16,7 @@ func (m *Menu) openShortcutReference() { m.showHotkeys = true }
 func (m *Menu) showShortcutReference() {
 	imgui.SetNextWindowSizeV(imgui.Vec2{X: 720, Y: 560}, imgui.ConditionFirstUseEver)
 	if imgui.BeginV("Keyboard Shortcuts", &m.showHotkeys, imgui.WindowFlagsNone) {
-		imgui.TextWrapped("Map shortcuts apply to the focused map. Open a map to see its bindings. Shortcuts pause while editing a text field.")
+		imgui.TextWrapped("Map shortcuts apply to the focused map. Open a map to see its bindings. Shortcuts pause while editing a text field or dialog. Open menus handle their own listed actions.")
 		imgui.InputText("Filter", &m.hotkeyFilter)
 		imgui.Separator()
 		filter := strings.ToLower(strings.TrimSpace(m.hotkeyFilter))

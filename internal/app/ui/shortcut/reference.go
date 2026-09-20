@@ -22,6 +22,36 @@ func keys(s Shortcut) [][2]glfw.Key {
 
 var settings = &hotkeys.Settings{}
 
+var popupOpenBeforeFrame, modalOpen bool
+
+// BeginFrame runs before ImGui.NewFrame, which can dismiss a popup in response
+// to Escape. Retain that ownership until the next frame to prevent fallthrough.
+func BeginFrame() { popupOpenBeforeFrame = imgui.IsPopupOpenV("", imgui.PopupFlagsAnyPopup) }
+
+// SetModalOpen also covers queued dialogs before their first rendered frame.
+func SetModalOpen(open bool) { modalOpen = open }
+
+func BackgroundInputBlocked() bool {
+	return modalOpen || popupOpenBeforeFrame || imgui.IsPopupOpenV("", imgui.PopupFlagsAnyPopup)
+}
+
+// ProcessPopup is called inside the focused popup after its widgets. Only the
+// explicitly advertised actions may run; custom chords use the same registry.
+func ProcessPopup(names ...string) {
+	if modalOpen || imgui.IsAnyItemActive() || !imgui.IsPopupOpenV("", imgui.PopupFlagsAnyPopup) ||
+		!imgui.IsWindowFocusedV(imgui.FocusedFlagsRootAndChildWindows) {
+		return
+	}
+	processCandidates(func(s *Shortcut) bool {
+		for _, name := range names {
+			if s.Name == name {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 // UseSettings is called on the UI thread before opening panes.
 func UseSettings(value *hotkeys.Settings) {
 	if value == nil {
