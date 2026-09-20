@@ -1,5 +1,15 @@
 # Uncertain writer recovery while another editor continues
 
+September 21 update: Windows CI exposed that the fixed 32-offer fixture could
+finish during fault inspection or recovery. The current test keeps the same
+absolute 40/second schedule until recovery is observed, sends eight further
+offers, and requires at least 32 in total. The original ten-second context still
+bounds the entire case; a finite 400-intent budget also fails on exhaustion.
+Expected hashes and exact durable identities are derived from the actual offered
+prefix. Reconnect counts, draft checks, and explicit recovery/undo checks remain.
+A regression deliberately holds reconnect until 40 offers have been sent.
+The fixed-count measurements below describe the original run, not a latency SLO.
+
 At production revision `18cac4f3`, all 40 race-instrumented cases passed for
 queued-but-unsent and committed-but-unacknowledged edits, each recovered through
 replay or authenticated snapshot fallback, with memory and SQLite storage. A

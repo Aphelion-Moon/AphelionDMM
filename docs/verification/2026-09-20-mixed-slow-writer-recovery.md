@@ -1,5 +1,15 @@
 # Pending writers recover after real queue overflow
 
+September 21 update: the current mixed-writer fixture continues its absolute
+40/second schedule until both writers recover, then sends eight more offers,
+with at least 64 total. Its original twenty-second context and a finite
+800-intent budget bound the case. The exact final revision is the actual healthy
+offer count plus 12 original commits and 40 explicit recovery operations; every
+operation identity and final hash is still checked. Queue depth eight, required
+4408 closes, and exact reconnect counts are unchanged. A regression holds both
+reconnects until 72 offers, beyond the original fixed offer window. Fixed counts
+below are historical measurements; these overlap tests do not set a latency SLO.
+
 At production revision `dd65c6a0`, the mixed pending-writer test now also stalls
 both writers' actual server socket writes until their durable subscription queues
 overflow. Both connections must end with server close code 4408. All four

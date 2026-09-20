@@ -36,20 +36,29 @@ func TestSessionWriterRecoversUncertainEditDuringLoad(t *testing.T) {
 						store = value
 					}
 					t.Cleanup(func() { _ = store.Close() })
-					verifyWriterRecoveryDuringLoad(t, store, outcome, snapshot)
+					verifyWriterRecoveryDuringLoad(t, store, outcome, snapshot, 0)
 				})
 			}
 		}
 	}
 }
 
-func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, outcome string, snapshotFallback bool) {
+func TestWriterRecoveryAfterInitialOfferWindow(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "delayed-writer.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	verifyWriterRecoveryDuringLoad(t, store, "queued", true, 40)
+}
+
+func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, outcome string, snapshotFallback bool, holdUntilOffers int32) {
 	t.Helper()
 	committed, rejected := outcome == "committed", outcome == "rejected"
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	scenario, err := loadscenario.GenerateConcurrent(loadscenario.ConcurrentConfig{Config: loadscenario.Config{
-		Seed: 20260920, Clients: 1, Operations: 32, MaxX: 33, MaxY: 1, TargetOperationsPerSecond: 40,
+		Seed: 20260920, Clients: 1, Operations: 400, MaxX: 401, MaxY: 1, TargetOperationsPerSecond: 40,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -59,7 +68,6 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, out
 	for _, intent := range scenario.Intents {
 		change := intent.Operation.Changes[0]
 		used[change.Coord] = true
-		expected.Tiles = append(expected.Tiles, model.Tile{Coord: change.Coord, State: model.CloneTileState(change.After)})
 	}
 	draft := sessionConflictOperation(t, scenario.Initial, scenario.Actors[0])
 	for x := 1; x <= scenario.Initial.MaxX; x++ {
@@ -123,8 +131,11 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, out
 	draft.ActorID = actor
 	network := writer.NetworkExecutor()
 	var sent atomic.Int32
+	var stopAfter atomic.Int32
 	loadDone := make(chan error, 1)
-	startLoad := func() { go func() { loadDone <- sendScheduledSessionEdits(ctx, owner, scenario, &sent) }() }
+	startLoad := func() {
+		go func() { loadDone <- sendSessionEditsUntilRecovered(ctx, owner, scenario, &sent, &stopAfter, 32) }()
+	}
 	if rejected {
 		// The writer has not observed this accepted edit, so its locally valid
 		// before-values are stale only at the authoritative server.
@@ -184,10 +195,9 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, out
 			t.Fatal(err)
 		}
 	}
+	waitWriterCondition(t, ctx, func() bool { return sent.Load() >= holdUntilOffers })
 	resume.unblock()
-	finalRevision := model.Revision(len(scenario.Intents))
 	if committed {
-		finalRevision++
 		change := draft.Changes[0]
 		expected.Tiles = append(expected.Tiles, model.Tile{Coord: change.Coord, State: model.CloneTileState(change.After)})
 	}
@@ -197,11 +207,9 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, out
 		writer.mutex.Unlock()
 		return rotated && writer.Status().State == collabclient.StateCaughtUp
 	})
-	if recovered := writer.Status().Revision; recovered >= finalRevision || sent.Load() >= int32(len(scenario.Intents)) {
-		t.Fatal("writer did not reconnect while offers were still in progress")
-	} else {
-		t.Logf("writer reconnected at revision %d with %d/%d healthy offers sent", recovered, sent.Load(), len(scenario.Intents))
-	}
+	recovered, offeredAtRecovery := writer.Status().Revision, sent.Load()
+	stopAfter.Store(offeredAtRecovery + 8)
+	t.Logf("writer reconnected at revision %d with %d healthy offers sent", recovered, offeredAtRecovery)
 	select {
 	case err := <-loadDone:
 		if err != nil {
@@ -209,6 +217,18 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, out
 		}
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
+	}
+	scenario.Intents = scenario.Intents[:sent.Load()]
+	finalRevision := model.Revision(len(scenario.Intents))
+	if committed {
+		finalRevision++
+	}
+	if len(scenario.Intents) < 32 || sent.Load() < offeredAtRecovery+8 || recovered >= finalRevision {
+		t.Fatal("writer did not recover during continued healthy offers")
+	}
+	for _, intent := range scenario.Intents {
+		change := intent.Operation.Changes[0]
+		expected.Tiles = append(expected.Tiles, model.Tile{Coord: change.Coord, State: model.CloneTileState(change.After)})
 	}
 	for _, client := range []*SessionClient{owner, writer} {
 		waitForClientRevision(t, ctx, client, finalRevision)
@@ -316,12 +336,14 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, out
 	if writerOffers.Load() != 3 {
 		t.Fatal("writer sent more than its initial offer and two explicit recovery edits")
 	}
-	t.Logf("accounted for 32 healthy offers, writer outcome=%s, two explicit recovery edits; final revision %d", outcome, finalRevision+2)
+	t.Logf("accounted for %d healthy offers, writer outcome=%s, two explicit recovery edits; final revision %d", len(scenario.Intents), outcome, finalRevision+2)
 }
 
-// Send on fixed absolute deadlines without waiting for an operation outcome.
-// Authentic revision-zero bases remain valid because these cells are distinct.
-func sendScheduledSessionEdits(ctx context.Context, owner *SessionClient, scenario loadscenario.ConcurrentScenario, sent *atomic.Int32) error {
+// Recovery tests keep the absolute offer schedule running through fault setup
+// and recovery, then send at least eight more edits. Their context bounds recovery;
+// exhausting a short fixture must not turn overlap coverage into a latency SLO.
+// The finite scenario is also a hard bound: exhaustion before recovery is an error.
+func sendSessionEditsUntilRecovered(ctx context.Context, owner *SessionClient, scenario loadscenario.ConcurrentScenario, sent, stopAfter *atomic.Int32, minimum int32) error {
 	owner.mutex.Lock()
 	transport, actor, sessionID := owner.transport, owner.actorID, owner.sessionID
 	owner.mutex.Unlock()
@@ -350,8 +372,11 @@ func sendScheduledSessionEdits(ctx context.Context, owner *SessionClient, scenar
 				return err
 			}
 		}
+		if target := stopAfter.Load(); target > 0 && sent.Load() >= target && sent.Load() >= minimum {
+			return nil
+		}
 	}
-	return nil
+	return fmt.Errorf("healthy offer budget exhausted before recovery and its trailing edits")
 }
 
 type uncertainWriterTransport struct {

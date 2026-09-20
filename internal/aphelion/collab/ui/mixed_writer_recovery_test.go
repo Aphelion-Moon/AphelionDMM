@@ -44,7 +44,7 @@ func verifyMixedWriterRecoveryCases(t *testing.T, slowConsumer bool) {
 					store = value
 				}
 				t.Cleanup(func() { _ = store.Close() })
-				verifyMixedWriterRecovery(t, store, snapshot, slowConsumer)
+				verifyMixedWriterRecovery(t, store, snapshot, slowConsumer, 0)
 			})
 		}
 	}
@@ -68,12 +68,21 @@ type mixedWriterCompletion struct {
 	err      error
 }
 
-func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshotFallback, slowConsumer bool) {
+func TestSlowWritersRecoverAfterInitialOfferWindow(t *testing.T) {
+	store, err := sqlite.Open(filepath.Join(t.TempDir(), "delayed-writers.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	verifyMixedWriterRecovery(t, store, true, true, 72)
+}
+
+func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshotFallback, slowConsumer bool, holdUntilOffers int32) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	scenario, err := loadscenario.GenerateConcurrent(loadscenario.ConcurrentConfig{Config: loadscenario.Config{
-		Seed: 20260920, Clients: 1, Operations: 64, MaxX: 96, MaxY: 1, TargetOperationsPerSecond: 40,
+		Seed: 20260920, Clients: 1, Operations: 800, MaxX: 832, MaxY: 1, TargetOperationsPerSecond: 40,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -84,9 +93,8 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 	known := make(map[model.OperationID]bool)
 	for _, intent := range scenario.Intents {
 		change := intent.Operation.Changes[0]
-		used[change.Coord], known[intent.Operation.OperationID] = true, true
+		used[change.Coord] = true
 		healthyValues[change.Coord] = change.After
-		expected.Tiles = append(expected.Tiles, model.Tile{Coord: change.Coord, State: model.CloneTileState(change.After)})
 	}
 	var spare []model.Coord
 	for x := 1; x <= scenario.Initial.MaxX; x++ {
@@ -185,8 +193,9 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 		writers = append(writers, writer)
 	}
 	var sent atomic.Int32
+	var stopAfter atomic.Int32
 	loadDone := make(chan error, 1)
-	go func() { loadDone <- sendScheduledSessionEdits(ctx, owner, scenario, &sent) }()
+	go func() { loadDone <- sendSessionEditsUntilRecovered(ctx, owner, scenario, &sent, &stopAfter, 64) }()
 	// Both writers remain at revision zero while the server acquires the ten
 	// conflicting before-values. All other writer coordinates are disjoint.
 	waitWriterCondition(t, ctx, func() bool { return owner.Status().Revision >= 10 })
@@ -294,9 +303,11 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 			t.Fatal(err)
 		}
 	}
+	waitWriterCondition(t, ctx, func() bool { return sent.Load() >= holdUntilOffers })
 	for _, writer := range writers {
 		writer.resume.unblock()
 	}
+	var recoveredRevision model.Revision
 	for index, writer := range writers {
 		waitWriterCondition(t, ctx, func() bool {
 			writer.client.mutex.Lock()
@@ -304,11 +315,11 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 			writer.client.mutex.Unlock()
 			return rotated && writer.client.Status().State == collabclient.StateCaughtUp
 		})
-		if writer.client.Status().Revision >= 76 || sent.Load() >= 64 {
-			t.Fatal("writers did not recover during continued healthy offers")
-		}
-		t.Logf("writer %d recovered at revision %d with %d/64 healthy offers sent", index, writer.client.Status().Revision, sent.Load())
+		recoveredRevision = max(recoveredRevision, writer.client.Status().Revision)
+		t.Logf("writer %d recovered at revision %d with %d healthy offers sent", index, writer.client.Status().Revision, sent.Load())
 	}
+	offeredAtRecovery := sent.Load()
+	stopAfter.Store(offeredAtRecovery + 8)
 	select {
 	case err := <-loadDone:
 		if err != nil {
@@ -317,9 +328,20 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 	case <-ctx.Done():
 		t.Fatal(ctx.Err())
 	}
+	scenario.Intents = scenario.Intents[:sent.Load()]
+	initialRevision := model.Revision(len(scenario.Intents) + 12)
+	finalRevision := initialRevision + 40
+	if len(scenario.Intents) < 64 || sent.Load() < offeredAtRecovery+8 || recoveredRevision >= initialRevision {
+		t.Fatal("writers did not recover during continued healthy offers")
+	}
+	for _, intent := range scenario.Intents {
+		change := intent.Operation.Changes[0]
+		known[intent.Operation.OperationID] = true
+		expected.Tiles = append(expected.Tiles, model.Tile{Coord: change.Coord, State: model.CloneTileState(change.After)})
+	}
 	clients := []*SessionClient{owner, writers[0].client, writers[1].client}
 	for _, client := range clients {
-		waitForClientRevision(t, ctx, client, 76)
+		waitForClientRevision(t, ctx, client, initialRevision)
 		current, err := client.NetworkExecutor().Snapshot(ctx)
 		if err != nil || mustSnapshotHash(t, current) != mustSnapshotHash(t, expected) {
 			t.Fatal("initial recovered authority differs between clients")
@@ -335,7 +357,7 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 		}
 		// Each prior writer submitted twenty explicit recovery operations. Their
 		// callbacks do not imply this writer has received those broadcasts yet.
-		waitForClientRevision(t, ctx, writer.client, model.Revision(76+index*20))
+		waitForClientRevision(t, ctx, writer.client, initialRevision+model.Revision(index*20))
 		verifyMixedWriterDrafts(t, writer, snapshotFallback)
 		for _, draft := range writer.drafts {
 			outcome := writer.first.outcomes[draft.OperationID]
@@ -400,7 +422,7 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 		t.Fatal(err)
 	}
 	document, err := state.Restore()
-	if err != nil || state.HeadRevision != 116 || len(state.Operations) != len(known) || mustSnapshotHash(t, document.Snapshot()) != mustSnapshotHash(t, expected) {
+	if err != nil || state.HeadRevision != finalRevision || len(state.Operations) != len(known) || mustSnapshotHash(t, document.Snapshot()) != mustSnapshotHash(t, expected) {
 		t.Fatalf("full durable reconstruction differs after mixed recovery: %v", err)
 	}
 	for _, operation := range state.Operations {
@@ -410,13 +432,13 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 		delete(known, operation.OperationID)
 	}
 	for _, client := range clients {
-		waitForClientRevision(t, ctx, client, 116)
+		waitForClientRevision(t, ctx, client, finalRevision)
 		current, err := client.NetworkExecutor().Snapshot(ctx)
 		if err != nil || mustSnapshotHash(t, current) != mustSnapshotHash(t, expected) {
 			t.Fatal("final clients disagree after all explicit rebuilds and inverses")
 		}
 	}
-	t.Log("accounted for 64 healthy edits, 12 original commits, 10 lost rejections, 10 queued-unsent drafts and 40 explicit recovery operations; final revision 116")
+	t.Logf("accounted for %d healthy edits, 12 original commits, 10 lost rejections, 10 queued-unsent drafts and 40 explicit recovery operations; final revision %d", len(scenario.Intents), finalRevision)
 }
 
 func verifyMixedWriterDrafts(t *testing.T, writer *mixedWriter, retainCommitted bool) {
