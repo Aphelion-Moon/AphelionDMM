@@ -42,6 +42,15 @@ func (i *Instance) SetStableID(stableID string) {
 
 // APHELION EDIT ADDITION END
 
+// APHELION EDIT ADDITION START - INSTANCE MOVE IDENTITY
+// SetCoord preserves both identities and references held by the editor. The
+// caller must remove the instance from its old tile and attach it to the new one.
+func (i *Instance) SetCoord(coord util.Point) {
+	i.coord = coord
+}
+
+// APHELION EDIT ADDITION END
+
 func (i Instance) Id() uint64 {
 	return i.id
 }

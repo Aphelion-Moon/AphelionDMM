@@ -89,7 +89,13 @@ func (t *ToolMove) onMove(coord util.Point) {
 		return
 	}
 
-	prefab := t.instance.Prefab()
+	// APHELION EDIT CHANGE - INSTANCE MOVE IDENTITY - ORIGINAL: prefab := t.instance.Prefab()
+	sourceCoord := t.instance.Coord()
+	// APHELION EDIT ADDITION START - INSTANCE MOVE IDENTITY
+	if sourceCoord == coord {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	if t.lastTile != nil {
 		t.lastTile.InstancesRegenerate() //should stop some issues
 	}
@@ -98,6 +104,7 @@ func (t *ToolMove) onMove(coord util.Point) {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	ed.BeginTileChange(t.lastTile.Coord)
 	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - INSTANCE MOVE IDENTITY
 	t.lastTile.InstancesAdd(prefab)
 	t.lastTile.InstancesRegenerate()
 	for _, found := range t.lastTile.Instances() {
@@ -106,7 +113,16 @@ func (t *ToolMove) onMove(coord util.Point) {
 			break
 		}
 	}
-	ed.UpdateCanvasByCoords([]util.Point{coord})
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - INSTANCE MOVE IDENTITY
+	// Moving the actual instance preserves stable/local IDs and the properties
+	// panel's reference, even when an identical prefab already occupies the tile.
+	t.instance.SetCoord(coord)
+	t.lastTile.Set(append(t.lastTile.Instances(), t.instance))
+	t.lastTile.InstancesRegenerate()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - INSTANCE MOVE IDENTITY - ORIGINAL: ed.UpdateCanvasByCoords([]util.Point{coord})
+	ed.UpdateCanvasByCoords([]util.Point{sourceCoord, coord})
 }
 
 func (t *ToolMove) onStop(util.Point) {
