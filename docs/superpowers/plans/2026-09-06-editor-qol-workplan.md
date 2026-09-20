@@ -150,6 +150,10 @@ fences are separate checks.
    editor capture/commit adapters. Remove unused legacy paste background capture
    when designing the deferred paste-preview path. Extend stable-ID conservation
    and current-state precondition coverage before adding more transforms.
+   The [delayed rectangular-chain check](../../verification/2026-09-20-selection-network-chains.md)
+   now covers accepted, rejected and mixed rotation/nudge outcomes during a
+   newer editor preview, with exact display/authority and undo/redo geometry.
+   Physical mouse routing and the wider cases above remain open.
    Separate background restoration during one gesture from committed history;
    never restore stale copied tiles over a newer remote edit.
    The tile-commit fallback and local resize failure/undo paths are repaired.
