@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
@@ -22,6 +23,15 @@ import (
 )
 
 func TestMultipleWritersRecoverMixedPendingEditsDuringLoad(t *testing.T) {
+	verifyMixedWriterRecoveryCases(t, false)
+}
+
+func TestMultipleSlowWritersRecoverMixedPendingEditsDuringLoad(t *testing.T) {
+	verifyMixedWriterRecoveryCases(t, true)
+}
+
+func verifyMixedWriterRecoveryCases(t *testing.T, slowConsumer bool) {
+	t.Helper()
 	for _, backend := range []string{"memory", "sqlite"} {
 		for _, snapshot := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/snapshot=%t", backend, snapshot), func(t *testing.T) {
@@ -34,7 +44,7 @@ func TestMultipleWritersRecoverMixedPendingEditsDuringLoad(t *testing.T) {
 					store = value
 				}
 				t.Cleanup(func() { _ = store.Close() })
-				verifyMixedWriterRecovery(t, store, snapshot)
+				verifyMixedWriterRecovery(t, store, snapshot, slowConsumer)
 			})
 		}
 	}
@@ -58,7 +68,7 @@ type mixedWriterCompletion struct {
 	err      error
 }
 
-func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshotFallback bool) {
+func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshotFallback, slowConsumer bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -85,9 +95,27 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 			spare = append(spare, coord)
 		}
 	}
-	service := server.NewService(server.ServiceConfig{Store: store, AllowedOrigins: []string{"http://127.0.0.1"}, PresenceInterval: 16 * time.Millisecond})
+	config := server.ServiceConfig{Store: store, AllowedOrigins: []string{"http://127.0.0.1"}, PresenceInterval: 16 * time.Millisecond}
+	var gates []*slowWriteGate
+	if slowConsumer {
+		config.Limits.DurableQueueDepth = 8
+		for range 2 {
+			gate := &slowWriteGate{ctx: ctx, blocked: make(chan struct{}), release: make(chan struct{})}
+			defer gate.unblock()
+			gates = append(gates, gate)
+		}
+	}
+	service := server.NewService(config)
 	t.Cleanup(func() { _ = service.Shutdown(context.Background()) })
-	backend := httptest.NewServer(service.Handler())
+	var connections atomic.Int32
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if slowConsumer && r.URL.Path == "/v1/collaboration" {
+			if index := connections.Add(1) - 2; index >= 0 && index < int32(len(gates)) {
+				w = &slowResponseWriter{ResponseWriter: w, gate: gates[index]}
+			}
+		}
+		service.Handler().ServeHTTP(w, r)
+	}))
 	t.Cleanup(backend.Close)
 	launch, err := service.NewLaunchToken()
 	if err != nil {
@@ -106,7 +134,7 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 	var writers []*mixedWriter
 	for index := range 2 {
 		writer := &mixedWriter{resolved: make(map[model.OperationID]bool), completed: make(chan mixedWriterCompletion, 16)}
-		writer.first = &mixedWriterTransport{SessionTransport: collabclient.NewWebSocketTransport(collabclient.TransportConfig{}), outcomes: make(map[model.OperationID]string), observed: make(chan mixedWriterObservation, 32)}
+		writer.first = &mixedWriterTransport{SessionTransport: collabclient.NewWebSocketTransport(collabclient.TransportConfig{}), outcomes: make(map[model.OperationID]string), observed: make(chan mixedWriterObservation, 32), ended: make(chan error, 1)}
 		writer.resume = &heldWriterReconnect{SessionTransport: collabclient.NewWebSocketTransport(collabclient.TransportConfig{}), entered: make(chan struct{}), release: make(chan struct{})}
 		defer writer.resume.unblock()
 		writer.client = NewSessionClient(SessionClientConfig{NewTransport: func() SessionTransport {
@@ -206,9 +234,34 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 		}
 	}
 	waitWriterCondition(t, ctx, func() bool { return sent.Load() >= 24 && owner.Status().Revision >= 36 })
-	for _, writer := range writers {
-		if err := writer.first.Close(websocket.StatusInternalError, "injected concurrent writer interruption"); err != nil {
-			t.Fatal(err)
+	if slowConsumer {
+		for _, gate := range gates {
+			gate.armed.Store(true)
+			waitWriterSignal(t, ctx, gate.blocked)
+		}
+		// Count from both blocked writes. Twelve further accepted events exceed
+		// each eight-entry durable queue even with an event held by its writer.
+		blockedRevision := owner.Status().Revision
+		waitWriterCondition(t, ctx, func() bool { return owner.Status().Revision >= blockedRevision+12 })
+		for _, gate := range gates {
+			gate.unblock()
+		}
+		for _, writer := range writers {
+			select {
+			case err := <-writer.first.ended:
+				if websocket.CloseStatus(err) != server.CloseSlowConsumer {
+					t.Fatalf("pending writer did not close from durable queue overflow: %v", err)
+				}
+			case <-ctx.Done():
+				t.Fatal("queue overflow did not disconnect both pending writers")
+			}
+		}
+		t.Logf("both pending writers closed with slow-consumer code %d after revision %d", server.CloseSlowConsumer, blockedRevision+12)
+	} else {
+		for _, writer := range writers {
+			if err := writer.first.Close(websocket.StatusInternalError, "injected concurrent writer interruption"); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	for _, writer := range writers {
@@ -395,6 +448,16 @@ type mixedWriterTransport struct {
 	SessionTransport
 	outcomes map[model.OperationID]string
 	observed chan mixedWriterObservation
+	ended    chan error
+}
+
+func (transport *mixedWriterTransport) Wait(ctx context.Context) error {
+	err := transport.SessionTransport.Wait(ctx)
+	select {
+	case transport.ended <- err:
+	default:
+	}
+	return err
 }
 
 func (transport *mixedWriterTransport) Connect(ctx context.Context, request protocol.JoinRequest, receive func(protocol.ServerEnvelope)) error {

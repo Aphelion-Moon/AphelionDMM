@@ -88,8 +88,12 @@ for the precise measurement boundaries and remaining campaign gates.
   mixing committed, queued-unsent and rejected outcomes while a healthy editor
   continues 64 scheduled offers. All twenty race cases pass replay/snapshot
   recovery, explicit rebuilding/discard and inverses with exact revision-116
-  authority. Combined real slow-consumer pressure and broader load/resource
-  qualification remain open.
+  authority. The [combined slow-writer case](../../verification/2026-09-20-mixed-slow-writer-recovery.md)
+  additionally stalls both writers' server sockets until their eight-entry
+  durable queues overflow, requires real close code 4408 and verifies the same
+  accounting through recovery while healthy offers continue. All twenty new
+  race cases pass. This is bounded combined recovery evidence; representative
+  load/capacity, default-queue and resource qualification remain open.
 - [ ] Inventory approved local DME/DMM/TGM fixtures with hashes, cell/level/type,
   prefab and variable counts. Add typical and large maps to the current synthetic
   100/1,000/10,000-cell matrix. Keep fixtures outside published artifacts when
