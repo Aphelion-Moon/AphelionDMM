@@ -15,6 +15,7 @@ import (
 
 	"github.com/coder/websocket"
 	collabclient "sdmm/internal/aphelion/collab/client"
+	loadscenario "sdmm/internal/aphelion/collab/load"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/server"
 	"sdmm/internal/aphelion/collab/store/sqlite"
@@ -23,26 +24,32 @@ import (
 // Block a real service socket after joining, rather than manually closing a
 // subscription. Three accepted edits fill and overflow its one-entry queue.
 func TestSessionClientRecoversFromSlowConsumerQueueOverflow(t *testing.T) {
-	t.Run("memory", func(t *testing.T) { verifySlowConsumerRecovery(t, server.NewMemoryStore()) })
+	t.Run("memory", func(t *testing.T) { verifySlowConsumerRecovery(t, server.NewMemoryStore(), nil) })
 	t.Run("sqlite", func(t *testing.T) {
 		store, err := sqlite.Open(filepath.Join(t.TempDir(), "recovery.sqlite"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = store.Close() })
-		verifySlowConsumerRecovery(t, store)
+		verifySlowConsumerRecovery(t, store, nil)
 	})
 }
 
-func verifySlowConsumerRecovery(t *testing.T, store server.SessionStore) {
+func verifySlowConsumerRecovery(t *testing.T, store server.SessionStore, scenario *loadscenario.ConcurrentScenario) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	gate := &slowWriteGate{ctx: ctx, blocked: make(chan struct{}), release: make(chan struct{})}
 	defer gate.unblock()
+	queueDepth := 1
+	var presenceInterval time.Duration
+	if scenario != nil {
+		queueDepth = 8
+		presenceInterval = 16 * time.Millisecond
+	}
 	service := server.NewService(server.ServiceConfig{
 		Store: store, AllowedOrigins: []string{"http://127.0.0.1"},
-		Limits: server.Limits{DurableQueueDepth: 1},
+		Limits: server.Limits{DurableQueueDepth: queueDepth}, PresenceInterval: presenceInterval,
 	})
 	t.Cleanup(func() { _ = service.Shutdown(context.Background()) })
 	var connections atomic.Int32
@@ -58,6 +65,9 @@ func verifySlowConsumerRecovery(t *testing.T, store server.SessionStore) {
 		t.Fatal(err)
 	}
 	initial := controllerSnapshot(t)
+	if scenario != nil {
+		initial = scenario.Initial
+	}
 	owner := NewSessionClient(SessionClientConfig{})
 	t.Cleanup(func() { _ = owner.Leave(context.Background()) })
 	invitation, err := owner.Create(ctx, backend.URL, launch, initial)
@@ -92,7 +102,10 @@ func verifySlowConsumerRecovery(t *testing.T, store server.SessionStore) {
 	slow.mutex.Unlock()
 	gate.armed.Store(true)
 	offered := make([]model.OperationID, 0, 5)
-	for index := 0; index < 3; index++ {
+	if scenario != nil {
+		offered = verifyIndependentRecoveryOffers(t, ctx, owner, slow, store, gate, *scenario)
+	}
+	for index := 0; scenario == nil && index < 3; index++ {
 		snapshot, err := owner.NetworkExecutor().Snapshot(ctx)
 		if err != nil {
 			t.Fatal(err)
@@ -124,7 +137,8 @@ func verifySlowConsumerRecovery(t *testing.T, store server.SessionStore) {
 	case <-ctx.Done():
 		t.Fatal("queue overflow did not disconnect the slow consumer")
 	}
-	waitForClientRevision(t, ctx, slow, 3)
+	revision := model.Revision(len(offered))
+	waitForClientRevision(t, ctx, slow, revision)
 	slow.mutex.Lock()
 	rotated := slow.resumptionToken != "" && slow.resumptionToken != initialCredential
 	retainedActor := slow.actorID == actor
@@ -145,7 +159,7 @@ func verifySlowConsumerRecovery(t *testing.T, store server.SessionStore) {
 		t.Fatal(err)
 	}
 	offered = append(offered, forward.OperationID)
-	waitForClientRevision(t, ctx, owner, 4)
+	waitForClientRevision(t, ctx, owner, revision+1)
 	inverse, err := network.BuildInverse(ctx, forward.OperationID)
 	if err != nil {
 		t.Fatal(err)
@@ -156,7 +170,7 @@ func verifySlowConsumerRecovery(t *testing.T, store server.SessionStore) {
 	}
 	offered = append(offered, undone.OperationID)
 	for _, client := range []*SessionClient{owner, slow} {
-		waitForClientRevision(t, ctx, client, 5)
+		waitForClientRevision(t, ctx, client, revision+2)
 		snapshot, err := client.NetworkExecutor().Snapshot(ctx)
 		if err != nil || mustSnapshotHash(t, snapshot) != mustSnapshotHash(t, authority) {
 			t.Fatal("post-recovery inverse did not converge")

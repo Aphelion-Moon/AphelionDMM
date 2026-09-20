@@ -1009,6 +1009,7 @@ func sessionConflictOperation(t *testing.T, snapshot model.Snapshot, actorID mod
 func sessionReplacementOperation(t *testing.T, snapshot model.Snapshot, actorID model.ActorID, path string) model.Operation {
 	t.Helper()
 	operation := sessionConflictOperation(t, snapshot, actorID)
+	operation.Changes[0].Coord = snapshot.Tiles[0].Coord
 	operation.Changes[0].Before = model.CloneTileState(snapshot.Tiles[0].State)
 	operation.Changes[0].After.Prefabs[0].Path = path
 	return operation
