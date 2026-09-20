@@ -76,8 +76,12 @@ for the precise measurement boundaries and remaining campaign gates.
   exact store accounting. The [independent observer recovery case](../../verification/2026-09-20-independent-observer-recovery.md)
   now verifies actual queue overflow and reconnect at revision 12 while four
   editors continue 64 scheduled offers through revision 56, with presence,
-  deliberate conflicts and exact memory/SQLite history. In-flight drafts from
-  disconnected load writers and broader load recovery remain open.
+  deliberate conflicts and exact memory/SQLite history. The [uncertain writer case](../../verification/2026-09-20-writer-recovery-under-load.md)
+  additionally verifies queued-unsent and committed-unacknowledged intent through
+  real replay or snapshot fallback while another editor sends fixed-schedule
+  offers. Forty memory/SQLite race cases retain/resolve drafts without automatic
+  resend. Lost rejection responses, multiple pending/failing writers and broader
+  load/resource qualification remain open.
 - [ ] Inventory approved local DME/DMM/TGM fixtures with hashes, cell/level/type,
   prefab and variable counts. Add typical and large maps to the current synthetic
   100/1,000/10,000-cell matrix. Keep fixtures outside published artifacts when
