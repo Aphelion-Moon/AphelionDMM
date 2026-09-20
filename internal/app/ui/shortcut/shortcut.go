@@ -2,6 +2,9 @@ package shortcut
 
 import (
 	"fmt"
+	// APHELION EDIT ADDITION START - SHORTCUT LIFETIME
+	"slices"
+	// APHELION EDIT ADDITION END
 	"sort"
 	"strings"
 
@@ -91,7 +94,9 @@ func remove(shortcut *Shortcut) {
 	log.Print("removed:", shortcut)
 	for idx, s := range shortcuts {
 		if s.id == shortcut.id {
-			shortcuts = append(shortcuts[:idx], shortcuts[idx+1:]...)
+			// Release callbacks held beyond the registry's visible length.
+			// APHELION EDIT CHANGE - SHORTCUT LIFETIME - ORIGINAL: shortcuts = append(shortcuts[:idx], shortcuts[idx+1:]...)
+			shortcuts = slices.Delete(shortcuts, idx, idx+1)
 			break
 		}
 	}

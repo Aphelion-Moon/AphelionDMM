@@ -94,6 +94,11 @@ for the precise measurement boundaries and remaining campaign gates.
   The [closed dialog retention repair](../../verification/2026-09-20-dialog-retention.md)
   verifies collection of callback payloads after direct close and in-frame
   dismissal, without replacing the full-editor resource measurements.
+  The [native workspace lifetime probe](../../verification/2026-09-20-workspace-lifecycle.md)
+  adds repeated parse/edit/undo/redo/save/dispose checks and post-GC checkpoints,
+  and repairs a reproduced shortcut callback retention path. It covers map
+  content lifetimes; full application, reconnect and resource qualification
+  remain open.
 
 **Gate:** fixed manifests, correct counts/hashes, independent warmup, at least five
 trials, retained raw results, explicit failure/timeout counts and no hidden
