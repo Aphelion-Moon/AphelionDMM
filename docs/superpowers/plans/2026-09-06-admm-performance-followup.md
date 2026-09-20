@@ -109,9 +109,9 @@ for the precise measurement boundaries and remaining campaign gates.
   types and 15,364 explicit variable occurrences. Five fresh-process samples
   pass native DME parsing and exact DMM/TGM collaboration round trips with
   identical hashes. Baseline parse/import/atomic-save timings are recorded;
-  interactive, cold-cache, rendering and resource checks remain open. Full MCP
-  inspection is blocked because `dm_map_info` returns about 2.47 MB against its
-  1 MiB cap, even for the original map, with no pagination input available.
+  interactive, cold-cache, rendering and resource checks remain open. The user
+  subsequently removed MCP support; the historical `dm_map_info` size-limit
+  failure is no longer an acceptance requirement or blocker.
 - [ ] Add UI-thread stage timings around gesture capture, operation dispatch,
   projection application, `refreshCollaborationView`, bucket rebuild and next
   displayed frame. Instrument native parser transfer, icon decoding and upload
@@ -316,7 +316,7 @@ Keep measured component results distinct from remaining user-visible hypotheses:
 | Idle frames and resize upload | `window/process.go`, canvas texture creation, brush stream upload | Redundant CPU resize upload removed and blank-canvas resize measured in the follow-up below. Continue idle/minimized CPU, real-map frame pacing, draw counts and GPU timing. Respect animation and ImGui/input requirements. |
 | Parser/FFI and icon lifetime | Go/Rust parser boundary, `dmenv.New`, icon cache/free and texture queue | Fresh/warm large environments, native copy/JSON attribution and repeated reload resource counts. No new FFI contract without measurements. |
 | Search/tree/large selection | `cpsearch`, `cpenvironment`, `cpprefabs`, map tools and chunk layer rebuilds | Search's repeated variant scans and unbounded row construction are repaired and measured below. Continue sparse queries, real fonts/scales, current-map result ownership, tree/prefab panels and selection size sweeps; account for existing clipping, caching and culling. |
-| Auth/telemetry/update/integration | OIDC registry, OTLP, bounded MCP adapter, staged artifacts, `internal/req` and updater | Latency and peak-memory distributions under local fixtures and approved external endpoints; no real executable replacement or production traffic for benchmarking. |
+| Auth/telemetry/update/integration | OIDC registry, OTLP, `internal/req` and updater | Latency and peak-memory distributions under local fixtures and approved external endpoints; no real executable replacement or production traffic for benchmarking. |
 
 The [nudge/network pass](../../verification/2026-09-06-selection-nudges-and-network-transitions.md)
 also removes retained before-states for restored passed-over drag tiles. Its

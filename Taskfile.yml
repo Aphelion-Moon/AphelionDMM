@@ -76,7 +76,7 @@ tasks:
   verify-contracts:
     cmds:
       - go test ./internal/aphelion/collab/protocol -run '^Test(Contracts|OpenAPI)' -count=1
-      - go test ./internal/aphelion/integration/manifest ./internal/aphelion/buildcheck -count=1
+      - go test ./internal/aphelion/buildcheck -count=1
 
   verify:
     cmds:

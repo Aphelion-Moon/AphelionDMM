@@ -1,5 +1,7 @@
 # Multiplayer Human-Test Readiness
 
+> **Scope update (2026-09-20):** The user removed Meridian-MCP, Aphelion Content Tools and Rift build tooling. Historical implementation and acceptance steps for those integrations are superseded, not remaining work. Native map fidelity checks remain required. See [current integration scope](../../integration/meridian-stack.md).
+
 > **Superseded on 2026-08-31:** Use `../../verification/multiplayer-implementation-readiness.md`, `../../verification/online-pilot-readiness.md`, and `../../verification/public-hosting-readiness.md` for current evidence. The older completion claims below are retained as historical evidence and do not establish current PostgreSQL, cross-stack, external-service, hosted-CI, or human acceptance.
 
 **Status date:** 2026-08-25

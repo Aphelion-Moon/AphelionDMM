@@ -3,7 +3,7 @@
 **Status:** Approved planning baseline  
 **Date:** 2026-08-24  
 **Reviewed source:** AphelionDMM local revision `5241698a`  
-**Audience:** AphelionDMM and Meridian-MCP maintainers
+**Audience:** AphelionDMM maintainers
 
 ## Summary
 
@@ -11,7 +11,7 @@ AphelionDMM will add multiplayer through a central authoritative collaboration s
 
 The server validates, orders, durably records, and broadcasts map operations. Clients may render speculative changes for responsiveness but reconcile to server-accepted revisions. Presence never enters the durable log. Undo is an actor-scoped inverse operation with preconditions, not a shared history rewind.
 
-New Aphelion code is isolated under `internal/aphelion/`, `cmd/apheliondmm-*`, and `api/collaboration/`. Inherited StrongDMM edits remain narrow and marked. The integration boundary supports Meridian-MCP inspection of immutable staged maps. Aphelion Content Tools and Rift build tooling were removed from scope by the September 20 user decision.
+New Aphelion code is isolated under `internal/aphelion/`, `cmd/apheliondmm-*`, and `api/collaboration/`. Inherited StrongDMM edits remain narrow and marked. Meridian-MCP, Aphelion Content Tools and Rift build tooling were removed from scope by the September 20 user decisions. Native parsing, operation conformance and validated atomic saves establish map fidelity.
 
 ## Goals
 
@@ -32,7 +32,7 @@ New Aphelion code is isolated under `internal/aphelion/`, `cmd/apheliondmm-*`, a
 - Collaborative editing of DM source code, lore, art, sound, or repository configuration.
 - Arbitrary remote execution of DreamMaker, Git, shells, MCP servers, or build scripts.
 - A branding, logo, executable-name, or module-path migration.
-- Replacement of Meridian-MCP parsing.
+- External MCP integration, Content Tools integration and game build tooling.
 - Compatibility with clients that cannot preserve the loaded map's unknown content.
 
 ## Audit baseline
@@ -137,8 +137,6 @@ Collaboration service
 Integration boundary
   OpenAPI control contract
   AsyncAPI stream contract
-  Meridian adapter
-  staged map inspection coordinator
 ```
 
 ### Process forms
@@ -159,8 +157,6 @@ internal/aphelion/collab/protocol
 internal/aphelion/collab/server
 internal/aphelion/collab/client
 internal/aphelion/collab/store
-internal/aphelion/integration/meridian
-internal/aphelion/integration/contenttools
 cmd/apheliondmm-collab
 api/collaboration
 ```
@@ -469,28 +465,12 @@ Presence colors, icons, branding, and sounds require human-approved assets. The 
 
 ## Toolset integration
 
-### Meridian-MCP
+The September 20 user decisions remove Meridian-MCP, Aphelion Content Tools and
+Rift build tooling. No external toolset adapter, inspection command or integration
+manifest is required. User-selected game repositories remain read-only fixtures
+for native DME parsing and DMM/TGM round trips.
 
-Meridian-MCP remains a separately configured trusted diagnostic process. The adapter:
-
-1. resolves a configured repository identity to an approved root;
-2. calls `dm_parse_environment` before DM source/map inspection;
-3. requests map information and diagnostics through versioned MCP methods;
-4. records MCP version, repository revision, and environment hash;
-5. returns bounded diagnostics without exposing arbitrary MCP execution to collaboration clients.
-
-The collaboration server never becomes an unrestricted MCP proxy.
-
-### Map repository inspection
-
-AphelionDMM produces an immutable staged map artifact and manifest. The coordinator:
-
-1. confirms the configured repository identity, revision, environment and target containment;
-2. writes staged output without replacing the source map;
-3. runs Meridian-MCP parsing, map inspection and diagnostic reporting;
-4. records repository revision, hashes, MCP version and diagnostic totals.
-
-Inspection results do not claim compilation or runtime acceptance. Content Tools
+Native fidelity results do not claim game compilation or runtime acceptance. Content Tools
 adapters, repository build scripts and Rift build dependencies are unsupported.
 Applying a staged map to a game repository remains a separately authorized action.
 
@@ -518,7 +498,7 @@ Avoid a heavy WebSocket framework, a Redis requirement, or a CRDT library in the
 4. Add an in-memory loopback collaboration service and two-client conformance tests.
 5. Add desktop collaboration UX, speculation, reconciliation, presence, reconnect, and actor undo.
 6. Add durable SQLite storage, security controls, telemetry, recovery, and updater hardening.
-7. Add versioned Meridian-MCP inspection and immutable map staging.
+7. External toolset integration phase withdrawn by the September 20 scope decisions.
 8. Add PostgreSQL, OIDC, deployment, backups, load/fault gates, and hosted rollout.
 
 Each phase has an implementation plan under `docs/superpowers/plans/`. A later phase may begin only when the prior phase's acceptance gates pass or the user explicitly accepts the recorded exception.
@@ -535,7 +515,6 @@ The multiplayer design is implemented only when:
 - viewer/editor/owner authorization and WebSocket abuse tests pass;
 - embedded mode works without hosted services;
 - hosted mode passes backup/restore, fault, load, and OIDC acceptance;
-- the produced map completes Meridian-MCP parsing and inspection with diagnostic totals recorded;
 - shipped entry points are exercised on supported platforms;
 - documentation and protocol compatibility fixtures match the shipped behavior.
 

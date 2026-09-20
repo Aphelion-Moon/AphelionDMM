@@ -1,6 +1,6 @@
 # Aphelion Toolset Integration Implementation Plan
 
-> **Scope update (2026-09-20):** The user removed Aphelion Content Tools support and Rift build tooling. Historical implementation and acceptance steps for those integrations below are superseded, not remaining work. Meridian-MCP parsing, map inspection and diagnostics remain supported. See [current integration scope](../../integration/meridian-stack.md).
+> **Scope update (2026-09-20):** The user removed Meridian-MCP, Aphelion Content Tools and Rift build tooling. Historical implementation and acceptance steps for those integrations are superseded, not remaining work. Native map fidelity checks remain required. See [current integration scope](../../integration/meridian-stack.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 

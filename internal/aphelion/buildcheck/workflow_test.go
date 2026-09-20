@@ -42,7 +42,7 @@ func TestCIReleaseRequiresEveryQualityAndSecurityJob(t *testing.T) {
 		t.Fatalf("release.needs has YAML kind %d", needs.Kind)
 	}
 	for _, required := range []string{
-		"lint-source-code", "build", "collaboration-resilience", "hosted-collaboration-gates", "toolset-integration-contracts",
+		"lint-source-code", "build", "collaboration-resilience", "hosted-collaboration-gates",
 	} {
 		if !actual[required] {
 			t.Errorf("release.needs does not contain %q", required)

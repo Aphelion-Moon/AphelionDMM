@@ -1,5 +1,7 @@
 # IceBox inventory and representative round-trip evidence
 
+> **Scope update:** The user subsequently removed MCP support. The MCP failure recorded below is historical and no longer a blocker; native fidelity and timing results remain valid.
+
 The user selected Meridian-Rift's DME and IceBox for representative acceptance.
 At Aphelion production revision `4e232bbc`, the native DME parser and the
 collaboration map import/export path preserve this map through atomic DMM and

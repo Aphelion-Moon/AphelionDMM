@@ -1,6 +1,6 @@
 # AphelionDMM Audit Remediation Implementation Plan
 
-> **Scope update (2026-09-20):** The user removed Aphelion Content Tools support and Rift build tooling. Historical implementation and acceptance steps for those integrations below are superseded, not remaining work. Meridian-MCP parsing, map inspection and diagnostics remain supported. See [current integration scope](../../integration/meridian-stack.md).
+> **Scope update (2026-09-20):** The user removed Meridian-MCP, Aphelion Content Tools and Rift build tooling. Historical implementation and acceptance steps for those integrations are superseded, not remaining work. Native map fidelity checks remain required. See [current integration scope](../../integration/meridian-stack.md).
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. `superpowers:subagent-driven-development` may be used only after Zoe explicitly approves subagent use. Track progress with the checkboxes below.
 

@@ -77,8 +77,7 @@ HTTP control/snapshot ---------------+        -> revisioned operation log
                                               -> snapshot store
                                               -> atomic DMM/TGM export
 
-Meridian-MCP <---- versioned adapter / diagnostics coordinator
-Map repositories <-- immutable staged artifact and hashes for MCP inspection
+Map repositories ---- user-selected DME/DMM/TGM fixtures for native fidelity checks
 ```
 
 New Aphelion-owned packages:
@@ -89,7 +88,6 @@ New Aphelion-owned packages:
 - `internal/aphelion/collab/server`: sessions, presence, authorization, and transports.
 - `internal/aphelion/collab/client`: desktop transport and reconciliation.
 - `internal/aphelion/collab/store`: snapshots and operation-log persistence.
-- `internal/aphelion/integration`: bounded Meridian-MCP inspection and immutable map staging.
 - `cmd/apheliondmm-collab`: the collaboration service executable.
 
 ## Dependency rules

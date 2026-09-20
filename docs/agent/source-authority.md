@@ -7,7 +7,7 @@
 - SpacemanDMM remains the authority for the vendored parser behavior under `third_party/sdmmparser` unless an Aphelion compatibility patch is documented.
 - BYOND/DreamMaker defines the accepted DME, DMM, and TGM semantics.
 - Game repositories own their own compilation and runtime acceptance outside AphelionDMM.
-- Meridian-MCP owns DM parsing, navigation, diagnostics, and map inspection. It is not the collaboration transport.
+- AphelionDMM uses its native parser and map model for editor fidelity checks; external MCP services are unsupported.
 
 The audit establishing this guidance inspected local revision `5241698a` on 2026-08-24, with local `main` matching the configured StrongDMM upstream-tracking revision at that time. Reconfirm both facts before an upstream reconciliation.
 
@@ -35,12 +35,12 @@ A map integration change requires:
 
 1. AphelionDMM round-trip and operation tests.
 2. Staged output with a content hash and repository identity.
-3. Meridian-MCP parse and diagnostic checks after `dm_parse_environment`.
+3. Native parse/reparse comparison, preserving map values and collaboration identity.
 
-Per the September 20 scope decision, Aphelion Content Tools and Rift build tooling
-are unsupported. Their checkouts, dependencies and build gates are not AphelionDMM
-acceptance requirements. MCP evidence describes inspection and diagnostics; it
-does not claim game compilation or runtime acceptance.
+Per the September 20 scope decisions, Meridian-MCP, Aphelion Content Tools and
+Rift build tooling are unsupported. Their checkouts, dependencies, inspections
+and build gates are not AphelionDMM acceptance requirements. Game repositories
+remain usable as user-selected map/environment fixtures.
 
 Credentials, repository roots, and executable paths stay in local trusted configuration. They are never map data or collaboration messages.
 
