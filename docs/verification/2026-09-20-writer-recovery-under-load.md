@@ -106,5 +106,7 @@ Together with [observer recovery](2026-09-20-independent-observer-recovery.md), 
 establishes bounded recovery during independent offers and correct handling of
 one uncertain writer intent. The writer interruption here is injected explicitly;
 it is not simultaneous slow-consumer overflow with several pending writer edits.
-Lost rejection responses, multiple writers failing together, larger histories,
-long-duration resources, PostgreSQL and hosted-network qualification remain open.
+The [lost rejection follow-up](2026-09-20-lost-rejection-recovery.md) now covers one
+withheld authoritative rejection during continued offers. Multiple writers
+failing together, larger histories, long-duration resources, PostgreSQL and
+hosted-network qualification remain open.

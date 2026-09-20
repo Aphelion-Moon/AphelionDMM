@@ -24,9 +24,9 @@ import (
 
 func TestSessionWriterRecoversUncertainEditDuringLoad(t *testing.T) {
 	for _, backend := range []string{"memory", "sqlite"} {
-		for _, committed := range []bool{false, true} {
+		for _, outcome := range []string{"queued", "committed", "rejected"} {
 			for _, snapshot := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/committed=%t/snapshot=%t", backend, committed, snapshot), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s/%s/snapshot=%t", backend, outcome, snapshot), func(t *testing.T) {
 					var store server.SessionStore = server.NewMemoryStore()
 					if backend == "sqlite" {
 						value, err := sqlite.Open(filepath.Join(t.TempDir(), "writer.sqlite"))
@@ -36,15 +36,16 @@ func TestSessionWriterRecoversUncertainEditDuringLoad(t *testing.T) {
 						store = value
 					}
 					t.Cleanup(func() { _ = store.Close() })
-					verifyWriterRecoveryDuringLoad(t, store, committed, snapshot)
+					verifyWriterRecoveryDuringLoad(t, store, outcome, snapshot)
 				})
 			}
 		}
 	}
 }
 
-func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, committed, snapshotFallback bool) {
+func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, outcome string, snapshotFallback bool) {
 	t.Helper()
+	committed, rejected := outcome == "committed", outcome == "rejected"
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	scenario, err := loadscenario.GenerateConcurrent(loadscenario.ConcurrentConfig{Config: loadscenario.Config{
@@ -67,6 +68,9 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, com
 			draft.Changes[0].Coord = coord
 			break
 		}
+	}
+	if rejected {
+		draft.Changes[0].Coord = scenario.Intents[0].Operation.Changes[0].Coord
 	}
 	service := server.NewService(server.ServiceConfig{Store: store, AllowedOrigins: []string{"http://127.0.0.1"}, PresenceInterval: 16 * time.Millisecond})
 	t.Cleanup(func() { _ = service.Shutdown(context.Background()) })
@@ -91,7 +95,8 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, com
 		t.Fatal(err)
 	}
 	first := &uncertainWriterTransport{SessionTransport: collabclient.NewWebSocketTransport(collabclient.TransportConfig{}),
-		target: draft.OperationID, committed: committed, intercepted: make(chan struct{})}
+		target: draft.OperationID, outcome: outcome, intercepted: make(chan struct{})}
+	first.withholding.Store(rejected)
 	resume := &heldWriterReconnect{SessionTransport: collabclient.NewWebSocketTransport(collabclient.TransportConfig{}), entered: make(chan struct{}), release: make(chan struct{})}
 	defer resume.unblock()
 	var transports atomic.Int32
@@ -117,14 +122,33 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, com
 	writer.mutex.Unlock()
 	draft.ActorID = actor
 	network := writer.NetworkExecutor()
+	var sent atomic.Int32
+	loadDone := make(chan error, 1)
+	startLoad := func() { go func() { loadDone <- sendScheduledSessionEdits(ctx, owner, scenario, &sent) }() }
+	if rejected {
+		// The writer has not observed this accepted edit, so its locally valid
+		// before-values are stale only at the authoritative server.
+		startLoad()
+		waitWriterCondition(t, ctx, func() bool { return owner.Status().Revision >= 1 })
+	}
 	pending := make(chan error, 1)
 	if err := network.ExecuteAsync(ctx, draft, func(_ model.AcceptedOperation, err error) { pending <- err }); err != nil {
 		t.Fatal(err)
 	}
 	waitWriterSignal(t, ctx, first.intercepted)
-	var sent atomic.Int32
-	loadDone := make(chan error, 1)
-	go func() { loadDone <- sendScheduledSessionEdits(ctx, owner, scenario, &sent) }()
+	if rejected {
+		response := first.rejection
+		if response == nil || response.OperationID != draft.OperationID || response.Code != "precondition_failed" || len(response.AuthoritativeValues) != 1 || response.AuthoritativeValues[0].Coord != draft.Changes[0].Coord || !response.AuthoritativeValues[0].State.Equal(scenario.Intents[0].Operation.Changes[0].After) {
+			t.Fatal("did not intercept the real authoritative precondition rejection")
+		}
+		hash, found, err := store.RevisionHash(ctx, scenario.Initial.DocumentID, response.Revision)
+		if err != nil || !found || hash != response.MapHash {
+			t.Fatalf("intercepted rejection authority differs from durable ledger: %v", err)
+		}
+		t.Logf("withheld precondition rejection at authoritative revision %d", response.Revision)
+	} else {
+		startLoad()
+	}
 	waitWriterCondition(t, ctx, func() bool { return sent.Load() >= 8 && owner.Status().Revision >= 8 })
 	if err := first.Close(websocket.StatusInternalError, "injected writer interruption"); err != nil {
 		t.Fatal(err)
@@ -214,7 +238,11 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, com
 	var next model.Operation
 	if !committed {
 		next, err = network.BuildConflictRebuild(ctx, draft.OperationID)
-		if err != nil || next.OperationID == draft.OperationID || !next.Changes[0].After.Equal(draft.Changes[0].After) {
+		wantBefore := model.TileState{}
+		if rejected {
+			wantBefore = scenario.Intents[0].Operation.Changes[0].After
+		}
+		if err != nil || next.OperationID == draft.OperationID || next.BaseRevision != finalRevision || next.BaseMapHash != mustSnapshotHash(t, expected) || len(next.Changes) != 1 || next.Changes[0].Coord != draft.Changes[0].Coord || !next.Changes[0].Before.Equal(wantBefore) || !next.Changes[0].After.Equal(draft.Changes[0].After) {
 			t.Fatalf("explicit rebuild did not preserve the absent intent: %v", err)
 		}
 	} else {
@@ -269,7 +297,7 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, com
 		delete(known, operation.OperationID)
 	}
 	expectedAfterInverse := model.CloneSnapshot(expected)
-	if !committed {
+	if outcome == "queued" {
 		// Protocol v1 swaps tile values; it does not remove a coordinate first
 		// introduced by a forward edit. Hashes distinguish omission from an
 		// explicit empty tile, so retain that precise representation here.
@@ -288,7 +316,7 @@ func verifyWriterRecoveryDuringLoad(t *testing.T, store server.SessionStore, com
 	if writerOffers.Load() != 3 {
 		t.Fatal("writer sent more than its initial offer and two explicit recovery edits")
 	}
-	t.Logf("accounted for 32 healthy offers, committed draft=%t, two explicit recovery edits; final revision %d", committed, finalRevision+2)
+	t.Logf("accounted for 32 healthy offers, writer outcome=%s, two explicit recovery edits; final revision %d", outcome, finalRevision+2)
 }
 
 // Send on fixed absolute deadlines without waiting for an operation outcome.
@@ -329,10 +357,11 @@ func sendScheduledSessionEdits(ctx context.Context, owner *SessionClient, scenar
 type uncertainWriterTransport struct {
 	SessionTransport
 	target      model.OperationID
-	committed   bool
+	outcome     string
 	intercepted chan struct{}
 	once        sync.Once
 	withholding atomic.Bool
+	rejection   *protocol.OperationRejectedPayload
 }
 
 type countedWriterTransport struct {
@@ -351,7 +380,7 @@ func (transport *uncertainWriterTransport) Connect(ctx context.Context, request 
 	return transport.SessionTransport.Connect(ctx, request, func(envelope protocol.ServerEnvelope) {
 		if envelope.Type == protocol.ServerOperationAccepted {
 			decoded, err := decodeServerEnvelope(envelope)
-			if err == nil && decoded.Payload.(*protocol.OperationAcceptedPayload).Operation.OperationID == transport.target && transport.committed {
+			if err == nil && decoded.Payload.(*protocol.OperationAcceptedPayload).Operation.OperationID == transport.target && transport.outcome == "committed" {
 				transport.withholding.Store(true)
 				transport.once.Do(func() { close(transport.intercepted) })
 			}
@@ -359,12 +388,25 @@ func (transport *uncertainWriterTransport) Connect(ctx context.Context, request 
 				return // Retain the contiguous prefix; never deliver a suffix with a gap.
 			}
 		}
+		if envelope.Type == protocol.ServerOperationRejected && transport.outcome == "rejected" {
+			decoded, err := decodeServerEnvelope(envelope)
+			if err == nil {
+				payload := decoded.Payload.(*protocol.OperationRejectedPayload)
+				if payload.OperationID == transport.target {
+					transport.once.Do(func() {
+						transport.rejection = payload
+						close(transport.intercepted)
+					})
+					return
+				}
+			}
+		}
 		receive(envelope)
 	})
 }
 
 func (transport *uncertainWriterTransport) Send(ctx context.Context, envelope protocol.ClientEnvelope) error {
-	if transport.committed || envelope.Type != protocol.ClientOperationSubmit {
+	if transport.outcome != "queued" || envelope.Type != protocol.ClientOperationSubmit {
 		return transport.SessionTransport.Send(ctx, envelope)
 	}
 	transport.once.Do(func() { close(transport.intercepted) })

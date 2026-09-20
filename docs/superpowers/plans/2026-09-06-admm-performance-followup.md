@@ -80,8 +80,10 @@ for the precise measurement boundaries and remaining campaign gates.
   additionally verifies queued-unsent and committed-unacknowledged intent through
   real replay or snapshot fallback while another editor sends fixed-schedule
   offers. Forty memory/SQLite race cases retain/resolve drafts without automatic
-  resend. Lost rejection responses, multiple pending/failing writers and broader
-  load/resource qualification remain open.
+  resend. The [lost rejection response case](../../verification/2026-09-20-lost-rejection-recovery.md)
+  also verifies retained intent and explicit rebuilding against current authority
+  in five race repetitions per backend/recovery combination. Multiple pending or
+  failing writers and broader load/resource qualification remain open.
 - [ ] Inventory approved local DME/DMM/TGM fixtures with hashes, cell/level/type,
   prefab and variable counts. Add typical and large maps to the current synthetic
   100/1,000/10,000-cell matrix. Keep fixtures outside published artifacts when
