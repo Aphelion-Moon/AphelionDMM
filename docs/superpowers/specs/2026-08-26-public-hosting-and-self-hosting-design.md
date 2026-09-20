@@ -6,8 +6,12 @@
 **September 20 deployment direction:** The user selected `https://mapcollab.a13.info`
 as the main hosted endpoint on the current server, superseding `mapping.a13.info`
 throughout the historical deployment description below. The desktop's editable
-default now uses the selected hostname. Runtime installation and production OIDC
-configuration are being prepared; this does not establish a live deployment.
+default now uses the selected hostname. The user subsequently selected native
+Windows services, Cloudflare OIDC and backups under `D:\Backups`. The
+[Windows deployment report](../../verification/2026-09-20-windows-hosted-deployment.md)
+records running services and public readiness, with the OIDC allow policy still
+awaiting the user's choice. The Docker topology below remains historical for
+this installation and available to other self-hosters.
 
 ## Objective
 
