@@ -332,7 +332,7 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 			wantTransports++
 		}
 		if writer.offers.Load() != 16 || writer.transports.Load() != wantTransports || writer.client.NetworkExecutor() != writer.network {
-			t.Fatal("recovery resent intent or replaced the executor")
+			t.Fatalf("recovery offers=%d (want 16), transports=%d (want %d), same executor=%t", writer.offers.Load(), writer.transports.Load(), wantTransports, writer.client.NetworkExecutor() == writer.network)
 		}
 		verifyMixedWriterDrafts(t, writer, snapshotFallback)
 		for _, draft := range writer.drafts {

@@ -71,7 +71,18 @@ jobs:
         with:
           workspaces: third_party/sdmmparser/src
 
+      # APHELION EDIT ADDITION START - CI PARSER PREREQUISITE
+      - name: Build Parser for Go Tests
+        env:
+          RUST_TARGET: ${{ matrix.rust-target }}
+        run: task build-parser
+      # APHELION EDIT ADDITION END
+
       - name: Test Go
+        # APHELION EDIT ADDITION START - CI RESOURCE ISOLATION
+        env:
+          GOFLAGS: -p=1
+        # APHELION EDIT ADDITION END
         run: task test-go
 
       - name: Test Rust
@@ -115,7 +126,20 @@ jobs:
           architecture: x64
           cache: true
 
+      # APHELION EDIT ADDITION START - CI PARSER PREREQUISITE
+      - name: Setup Rust
+        run: rustup toolchain install 1.82.0-x86_64-unknown-linux-gnu --profile minimal
+
+      - name: Build Parser for Collaboration Tests
+        working-directory: third_party/sdmmparser/src
+        run: rustup run 1.82.0-x86_64-unknown-linux-gnu cargo build --release --locked
+      # APHELION EDIT ADDITION END
+
       - name: Collaboration Race Gate
+        # APHELION EDIT ADDITION START - CI RESOURCE ISOLATION
+        env:
+          GOFLAGS: -p=1
+        # APHELION EDIT ADDITION END
         run: go test -race ./internal/aphelion/... -count=1
 
       - name: SQLite Restart and Fault Gates

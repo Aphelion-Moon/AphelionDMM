@@ -56,6 +56,9 @@ func setWindowsSecretACL(t *testing.T, secretPath string) {
 	}
 	runICACLS(t, secretPath, "/inheritance:r", "/grant:r",
 		"*"+user.User.Sid.String()+":(F)", "*S-1-5-18:(F)", "*S-1-5-32-544:(F)")
+	// Elevated runners can create files owned by Administrators. The fixture
+	// grants the process user access, so that user must also be its owner.
+	runICACLS(t, secretPath, "/setowner", "*"+user.User.Sid.String())
 }
 
 func secureSecretFixturePermissions(t *testing.T, secretPath string) {
