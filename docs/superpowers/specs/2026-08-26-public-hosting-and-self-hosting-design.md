@@ -3,6 +3,12 @@
 **Date:** 2026-08-26
 **Status:** Approved
 
+**September 20 deployment direction:** The user selected `https://mapcollab.a13.info`
+as the main hosted endpoint on the current server, superseding `mapping.a13.info`
+throughout the historical deployment description below. The desktop's editable
+default now uses the selected hostname. Runtime installation and production OIDC
+configuration are being prepared; this does not establish a live deployment.
+
 ## Objective
 
 Expose the single-replica hosted collaboration service at `https://mapping.a13.info` without requiring end users to hold Cloudflare accounts or install Cloudflare software, while preserving a documented, vendor-neutral path for other operators to host compatible servers.

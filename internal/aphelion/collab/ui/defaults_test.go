@@ -3,7 +3,7 @@ package ui
 import "testing"
 
 func TestDefaultHostedOriginIsPublicAphelionService(t *testing.T) {
-	if DefaultHostedOrigin != "https://mapping.a13.info" {
+	if DefaultHostedOrigin != "https://mapcollab.a13.info" {
 		t.Fatalf("DefaultHostedOrigin = %q", DefaultHostedOrigin)
 	}
 	if err := validateHostedEndpoint(DefaultHostedOrigin); err != nil {

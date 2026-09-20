@@ -1,3 +1,3 @@
 package ui
 
-const DefaultHostedOrigin = "https://mapping.a13.info"
+const DefaultHostedOrigin = "https://mapcollab.a13.info"
