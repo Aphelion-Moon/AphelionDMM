@@ -107,6 +107,17 @@ func TestCheckRejectsUnexpectedCommandOutput(t *testing.T) {
 	}
 }
 
+func TestCheckRejectsUnexpectedGCCOutput(t *testing.T) {
+	for _, output := range []string{"clang version 15.2.0", "unrelated (GCC) 15.2.0", "gcc (WinLibs) unknown", "gcc (WinLibs)\n15.2.0"} {
+		runner := compatibleRunner()
+		runner.responses[commandKey("gcc", "--version")] = runnerResponse{output: output}
+		result := resultByName(t, Check(context.Background(), runner, testManifest()), "gcc")
+		if result.OK || result.Detail != "unrecognized version output" {
+			t.Fatalf("GCC banner %q: result = %#v", output, result)
+		}
+	}
+}
+
 func compatibleRunner() *fakeRunner {
 	return &fakeRunner{responses: map[string]runnerResponse{
 		commandKey("go", "version"): {output: "go version go1.25.13 windows/amd64"},

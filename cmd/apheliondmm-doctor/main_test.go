@@ -12,6 +12,7 @@ import (
 
 type doctorRunner struct {
 	failingCommand string
+	gccOutput      string
 }
 
 type errorWriter struct{}
@@ -24,6 +25,9 @@ func (runner doctorRunner) Run(_ context.Context, name string, _ ...string) ([]b
 	if name == runner.failingCommand {
 		return nil, errors.New("not found")
 	}
+	if name == "gcc" && runner.gccOutput != "" {
+		return []byte(runner.gccOutput), nil
+	}
 	outputs := map[string]string{
 		"go":            "go version go1.25.13 windows/amd64",
 		"rustup":        "rustc 1.82.0 (test)",
@@ -32,6 +36,19 @@ func (runner doctorRunner) Run(_ context.Context, name string, _ ...string) ([]b
 		"gcc":           "gcc.exe (GCC) 15.2.0",
 	}
 	return []byte(outputs[name]), nil
+}
+
+func TestRunRecognizesGCCDistributionVersions(t *testing.T) {
+	for _, output := range []string{
+		"gcc (MinGW-W64 x86_64-ucrt-posix-seh, built by Brecht Sanders, r7) 15.2.0\r\nCopyright (C) 2025 Free Software Foundation, Inc.",
+		"gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0",
+		"x86_64-w64-mingw32-gcc (GCC) 15.2.0",
+	} {
+		var stdout, stderr bytes.Buffer
+		if code := run(context.Background(), &stdout, &stderr, writeManifest(t), doctorRunner{gccOutput: output}); code != 0 || !strings.Contains(stdout.String(), "status=ok tool=gcc") {
+			t.Fatalf("GCC banner %q: exit=%d stdout=%s stderr=%s", output, code, stdout.String(), stderr.String())
+		}
+	}
 }
 
 func TestRunReportsCompatibleEnvironment(t *testing.T) {

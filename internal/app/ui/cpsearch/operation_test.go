@@ -3,10 +3,14 @@ package cpsearch
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/SpaiR/imgui-go"
+	"sdmm/internal/aphelion/collab/client"
+	"sdmm/internal/aphelion/collab/executor"
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/collab/protocol"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/canvas"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/editor"
 	"sdmm/internal/dmapi/dmenv"
@@ -16,6 +20,45 @@ import (
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 )
+
+func TestSearchReplaceAllRetainsOversizedNetworkIntent(t *testing.T) {
+	s, app := searchOperationFixture(t)
+	e := app.current
+	snapshot, before := searchAuthority(t, e)
+	actor, err := model.NewActorID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	network, err := client.NewNetworkExecutor(client.NewWebSocketTransport(client.TransportConfig{}), snapshot, actor, "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Use synchronous execution so this non-GL fixture's immediate RunLater
+	// remains on the test thread. The hidden workspace gate covers async routing.
+	if err := e.AttachCollaborationExecutor(struct{ executor.Executor }{network}); err != nil {
+		t.Fatal(err)
+	}
+	s.SearchByPath("/obj/search")
+	app.selected = dmmprefab.New(dmmprefab.IdNone, "/obj/replacement", dmvars.Set(app.selected.Vars(), "payload", strings.Repeat("x", protocol.MaxMessageBytes)))
+	s.doReplaceAll()
+	_, after := searchAuthority(t, e)
+	if before != after || len(app.errors) != 1 || !strings.Contains(app.errors[0].Error(), "maximum") || app.commands.HasUndoV(e.Dmm().Path.Absolute) || !e.CanStartMapEdit() {
+		t.Fatal("oversized Replace All changed authority/history or blocked editing")
+	}
+	s.SearchByPath("/obj/search")
+	if len(s.results()) != 3 {
+		t.Fatal("failed Replace All did not restore all display results")
+	}
+	conflicts := network.Conflicts()
+	if len(conflicts) != 1 || len(conflicts[0].Draft.Changes) != 3 {
+		t.Fatal("failed Replace All did not retain one complete action")
+	}
+	for _, change := range conflicts[0].Draft.Changes {
+		if len(change.After.Prefabs[0].Vars["payload"]) != protocol.MaxMessageBytes {
+			t.Fatal("failed Replace All truncated intended values")
+		}
+	}
+}
 
 type searchOperationApp struct {
 	*searchTestApp

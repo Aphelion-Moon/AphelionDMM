@@ -14,7 +14,7 @@ var (
 	rustVersionPattern     = regexp.MustCompile(`^rustc ([0-9]+\.[0-9]+\.[0-9]+)(?:\s|$)`)
 	taskVersionPattern     = regexp.MustCompile(`^v?([0-9]+)\.([0-9]+)\.([0-9]+)(?:\s|$)`)
 	golangCIVersionPattern = regexp.MustCompile(`^golangci-lint has version v?([0-9]+\.[0-9]+\.[0-9]+)(?:\s|$)`)
-	gccVersionPattern      = regexp.MustCompile(`(?i)^.+\(gcc\)\s+([0-9]+(?:\.[0-9]+)+)(?:\s|$)`)
+	gccVersionPattern      = regexp.MustCompile(`(?i)^(?:[^\s]+-)?gcc(?:\.exe)?\s+\([^\r\n)]+\)\s+([0-9]+(?:\.[0-9]+)+)(?:\s|$)`)
 )
 
 // Runner executes one fixed environment probe without involving a shell.

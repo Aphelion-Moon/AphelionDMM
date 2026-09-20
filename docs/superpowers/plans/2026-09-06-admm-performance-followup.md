@@ -1,5 +1,9 @@
 # ADMM performance follow-up workplan
 
+September 20: [unsent-draft retention and toolchain evidence](../../verification/2026-09-20-unsent-drafts-and-toolchain.md)
+closes reproduced pre-submission intent loss. Large-action, desktop, hosting and
+performance qualification remain open; the stopping-point text below is historical.
+
 Execution stopped at the user's request after the
 [replacement-validation repair and final qualification](../../verification/2026-09-06-search-after-values-and-stopping-point.md).
 Resume from that handoff; unchecked items below remain open. Changes remain

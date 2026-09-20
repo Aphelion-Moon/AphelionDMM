@@ -2,6 +2,12 @@
 
 Baseline: commit `052e1acb02b790641d63466de40c91d56028383b`.
 
+September 20 continuation from committed `f243e913`: local network submission
+failures now retain drafts, with actual Search and WebSocket regressions. See
+[current evidence and blockers](../../verification/2026-09-20-unsent-drafts-and-toolchain.md).
+OpenGL initialization is blocked on the current host; broader unchecked work
+below remains open. The stopping-point text below describes September 6.
+
 Execution stopped at the user's request after the
 [final replacement-validation qualification](../../verification/2026-09-06-search-after-values-and-stopping-point.md).
 The current build includes selection transforms and the shortcut reference;

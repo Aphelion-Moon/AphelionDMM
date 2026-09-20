@@ -91,6 +91,7 @@ func (network *NetworkExecutor) Execute(ctx context.Context, operation model.Ope
 	}
 	projection, err := network.projection.Submit(operation)
 	if err != nil {
+		network.retainUnsentLocked(operation, err)
 		network.mutex.Unlock()
 		return model.AcceptedOperation{}, err
 	}
@@ -420,10 +421,7 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 			return rejectErr
 		}
 		network.projection = projection
-		network.conflicts = append(network.conflicts, cloneConflict(conflict))
-		if len(network.conflicts) > maxRetainedConflicts {
-			network.conflicts = network.conflicts[len(network.conflicts)-maxRetainedConflicts:]
-		}
+		network.retainConflictLocked(conflict)
 		if waiter, exists := network.pending[payload.OperationID]; exists {
 			delete(network.pending, payload.OperationID)
 			waiter <- operationResult{err: fmt.Errorf("%w: %s: %s", ErrOperationRejected, conflict.Code, conflict.Message)}
@@ -448,6 +446,38 @@ func (network *NetworkExecutor) conflictLocked(operationID model.OperationID) (i
 	return 0, false
 }
 
+// Local validation and transport queue failures never receive a server rejection.
+// Keep their intent in the same explicit refresh/discard/rebuild flow instead of
+// losing it when the editor restores acknowledged state.
+func (network *NetworkExecutor) retainUnsentLocked(operation model.Operation, cause error) {
+	snapshot := network.projection.Acknowledged
+	if operation.ProtocolVersion != snapshot.ProtocolVersion || operation.DocumentID != snapshot.DocumentID || operation.EnvironmentHash != snapshot.EnvironmentHash || operation.OperationID.Validate() != nil {
+		return // A foreign document must never become rebuildable in this one.
+	}
+	hash, err := snapshot.Hash()
+	if err != nil {
+		return
+	}
+	network.retainConflictLocked(Conflict{
+		OperationID: operation.OperationID,
+		Draft:       operation,
+		Code:        "submission_failed",
+		Message:     cause.Error(),
+		Revision:    snapshot.Revision,
+		MapHash:     hash,
+	})
+}
+
+func (network *NetworkExecutor) retainConflictLocked(conflict Conflict) {
+	if _, exists := network.conflictLocked(conflict.OperationID); exists {
+		return
+	}
+	network.conflicts = append(network.conflicts, cloneConflict(conflict))
+	if len(network.conflicts) > maxRetainedConflicts {
+		network.conflicts = network.conflicts[len(network.conflicts)-maxRetainedConflicts:]
+	}
+}
+
 func (network *NetworkExecutor) failPending(operationID model.OperationID, cause error) {
 	network.mutex.Lock()
 	defer network.mutex.Unlock()
@@ -457,6 +487,8 @@ func (network *NetworkExecutor) failPending(operationID model.OperationID, cause
 		for _, operation := range network.projection.Pending {
 			if operation.OperationID != operationID {
 				remaining = append(remaining, model.CloneOperation(operation))
+			} else {
+				network.retainUnsentLocked(operation, cause)
 			}
 		}
 		rebased, err := rebasePending(network.projection.Acknowledged, remaining)
