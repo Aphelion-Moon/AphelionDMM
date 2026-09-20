@@ -100,7 +100,7 @@ func (config *HostedConfig) validate() error {
 	if err := config.Database.DSN.validate("database DSN"); err != nil {
 		return err
 	}
-	if err := validateHTTPSOrigin("OIDC issuer", config.OIDC.Issuer); err != nil {
+	if err := validateOIDCIssuer(config.OIDC.Issuer); err != nil {
 		return err
 	}
 	if strings.TrimSpace(config.OIDC.ClientID) == "" || len(config.OIDC.ClientID) > protocol.MaxIdentifierBytes {
@@ -206,6 +206,16 @@ func validateHTTPSOrigin(name, value string) error {
 	}
 	if parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
 		return fmt.Errorf("%s must be an HTTPS origin without credentials, path, query, or fragment", name)
+	}
+	return nil
+}
+
+// OIDC providers may scope issuers by path, as Cloudflare Access does for
+// individual SaaS clients. This is distinct from the browser's public origin.
+func validateOIDCIssuer(value string) error {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" || strings.Contains(value, "#") {
+		return fmt.Errorf("OIDC issuer must be an HTTPS URL without credentials, query, or fragment")
 	}
 	return nil
 }
