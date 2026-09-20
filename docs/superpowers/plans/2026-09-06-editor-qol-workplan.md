@@ -158,6 +158,12 @@ fences are separate checks.
    control and registered frame jobs with delayed rotation outcomes and drag
    release, including unsent draft preservation and undo/redo. OS event delivery,
    physical interaction and the wider cases above remain open.
+   The [gesture-owner focus repair](../../verification/2026-09-20-tool-gesture-focus.md)
+   now finishes object-move edits on their source map before rebinding tools,
+   cancels Grab previews on deactivation, and requires mouse release before a
+   transferred press can start another gesture. Native two-map checks cover
+   source/destination histories and fresh destination input; broader temporary
+   tool and focus combinations remain open.
    Separate background restoration during one gesture from committed history;
    never restore stale copied tiles over a newer remote edit.
    The tile-commit fallback and local resize failure/undo paths are repaired.

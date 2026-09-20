@@ -19,10 +19,12 @@ func TestReleaseEditorPreservesOtherOwnerAndCancelsItsOwnPreview(t *testing.T) {
 	previousTools, previousName := tools, selectedToolName
 	previousControl, previousState := cc, cs
 	previousActive, previousStarted, previousCoord := active, startedTool, oldCoord
+	previousAwaitRelease := awaitMouseRelease
 	t.Cleanup(func() {
 		tools, selectedToolName = previousTools, previousName
 		cc, cs = previousControl, previousState
 		active, startedTool, oldCoord = previousActive, previousStarted, previousCoord
+		awaitMouseRelease = previousAwaitRelease
 	})
 	tools = map[string]Tool{TNGrab: grab, TNAdd: newAdd(), TNFill: newFill(), TNMove: newMove(), TNPick: newPick(), TNDelete: newDelete(), TNReplace: newReplace()}
 	selectedToolName = TNGrab

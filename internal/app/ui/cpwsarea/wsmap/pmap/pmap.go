@@ -343,7 +343,8 @@ func (p *PaneMap) OnActivate() {
 func (p *PaneMap) OnDeactivate() {
 	p.focused = false
 	p.active = false
-	tools.Selected().OnDeselect()
+	// APHELION EDIT CHANGE - TOOL GESTURE OWNERSHIP - ORIGINAL: tools.Selected().OnDeselect()
+	tools.DeactivateEditor(p.editor)
 	p.syncActiveCamera()
 	p.syncActivePane()
 	log.Print("pane deactivated:", p.dmm.Name)

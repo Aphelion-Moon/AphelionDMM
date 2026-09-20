@@ -1,6 +1,9 @@
 package tools
 
 import (
+	// APHELION EDIT ADDITION START - TOOL GESTURE OWNERSHIP
+	"github.com/SpaiR/imgui-go"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	"sdmm/internal/aphelion/editing"
 	// APHELION EDIT ADDITION END
@@ -100,6 +103,9 @@ var (
 	selectedToolName = TNAdd
 
 	startedTool Tool
+	// APHELION EDIT ADDITION START - TOOL GESTURE OWNERSHIP
+	awaitMouseRelease bool
+	// APHELION EDIT ADDITION END
 )
 
 func SetSelected(toolName string) Tool {
@@ -116,8 +122,33 @@ func IsSelected(toolName string) bool {
 }
 
 func SetEditor(editor editor) {
+	// APHELION EDIT ADDITION START - TOOL GESTURE OWNERSHIP
+	if ed != editor {
+		DeactivateEditor(ed)
+	}
+	// APHELION EDIT ADDITION END
 	ed = editor
 }
+
+// APHELION EDIT ADDITION START - TOOL GESTURE OWNERSHIP
+// DeactivateEditor ends input ownership before another pane can bind its editor.
+// Grab cancels its preview on deselection; legacy tools finish their existing
+// edit on the source map. Keep bindings for commands targeting the last pane.
+func DeactivateEditor(owner editor) {
+	if ed == nil || ed != owner {
+		return
+	}
+	Selected().OnDeselect()
+	if active {
+		if startedTool != nil {
+			startedTool.onStop(oldCoord)
+		}
+		awaitMouseRelease = true
+	}
+	active, startedTool, oldCoord = false, nil, util.Point{}
+}
+
+// APHELION EDIT ADDITION END
 
 // APHELION EDIT ADDITION START - CLOSED MAP TOOL OWNERSHIP
 // ReleaseEditor runs on the UI thread before the owning pane is disposed.
@@ -137,6 +168,7 @@ func ReleaseEditor(owner editor) {
 	*tools[TNReplace].(*ToolReplace) = *newReplace()
 	ed, cc, cs = nil, nil, nil
 	active, startedTool, oldCoord = false, nil, util.Point{}
+	awaitMouseRelease = false
 }
 
 // APHELION EDIT ADDITION END
@@ -200,6 +232,17 @@ func SelectedTiles() []util.Point {
 }
 
 func processSelectedToolStart() {
+	// APHELION EDIT ADDITION START - TOOL GESTURE OWNERSHIP
+	if awaitMouseRelease {
+		// A newly bound canvas may still have last frame's button state. Use
+		// current input so transferring focus cannot turn a held press into a
+		// new gesture, even before that canvas processes its first frame.
+		if !imgui.IsMouseDown(imgui.MouseButtonLeft) {
+			awaitMouseRelease = false
+		}
+		return
+	}
+	// APHELION EDIT ADDITION END
 	if cs == nil || cc == nil || cs.HoverOutOfBounds() && !Selected().IgnoreBounds() {
 		return
 	}

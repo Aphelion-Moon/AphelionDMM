@@ -147,7 +147,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			ws, app := newMouseNetworkWorkspace(t)
-			pane, e := ws.Map(), ws.Map().Editor()
+			e := ws.Map().Editor()
 			initial, err := e.CollaborationSnapshot(context.Background())
 			if err != nil {
 				t.Fatal(err)
@@ -191,33 +191,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 			grab.SelectArea([]util.Point{{X: 1, Y: 1, Z: 1}, {X: 3, Y: 2, Z: 1}})
 			origin := grab.Bounds()
 
-			// Follow startFrame ordering, including the one-frame canvas-control
-			// latency. Deliver screen-coordinate callbacks at frame end, as GLFW
-			// PollEvents does; no direct preview or Grab mouse methods are used.
-			primed := false
-			frame := func(down bool, x, y int) {
-				t.Helper()
-				io := imgui.CurrentIO()
-				pos := imgui.Vec2{X: float32((x-1)*32 + 16), Y: float32(128 - ((y-1)*32 + 16))}
-				io.SetMousePosition(pos)
-				io.SetMouseButtonDown(0, down)
-				shortcut.BeginFrame()
-				imgui.NewFrame()
-				window.DrainFrameJobsForTest()
-				window.RunRepeatJobsForTest()
-				imgui.SetNextWindowPos(imgui.Vec2{})
-				imgui.SetNextWindowSize(imgui.Vec2{X: 128, Y: 128})
-				imgui.BeginV("Mouse network canvas", nil, imgui.WindowFlagsNoTitleBar|imgui.WindowFlagsNoResize|imgui.WindowFlagsNoMove)
-				pane.CanvasControl().Process(imgui.Vec2{X: 128, Y: 128})
-				pane.Canvas().Process(imgui.Vec2{X: 128, Y: 128})
-				imgui.End()
-				imgui.Render()
-				app.mouse(uint(pos.X), uint(pos.Y))
-				if primed && pane.CanvasState().HoveredTile() != (util.Point{X: x, Y: y, Z: 1}) {
-					t.Fatalf("screen input did not reach tile %d,%d: %v", x, y, pane.CanvasState().HoveredTile())
-				}
-				primed = true // ImGui hover uses the previous frame's window bounds.
-			}
+			frame := mouseWorkspaceFrame(t, ws, app.mouse)
 			outcome := func(operation model.Operation, reject bool) {
 				t.Helper()
 				var payload any
@@ -386,5 +360,34 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 				t.Fatalf("unexpected errors: %v", app.errors)
 			}
 		})
+	}
+}
+
+// Mirror startFrame ordering and GLFW frame-end callback delivery.
+func mouseWorkspaceFrame(t *testing.T, ws *wsmap.WsMap, mouse func(uint, uint)) func(bool, int, int) {
+	pane := ws.Map()
+	primed := false
+	return func(down bool, x, y int) {
+		t.Helper()
+		io := imgui.CurrentIO()
+		pos := imgui.Vec2{X: float32((x-1)*32 + 16), Y: float32(128 - ((y-1)*32 + 16))}
+		io.SetMousePosition(pos)
+		io.SetMouseButtonDown(0, down)
+		shortcut.BeginFrame()
+		imgui.NewFrame()
+		window.DrainFrameJobsForTest()
+		window.RunRepeatJobsForTest()
+		imgui.SetNextWindowPos(imgui.Vec2{})
+		imgui.SetNextWindowSize(imgui.Vec2{X: 128, Y: 128})
+		imgui.BeginV("Mouse network canvas", nil, imgui.WindowFlagsNoTitleBar|imgui.WindowFlagsNoResize|imgui.WindowFlagsNoMove|imgui.WindowFlagsNoScrollbar)
+		pane.CanvasControl().Process(imgui.Vec2{X: 128, Y: 128})
+		pane.Canvas().Process(imgui.Vec2{X: 128, Y: 128})
+		imgui.End()
+		imgui.Render()
+		mouse(uint(pos.X), uint(pos.Y))
+		if primed && pane.CanvasState().HoveredTile() != (util.Point{X: x, Y: y, Z: 1}) {
+			t.Fatalf("screen input did not reach tile %d,%d: %v", x, y, pane.CanvasState().HoveredTile())
+		}
+		primed = true // ImGui hover uses the previous frame's window bounds.
 	}
 }
