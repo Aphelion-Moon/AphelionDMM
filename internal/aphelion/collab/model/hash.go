@@ -121,10 +121,12 @@ func (snapshot Snapshot) Contains(coord Coord) bool {
 
 // canonicalEncoder streams exactly the v1 canonical bytes with bounded scratch
 // space. Batching small fields avoids an allocation/interface call per integer.
-// Each invocation owns its buffer and digest; there is no shared mutable cache.
+// The 2 KiB buffer limits scratch allocation during repeated history validation
+// while retaining batched writes. Each invocation owns its buffer and digest;
+// there is no shared mutable cache.
 type canonicalEncoder struct {
 	digest hash.Hash
-	data   [4096]byte
+	data   [2048]byte
 	used   int
 }
 

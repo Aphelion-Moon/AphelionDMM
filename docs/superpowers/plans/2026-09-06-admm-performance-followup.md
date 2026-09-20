@@ -165,6 +165,12 @@ tested map size, but 1,000 retained operations still require 285,504 B per clone
 The initial pre-streaming-hash baseline is retained in the September 5 audit;
 do not compare its timing directly with this candidate.
 
+The [canonical scratch follow-up](../../verification/2026-09-20-canonical-scratch-reduction.md)
+reduces the fixed encoder buffer from 4 KiB to 2 KiB. Five paired 10,000-operation
+SQLite trials reduce following-append allocation by 16.3–24.5% and median time
+by 5.2–6.4%, with unchanged canonical hashes and recovery. Direct 10,000-cell
+hashing is 1.6% slower in median; representative desktop/resource gates remain open.
+
 - [ ] Complete granular indexing, canonical encoding and long-history map-copy
   attribution. Separate current Clone/Validate/CloneApply CPU/allocation profiles
   at 10,000 cells are retained. In candidate CloneApply, Snapshot.Validate is

@@ -13,7 +13,7 @@ import (
 
 func TestHashMatchesBufferedCanonicalEncoding(t *testing.T) {
 	random := rand.New(rand.NewSource(90210))
-	for _, length := range []int{0, 1, 7, 63, 64, 4095, 4096, 4097, 8192, 65537} {
+	for _, length := range []int{0, 1, 7, 63, 64, 2047, 2048, 2049, 4095, 4096, 4097, 8192, 65537} {
 		for range 20 {
 			snapshot := fixtureSnapshot()
 			prefab := &snapshot.Tiles[0].State.Prefabs[0]
