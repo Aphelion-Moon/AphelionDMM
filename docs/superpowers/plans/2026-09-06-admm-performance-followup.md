@@ -252,6 +252,11 @@ raised measured append allocation from about 0.40 MB / 2,049 allocations to
   instances or trust a partially committed append.
   SQLite now reuses one eligible validated document only after complete state
   comparison inside the current transaction; mismatch takes full recovery.
+  The [cache-boundary and history follow-up](../../verification/2026-09-20-sqlite-history-boundaries.md)
+  verifies actual append/inverse/reopen at the 1,024-operation and 4 MiB limits.
+  Five fixed-history component trials through 10,000 operations expose the
+  uncached cost: approximately 107–114 ms and 157–209 MB allocated per append
+  on a two-tile fixture. This does not qualify representative map/resource costs.
   PostgreSQL, cache-ineligible histories and resource qualification remain open.
 - [ ] Preserve historical valid bases, actor-scoped inverses, already-inverted
   status, duplicate identity and unknown content. Do not truncate history or
