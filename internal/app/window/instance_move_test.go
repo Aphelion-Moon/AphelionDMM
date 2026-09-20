@@ -2,8 +2,13 @@ package window_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
+	"github.com/SpaiR/imgui-go"
+	"github.com/go-gl/glfw/v3.3/glfw"
+	"sdmm/internal/aphelion/collab/engine"
+	"sdmm/internal/aphelion/collab/executor"
 	"sdmm/internal/aphelion/collab/mapadapter"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
@@ -91,5 +96,94 @@ func TestInstanceMoveKeepsIdentityAcrossMatchingPrefabs(t *testing.T) {
 	}
 	if len(app.errors) != 0 {
 		t.Fatalf("unexpected errors: %v", app.errors)
+	}
+}
+
+func TestInstanceMoveCaptureFailureKeepsDisplay(t *testing.T) {
+	for _, scenario := range []struct {
+		name      string
+		startFail bool
+		priorHop  bool
+		index     int
+	}{
+		{name: "source", startFail: true, index: 2},
+		{name: "first destination", index: 2},
+		{name: "later destination", priorHop: true, index: 2},
+		{name: "turf destination", priorHop: true, index: 1},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			ws, app := newMouseNetworkWorkspace(t)
+			e := ws.Map().Editor()
+			initial, err := e.CollaborationSnapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			document, err := engine.NewDocument(initial)
+			if err != nil {
+				t.Fatal(err)
+			}
+			actor, err := model.NewActorID()
+			if err != nil {
+				t.Fatal(err)
+			}
+			authority, err := executor.NewLocal(document, actor)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := e.AttachCollaborationExecutor(authority); err != nil {
+				t.Fatal(err)
+			}
+			origin := util.Point{X: 1, Y: 1, Z: 1}
+			moved := e.Dmm().GetTile(origin).Instances()[scenario.index]
+			fault := util.Point{X: 3, Y: 1, Z: 1}
+			if scenario.startFail {
+				fault = origin
+			}
+			e.Dmm().GetTile(fault).Instances()[2].SetStableID("invalid-move-capture")
+			frame := mouseWorkspaceFrame(t, ws, app.mouse)
+			tools.SetSelected(tools.TNMove)
+			frame(false, 1, 1)
+			frame(false, 1, 1)
+			ws.Map().CanvasState().SetHoveredInstance(moved)
+			frame(true, 1, 1)
+			frame(true, 1, 1)
+			if scenario.priorHop {
+				frame(true, 2, 1)
+				if moved.Coord().X != 2 {
+					t.Fatal("fixture did not establish a valid earlier preview")
+				}
+			}
+			before := e.Dmm().Copy()
+			frame(true, 3, 1)
+			if !reflect.DeepEqual(e.Dmm(), &before) {
+				t.Fatal("failed capture changed the display")
+			}
+			// Neither subsequent tile input nor Shift pixel movement may extend a
+			// gesture after its capture failed. Turf release must not prune peers.
+			frame(true, 4, 1)
+			io := imgui.CurrentIO()
+			io.KeyPress(int(glfw.KeyLeftShift))
+			frame(true, 2, 1)
+			frame(true, 3, 1)
+			io.KeyRelease(int(glfw.KeyLeftShift))
+			frame(false, 3, 1)
+			frame(false, 3, 1)
+			if !reflect.DeepEqual(e.Dmm(), &before) {
+				t.Fatal("input or release changed the faulted preview")
+			}
+			if _, err := e.SaveSnapshot(context.Background()); err == nil {
+				t.Fatal("capture failure lost the Save guard")
+			}
+			after, err := authority.Snapshot(context.Background())
+			if err != nil || !reflect.DeepEqual(after, initial) {
+				t.Fatal("capture failure changed authority", err)
+			}
+			if app.commands.HasUndoV(ws.CommandStackId()) || len(app.errors) != 1 {
+				t.Fatalf("failed capture created history or reported %d errors, want one", len(app.errors))
+			}
+			if !tools.Selected().Stale() {
+				t.Fatal("release retained the faulted tool instance")
+			}
+		})
 	}
 }

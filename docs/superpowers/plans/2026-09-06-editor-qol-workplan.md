@@ -4,6 +4,8 @@ Baseline: commit `052e1acb02b790641d63466de40c91d56028383b`.
 
 September 20: [single-instance Move identity](../../verification/2026-09-20-instance-move-identity.md)
 now survives tile hops through identical prefabs, including exact undo/redo.
+Its capture-failure continuation now refuses failed source/destination edits
+before display mutation and preserves earlier unsubmitted preview state.
 Focused native race checks pass. The subsequent
 [renderer offset repair](../../verification/2026-09-20-renderer-buffer-offsets.md)
 also restores the full window-package race gate; human acceptance remains open.

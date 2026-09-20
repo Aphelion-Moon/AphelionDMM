@@ -212,6 +212,17 @@ func (e *Editor) CanChangeMapSize() bool {
 	return local && e.history.Valid() && e.collaborationErr == nil && e.selectionMove == nil && len(e.pendingChanges) == 0 && len(e.unresolvedSubmissions) == 0
 }
 
+// TryBeginTileChange lets incremental tool gestures refuse display mutation
+// unless a before-state is available on the current, editable attachment.
+func (e *Editor) TryBeginTileChange(point util.Point) bool {
+	if e.mapViewClosed || !e.history.Valid() || e.HasPastePlacement() || e.selectionMove != nil {
+		return false
+	}
+	e.BeginTileChange(point)
+	_, captured := e.pendingChanges[model.Coord{X: point.X, Y: point.Y, Z: point.Z}]
+	return e.executor != nil && e.collaborationErr == nil && captured
+}
+
 func (e *Editor) BeginTileChange(point util.Point) {
 	defer uistage.Begin(uistage.CaptureTile).End()
 	// Invalidate derived queries even when capture fails: inherited callers may

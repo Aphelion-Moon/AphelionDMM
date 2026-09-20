@@ -42,3 +42,40 @@ The installed AMD driver is 32.0.21002.27; native tests use a hidden GL context.
 
 This synthetic object fixture does not qualify all turf/area moves, capture
 failures, cross-chunk rendered pixels, real OS mouse input or human acceptance.
+
+## Capture-failure continuation
+
+Baseline: `546d3d87`. The identity repair still inherited unchecked capture:
+Move could delete its source before finding that the destination's before-state
+was invalid. A source capture failure also left a live tool that could mutate
+uncaptured contents. After a destination failure, further tile/pixel movement
+and turf cleanup on release could change the faulted preview.
+
+Move now starts only when the editor can accept an independent edit, checks
+source capture before taking the instance, and captures both tiles before any
+hop mutation. The editor's narrow `TryBeginTileChange` adapter exposes whether
+capture succeeded on an editable attachment. Shift movement and release-time
+turf cleanup use the same guard. Failure preserves an earlier valid preview,
+leaves the Save fault in place, reports the failure once and releases the tool
+reference when the physical gesture ends. It does not discard or commit prior
+unsubmitted intent.
+
+`TestInstanceMoveCaptureFailureKeepsDisplay` uses actual native mouse frames
+with invalid stable IDs to exercise source, first-destination, later-destination
+and turf-destination failures. All four initially changed the display before
+the repair. They now preserve its exact contents across the failed hop, later
+tile movement, Shift movement and release; the directly observed local executor
+snapshot remains unchanged and no undo entry appears. The Save guard and error
+report remain present.
+
+The full window, tools and editor packages pass with `-race` and native GL enabled.
+`task verify` also passes with GL enabled: lint, contracts, Go tests, Rust checks,
+parser build and Windows editor build. The inherited ImGui warning and zero Rust
+unit tests remain; unconfigured external-service checks may skip.
+Logs: ignored `.artifacts/move-capture-2026-09-20/` (`before.log`,
+`after-race.log`, `verify.log`). Toolchains and driver match the identity pass.
+
+This continuation covers capture refusal, not the broader damaged-display
+retain/export/discard design. Earlier valid intent and its journal remain
+guarded after a later capture fault. Other inherited tools' unchecked capture
+callers and broader attachment/focus combinations are not qualified by this test.

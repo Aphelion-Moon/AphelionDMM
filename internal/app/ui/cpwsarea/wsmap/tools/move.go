@@ -40,9 +40,17 @@ func (ToolMove) AltBehaviour() bool {
 }
 
 func (t *ToolMove) onStart(util.Point) {
+	// APHELION EDIT ADDITION START - INSTANCE MOVE CAPTURE
+	if !ed.CanStartMapEdit() {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	if hoveredInstance := ed.HoveredInstance(); hoveredInstance != nil {
-		// APHELION EDIT ADDITION START - COLLABORATION
-		ed.BeginTileChange(hoveredInstance.Coord())
+		// APHELION EDIT ADDITION START - INSTANCE MOVE CAPTURE
+		if !ed.TryBeginTileChange(hoveredInstance.Coord()) {
+			ed.CommitOperation("Moved Prefab") // Report the capture fault without starting a gesture.
+			return
+		}
 		// APHELION EDIT ADDITION END
 		ed.InstanceSelect(hoveredInstance)
 		t.instance = hoveredInstance
@@ -63,6 +71,11 @@ func (t *ToolMove) process() {
 	if t.instance == nil || !imguiext.IsShiftDown() {
 		return
 	}
+	// APHELION EDIT ADDITION START - INSTANCE MOVE CAPTURE
+	if !ed.TryBeginTileChange(t.instance.Coord()) {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	xAxis := "pixel_x"
 	yAxis := "pixel_y"
 	if ed.Prefs().Editor.NudgeMode == prefs.SaveNudgeModeStep {
@@ -96,14 +109,18 @@ func (t *ToolMove) onMove(coord util.Point) {
 		return
 	}
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - INSTANCE MOVE CAPTURE
+	// Capture both tiles before deleting or regenerating anything. A failed
+	// destination must leave an earlier valid preview intact for recovery.
+	if !ed.TryBeginTileChange(sourceCoord) || !ed.TryBeginTileChange(coord) {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	if t.lastTile != nil {
 		t.lastTile.InstancesRegenerate() //should stop some issues
 	}
 	t.lastTile = ed.Dmm().GetTile(coord)
 	ed.InstanceDelete(t.instance)
-	// APHELION EDIT ADDITION START - COLLABORATION
-	ed.BeginTileChange(t.lastTile.Coord)
-	// APHELION EDIT ADDITION END
 	/* APHELION EDIT REMOVAL START - INSTANCE MOVE IDENTITY
 	t.lastTile.InstancesAdd(prefab)
 	t.lastTile.InstancesRegenerate()
@@ -130,7 +147,8 @@ func (t *ToolMove) onStop(util.Point) {
 		return
 	}
 	//remove other turfs if we moved a turf
-	if t.lastTile != nil {
+	// APHELION EDIT CHANGE - INSTANCE MOVE CAPTURE - ORIGINAL: if t.lastTile != nil {
+	if t.lastTile != nil && ed.TryBeginTileChange(t.instance.Coord()) {
 		if dm.IsPath(t.instance.Prefab().Path(), "/turf") {
 			for _, found := range t.lastTile.Instances() {
 				if dm.IsPath(found.Prefab().Path(), "/turf") && found != t.instance {

@@ -58,6 +58,10 @@ type editor interface {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	BeginTileChange(util.Point)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - INSTANCE MOVE CAPTURE
+	CanStartMapEdit() bool
+	TryBeginTileChange(util.Point) bool
+	// APHELION EDIT ADDITION END
 
 	UpdateCanvasByCoords([]util.Point)
 	UpdateCanvasByTiles([]dmmap.Tile)
