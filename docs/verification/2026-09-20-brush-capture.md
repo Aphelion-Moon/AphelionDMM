@@ -52,3 +52,44 @@ property/reset/reorder/global-replacement callers, malformed replacement data,
 all attachment transitions, physical OS mouse delivery or human acceptance.
 Earlier valid gesture intent remains guarded after a later capture failure;
 the broader damaged-display recovery workflow is still separate work.
+
+## Property-action continuation
+
+Baseline: `9292322d`. Before-state capture is now also checked by instance reset,
+stack reordering, tile replacement, delete-by-prefab, global prefab replacement,
+the instance variable editor and Quick Edit. Bulk operations preflight every
+matching tile before mutating any instance. The variable editor captures before
+changing its session prefab cache. Quick Edit checks again before release-time
+sanitization, preserving entered values if capture has failed in the meantime.
+
+- `TestPropertyActionsCaptureAndHistory` reproduced partial display mutation in
+  all six editor actions before repair. Its valid cases still commit once and
+  restore exact identities, ordering and variables through undo/redo. Invalid
+  cases preserve display/authority, report failure, create no history, retain
+  the Save guard and release unused captures for validated recovery. These are
+  public editor-method checks with the real local executor, not menu clicks.
+- `TestVariableCaptureFailurePreservesPrefabSession` reproduced instance/session
+  mutation after a real editor capture fault. It now preserves both the instance
+  and cached session prefab without selecting a replacement or creating undo.
+- `TestQuickNudgeCaptureAndRelease` uses actual ImGui wheel input with controlled
+  capture outcomes. Failed change and failed release originally mutated the
+  prefab. Both now retain exact references; valid release still removes an
+  inherited default override. Direction controls use the same checked pattern
+  but are source-inspected/compiled, not exercised with a DMI direction fixture.
+- Variable editor, editor, Quick Edit, workspace and window packages pass with
+  `-race`, with native GL enabled for the workspace/window fixtures. Quick Edit's
+  new input test renders ImGui data without a GPU backend or OS event delivery.
+- Final `task verify` passes with native GL enabled: lint, contracts, Go tests,
+  Rust checks, parser release build and Windows editor build. The inherited
+  ImGui warning and zero Rust unit tests remain; external services were not
+  newly qualified by this pass.
+
+Logs: ignored `.artifacts/property-capture-2026-09-20/` (`before-editor.log`,
+`before-variable.log`, `before-quick.log`, `after.log`, `race.log`, `verify.log`,
+`verify-final.log`). The initial full gate found an unused test-fixture field;
+it was removed. Toolchains and driver match the brush pass above.
+
+The remaining direct `BeginTileChange` implementation callers are the checked
+adapter and existing selection/paste/Search adapters that inspect capture errors
+and manage journal ownership. This does not prove all new-value validation,
+stale instance references, attachment transitions or human interaction complete.

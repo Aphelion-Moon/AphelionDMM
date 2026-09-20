@@ -29,7 +29,7 @@ type editor interface {
 	Dmm() *dmmap.Dmm
 	CommitOperation(string)
 	// APHELION EDIT ADDITION START - COLLABORATION
-	BeginTileChange(util.Point)
+	TryBeginTileChange(...util.Point) bool
 	// APHELION EDIT ADDITION END
 	InstanceSelect(i *dmminstance.Instance)
 	UpdateCanvasByCoords([]util.Point)
@@ -97,8 +97,10 @@ func (p *Panel) showNudgeOption(label string, xAxis bool, instance *dmminstance.
 	value := int32(pixelX)
 
 	onChange := func() {
-		// APHELION EDIT ADDITION START - COLLABORATION
-		p.editor.BeginTileChange(instance.Coord())
+		// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+		if !p.editor.TryBeginTileChange(instance.Coord()) {
+			return
+		}
 		// APHELION EDIT ADDITION END
 		origPrefab := instance.Prefab()
 
@@ -109,6 +111,12 @@ func (p *Panel) showNudgeOption(label string, xAxis bool, instance *dmminstance.
 		p.editor.UpdateCanvasByCoords([]util.Point{instance.Coord()})
 	}
 	applyChange := func() {
+		// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+		if !p.editor.TryBeginTileChange(instance.Coord()) {
+			p.editor.CommitOperation("Quick Edit: " + label)
+			return
+		}
+		// APHELION EDIT ADDITION END
 		p.sanitizeInstanceVar(instance, nudgeVarName, "0")
 		dmmap.PrefabStorage.Put(instance.Prefab())
 		p.editor.InstanceSelect(instance)
@@ -176,8 +184,10 @@ func (p *Panel) showDirOption(instance *dmminstance.Instance) {
 	label := fmt.Sprint("Dir##dir_", p.editor.Dmm().Name)
 
 	onChange := func() {
-		// APHELION EDIT ADDITION START - COLLABORATION
-		p.editor.BeginTileChange(instance.Coord())
+		// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+		if !p.editor.TryBeginTileChange(instance.Coord()) {
+			return
+		}
 		// APHELION EDIT ADDITION END
 		origPrefab := instance.Prefab()
 
@@ -189,6 +199,12 @@ func (p *Panel) showDirOption(instance *dmminstance.Instance) {
 		p.editor.UpdateCanvasByCoords([]util.Point{instance.Coord()})
 	}
 	applyChange := func() {
+		// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+		if !p.editor.TryBeginTileChange(instance.Coord()) {
+			p.editor.CommitOperation("Quick Edit: Dir")
+			return
+		}
+		// APHELION EDIT ADDITION END
 		p.sanitizeInstanceVar(instance, "dir", "0")
 		dmmap.PrefabStorage.Put(instance.Prefab())
 		p.editor.InstanceSelect(instance)

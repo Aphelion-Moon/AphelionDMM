@@ -9,6 +9,8 @@ before display mutation and preserves earlier unsubmitted preview state.
 The [brush capture continuation](../../verification/2026-09-20-brush-capture.md)
 extends refusal to Add/Delete/Replace and preflights whole Fill/selected-delete
 batches, preserving existing journal ownership and exact successful undo/redo.
+Its property-action continuation also checks reset/reorder, bulk prefab actions,
+variable editing and Quick Edit, including release-time sanitization.
 Focused native race checks pass. The subsequent
 [renderer offset repair](../../verification/2026-09-20-renderer-buffer-offsets.md)
 also restores the full window-package race gate; human acceptance remains open.

@@ -6,6 +6,9 @@ import (
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
+	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+	"sdmm/internal/util"
+	// APHELION EDIT ADDITION END
 )
 
 // InstanceSelect selects the provided instance to edit.
@@ -23,8 +26,10 @@ func (e *Editor) InstanceMoveToTop(i *dmminstance.Instance) {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	// APHELION EDIT ADDITION START - COLLABORATION
-	e.BeginTileChange(i.Coord())
+	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+	if !e.TryBeginTileChange(i.Coord()) {
+		return
+	}
 	// APHELION EDIT ADDITION END
 	e.instanceMove(e.dmm.GetTile(i.Coord()), i, true)
 }
@@ -36,8 +41,10 @@ func (e *Editor) InstanceMoveToBottom(i *dmminstance.Instance) {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	// APHELION EDIT ADDITION START - COLLABORATION
-	e.BeginTileChange(i.Coord())
+	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+	if !e.TryBeginTileChange(i.Coord()) {
+		return
+	}
 	// APHELION EDIT ADDITION END
 	e.instanceMove(e.dmm.GetTile(i.Coord()), i, false)
 }
@@ -99,10 +106,16 @@ func (e *Editor) InstancesDeleteByPrefab(prefab *dmmprefab.Prefab) {
 	}
 	// APHELION EDIT ADDITION END
 	instances := e.InstancesFindByPrefabId(prefab.Id())
+	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+	coords := make([]util.Point, 0, len(instances))
 	for _, instance := range instances {
-		// APHELION EDIT ADDITION START - COLLABORATION
-		e.BeginTileChange(instance.Coord())
-		// APHELION EDIT ADDITION END
+		coords = append(coords, instance.Coord())
+	}
+	if !e.TryBeginTileChange(coords...) {
+		return
+	}
+	// APHELION EDIT ADDITION END
+	for _, instance := range instances {
 		tile := e.dmm.GetTile(instance.Coord())
 		tile.InstancesRemoveByInstance(instance)
 		tile.InstancesRegenerate()
@@ -141,8 +154,10 @@ func (e *Editor) InstanceReset(i *dmminstance.Instance) {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	// APHELION EDIT ADDITION START - COLLABORATION
-	e.BeginTileChange(i.Coord())
+	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+	if !e.TryBeginTileChange(i.Coord()) {
+		return
+	}
 	// APHELION EDIT ADDITION END
 	i.SetPrefab(dmmap.PrefabStorage.Initial(i.Prefab().Path()))
 }

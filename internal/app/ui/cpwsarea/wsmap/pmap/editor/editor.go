@@ -171,6 +171,20 @@ func (e *Editor) ReplacePrefab(oldPrefab, newPrefab *dmmprefab.Prefab) {
 		return
 	}
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+	instances := e.InstancesFindByPrefabId(oldPrefab.Id())
+	coords := make([]util.Point, 0, len(instances))
+	for _, instance := range instances {
+		coords = append(coords, instance.Coord())
+	}
+	if !e.TryBeginTileChange(coords...) {
+		return
+	}
+	for _, instance := range instances {
+		instance.SetPrefab(newPrefab)
+	}
+	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - PROPERTY CAPTURE
 	for _, tile := range e.dmm.Tiles {
 		for _, instance := range tile.Instances() {
 			if instance.Prefab().Id() == oldPrefab.Id() {
@@ -181,6 +195,7 @@ func (e *Editor) ReplacePrefab(oldPrefab, newPrefab *dmmprefab.Prefab) {
 			}
 		}
 	}
+	APHELION EDIT REMOVAL END */
 }
 
 // FocusCamera moves the camera in a way, so it will be centered on the instance.

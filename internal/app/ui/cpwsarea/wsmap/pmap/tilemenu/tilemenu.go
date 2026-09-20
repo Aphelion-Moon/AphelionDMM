@@ -46,7 +46,7 @@ type editor interface {
 
 	CommitOperation(string)
 	// APHELION EDIT ADDITION START - COLLABORATION
-	BeginTileChange(util.Point)
+	TryBeginTileChange(...util.Point) bool
 	// APHELION EDIT ADDITION END
 
 	InstanceSelect(i *dmminstance.Instance)

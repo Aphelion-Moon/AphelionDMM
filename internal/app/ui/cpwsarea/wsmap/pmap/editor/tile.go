@@ -157,8 +157,10 @@ func (e *Editor) TileReplace(coord util.Point, prefabs dmmdata.Prefabs) {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	// APHELION EDIT ADDITION START - COLLABORATION
-	e.BeginTileChange(coord)
+	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+	if !e.TryBeginTileChange(coord) {
+		return
+	}
 	// APHELION EDIT ADDITION END
 	tile := e.dmm.GetTile(coord)
 

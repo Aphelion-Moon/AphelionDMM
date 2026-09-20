@@ -148,6 +148,17 @@ func (v *VarEditor) setInstanceVariable(varName, varValue string) {
 		return
 	}
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
+	currentEditor := v.app.CurrentEditor()
+	if currentEditor == nil {
+		return
+	}
+	// Capture before changing either the instance or its session prefab cache.
+	if !currentEditor.TryBeginTileChange(v.instance.Coord()) {
+		currentEditor.CommitOperation("Edit Variable")
+		return
+	}
+	// APHELION EDIT ADDITION END
 	if len(varValue) == 0 {
 		varValue = dmvars.NullValue
 	}
@@ -175,11 +186,9 @@ func (v *VarEditor) setInstanceVariable(varName, varValue string) {
 		v.sessionPrefabId = newPrefab.Id()
 	}
 
-	// APHELION EDIT ADDITION START - COLLABORATION
-	v.app.CurrentEditor().BeginTileChange(v.instance.Coord())
-	// APHELION EDIT ADDITION END
 	v.instance.SetPrefab(newPrefab)
-	v.app.CurrentEditor().CommitOperation("Edit Variable")
+	// APHELION EDIT CHANGE - PROPERTY CAPTURE - ORIGINAL: v.app.CurrentEditor().CommitOperation("Edit Variable")
+	currentEditor.CommitOperation("Edit Variable")
 	v.app.DoSelectPrefab(newPrefab)
 
 	v.prefab = newPrefab
