@@ -2,6 +2,9 @@ package bucket
 
 import (
 	"sort"
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/render/bucket/level"
 	"sdmm/internal/dmapi/dmmap"
@@ -25,6 +28,9 @@ func New() *Bucket {
 
 // UpdateLevel updates a specific level of the bucket. If the level not exist, will create it at first.
 func (b *Bucket) UpdateLevel(dmm *dmmap.Dmm, levelValue int, tilesToUpdate []util.Point) {
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	defer uistage.Begin(uistage.BucketBuild).End()
+	// APHELION EDIT ADDITION END
 	log.Printf("updating bucket with [%s]...", dmm.Path.Readable)
 	b.getOrCreateLevel(dmm, levelValue).Update(dmm, tilesToUpdate)
 	log.Print("bucket updated")

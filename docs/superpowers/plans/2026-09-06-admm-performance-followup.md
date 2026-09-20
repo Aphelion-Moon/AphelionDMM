@@ -69,6 +69,10 @@ for the precise measurement boundaries and remaining campaign gates.
   displayed frame. Instrument native parser transfer, icon decoding and upload
   separately. Use a maintained owned diagnostic wrapper; any necessary protected
   entry-point change must first receive exact-file approval.
+  The [native UI-stage trace probe](../../verification/2026-09-20-native-ui-stage-tracing.md)
+  now provides an owned wrapper, bounded opt-in recording and five fresh-process
+  edit/undo/redo samples. Actual frame-queue/next-visible attribution and parser
+  transfer separation remain open; the synthetic probe is not campaign evidence.
 - [ ] Run a fresh-process/warm-cache matrix for startup, DME reload, first/cached
   icons, DMM/TGM open/save, drag/fill/paste, undo/redo, search, pan/zoom, level
   switch, resize, multiple tabs, and idle/minimized states. Capture CPU, Go heap,

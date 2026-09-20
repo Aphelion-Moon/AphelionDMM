@@ -1,6 +1,9 @@
 package dmenv
 
 import (
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	// APHELION EDIT ADDITION END
 	"path/filepath"
 	"sdmm/third_party/sdmmparser"
 	"strings"
@@ -24,7 +27,13 @@ func New(path string) (*Dme, error) {
 		Objects:  make(map[string]*Object),
 	}
 
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	parse := uistage.Begin(uistage.EnvironmentParse)
+	// APHELION EDIT ADDITION END
 	objectTreeType, err := sdmmparser.ParseEnvironment(path)
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	parse.End()
+	// APHELION EDIT ADDITION END
 	if err != nil {
 		return nil, err
 	}

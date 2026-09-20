@@ -2,6 +2,7 @@ package client
 
 import (
 	"fmt"
+	"sdmm/internal/aphelion/diagnostics/uistage"
 
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
@@ -126,6 +127,7 @@ func cloneTiles(tiles []model.Tile) []model.Tile {
 }
 
 func (projection Projection) Visible() (model.Snapshot, error) {
+	defer uistage.Begin(uistage.ProjectionVisible).End()
 	// A competing authoritative edit may hide speculation without resolving its
 	// submitted intent. Build visible state independently; retain pending drafts.
 	visible := visibleProjection(projection.Acknowledged, projection.Pending)

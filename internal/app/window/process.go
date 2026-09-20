@@ -2,6 +2,9 @@ package window
 
 import (
 	"time"
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
 	"sdmm/internal/app/ui/shortcut"
 	// APHELION EDIT ADDITION END
@@ -32,6 +35,9 @@ func (w *Window) Process() {
 }
 
 func (w *Window) runFrame() {
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	defer uistage.Begin(uistage.Frame).End()
+	// APHELION EDIT ADDITION END
 	w.startFrame()
 	w.application.Process()
 	w.endFrame()
@@ -70,6 +76,12 @@ func runRepeatJobs() {
 func (w *Window) endFrame() {
 	imgui.Render()
 	platform.Render(imgui.RenderedDrawData())
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	present := uistage.Begin(uistage.Present)
+	// APHELION EDIT ADDITION END
 	w.handle.SwapBuffers()
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	present.End()
+	// APHELION EDIT ADDITION END
 	glfw.PollEvents()
 }

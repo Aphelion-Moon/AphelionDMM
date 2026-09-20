@@ -1,6 +1,9 @@
 package dmicon
 
 import (
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	// APHELION EDIT ADDITION END
 	"fmt"
 	"image"
 	"image/draw"
@@ -46,7 +49,13 @@ func (d *Dmi) State(state string) (*State, error) {
 func New(path string) (*Dmi, error) {
 	log.Printf("creating new: [%s]...", path)
 
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	metadata := uistage.Begin(uistage.IconMetadata)
+	// APHELION EDIT ADDITION END
 	iconMetadata, err := sdmmparser.ParseIconMetadata(path)
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	metadata.End()
+	// APHELION EDIT ADDITION END
 	if err != nil {
 		log.Printf("unable to parse icon metadata [%s]: %s", path, err)
 		return nil, err
@@ -95,6 +104,9 @@ func New(path string) (*Dmi, error) {
 }
 
 func loadRgbaImage(path string) (*image.NRGBA, error) {
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	defer uistage.Begin(uistage.IconDecode).End()
+	// APHELION EDIT ADDITION END
 	f, err := os.Open(path)
 	if err != nil {
 		log.Printf("unable to open image file [%s]: %s", path, err)

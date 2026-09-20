@@ -1,6 +1,9 @@
 package canvas
 
 import (
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/render"
 	"sdmm/internal/app/window"
 
@@ -58,6 +61,9 @@ func New() *Canvas {
 }
 
 func (c *Canvas) Process(size imgui.Vec2) {
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	defer uistage.Begin(uistage.CanvasDraw).End()
+	// APHELION EDIT ADDITION END
 	c.updateCanvasTexture(size.X, size.Y)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, c.frameBuffer)
 	gl.Viewport(0, 0, int32(size.X), int32(size.Y))

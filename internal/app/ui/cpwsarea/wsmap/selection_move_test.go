@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"sdmm/internal/app/command"
@@ -17,8 +16,6 @@ import (
 	"sdmm/internal/util"
 
 	"github.com/SpaiR/imgui-go"
-	"github.com/go-gl/gl/v3.3-core/gl"
-	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
 type selectionTestApp struct {
@@ -45,25 +42,7 @@ func newSelectionWorkspace(t *testing.T) (*WsMap, *selectionTestApp) {
 	if os.Getenv("APHELIONDMM_GL_TEST") != "1" {
 		t.Skip("set APHELIONDMM_GL_TEST=1 for hidden workspace move verification")
 	}
-	runtime.LockOSThread()
-	t.Cleanup(runtime.UnlockOSThread)
-	if err := glfw.Init(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(glfw.Terminate)
-	glfw.WindowHint(glfw.Visible, glfw.False)
-	glfw.WindowHint(glfw.ContextVersionMajor, 3)
-	glfw.WindowHint(glfw.ContextVersionMinor, 3)
-	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
-	window, err := glfw.CreateWindow(64, 64, "Selection verification", nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(window.Destroy)
-	window.MakeContextCurrent()
-	if err := gl.Init(); err != nil {
-		t.Fatal(err)
-	}
+	workspaceContext(t)
 	ctx := imgui.CreateContext(nil)
 	t.Cleanup(ctx.Destroy)
 	dir := t.TempDir()

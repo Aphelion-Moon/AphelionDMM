@@ -2,11 +2,17 @@ package platform
 
 import (
 	"image"
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	// APHELION EDIT ADDITION END
 
 	"github.com/go-gl/gl/v3.3-core/gl"
 )
 
 func CreateTexture(img *image.NRGBA) uint32 {
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	defer uistage.Begin(uistage.TextureUpload).End()
+	// APHELION EDIT ADDITION END
 	var lastTexture int32
 	var handle uint32
 

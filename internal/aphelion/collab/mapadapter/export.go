@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"sdmm/internal/aphelion/diagnostics/uistage"
 	"sort"
 
 	"sdmm/internal/aphelion/collab/model"
@@ -24,6 +25,7 @@ func Apply(target *dmmap.Dmm, snapshot model.Snapshot) error {
 }
 
 func ApplyWithEnvironment(target *dmmap.Dmm, snapshot model.Snapshot, environment *dmenv.Dme) error {
+	defer uistage.Begin(uistage.ProjectionApply).End()
 	return apply(target, snapshot, environment)
 }
 

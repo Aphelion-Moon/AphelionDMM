@@ -1,6 +1,9 @@
 package editor
 
 import (
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT REMOVAL - LOCAL RESIZE - ORIGINAL: "sdmm/internal/app/command"
 	"sdmm/internal/app/window"
 	"sdmm/internal/util"
@@ -85,7 +88,9 @@ APHELION EDIT REMOVAL END */
 // We need to update bucket in the main thread, since it can have OpenGL operations.
 // RunLater do that by running the job in th end of the frame.
 func (e *Editor) updateBucket(activeLevel int, tilesToUpdate []util.Point) {
-	window.RunLater(func() {
+	// APHELION EDIT CHANGE - UI STAGE TRACE - ORIGINAL: window.RunLater(func() {
+	window.RunLater(uistage.DeferredBucket(func() {
 		e.pMap.Canvas().Render().UpdateBucketV(e.dmm, activeLevel, tilesToUpdate)
-	})
+		// APHELION EDIT CHANGE - UI STAGE TRACE - ORIGINAL: })
+	}))
 }

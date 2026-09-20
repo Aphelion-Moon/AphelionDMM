@@ -10,6 +10,9 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"sdmm/internal/aphelion/collab/model"
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	// APHELION EDIT ADDITION END
 	collabserver "sdmm/internal/aphelion/collab/server"
 	collabui "sdmm/internal/aphelion/collab/ui"
 	"sdmm/internal/app/command"
@@ -39,6 +42,20 @@ const (
 func Start() {
 	internalDir := getOrCreateInternalDir()
 	logDir := initializeLogs(internalDir)
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	if path := os.Getenv("APHELIONDMM_UI_TRACE"); path != "" {
+		if recording, err := uistage.StartFile(path, 30*time.Second); err != nil {
+			log.Error().Err(err).Msg("Unable to start UI execution trace")
+		} else {
+			defer func() {
+				if err := recording.Close(); err != nil {
+					log.Error().Err(err).Msg("Unable to finish UI execution trace")
+				}
+			}()
+			log.Info().Msg("UI execution trace enabled for up to 30 seconds")
+		}
+	}
+	// APHELION EDIT ADDITION END
 
 	log.Info().Msgf("%s, %s", env.Title, env.Version)
 	log.Info().Msgf("internal dir: %s", internalDir)

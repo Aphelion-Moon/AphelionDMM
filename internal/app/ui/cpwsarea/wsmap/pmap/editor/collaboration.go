@@ -11,6 +11,7 @@ import (
 	"sdmm/internal/aphelion/collab/executor"
 	"sdmm/internal/aphelion/collab/mapadapter"
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/diagnostics/uistage"
 	"sdmm/internal/app/command"
 	"sdmm/internal/util"
 
@@ -212,6 +213,7 @@ func (e *Editor) CanChangeMapSize() bool {
 }
 
 func (e *Editor) BeginTileChange(point util.Point) {
+	defer uistage.Begin(uistage.CaptureTile).End()
 	// Invalidate derived queries even when capture fails: inherited callers may
 	// already be preparing a display edit. Queries defer while captures are open.
 	e.mapViewGeneration++
@@ -232,6 +234,7 @@ func (e *Editor) BeginTileChange(point util.Point) {
 }
 
 func (e *Editor) commitOperation(commitMessage string) {
+	defer uistage.Begin(uistage.Commit).End()
 	selectionOutcome := e.selectionOutcome
 	if len(e.pendingChanges) == 0 {
 		selectionApplied(selectionOutcome, false)
@@ -296,6 +299,7 @@ func (e *Editor) commitOperation(commitMessage string) {
 }
 
 func (e *Editor) submitOperation(execution executor.Executor, operation model.Operation, accepted func(model.AcceptedOperation), selectionOutcome func(bool)) {
+	defer uistage.Begin(uistage.Dispatch).End()
 	generation := e.attachmentGeneration
 	if asynchronous, ok := execution.(executor.AsyncExecutor); ok {
 		e.unresolvedSubmissions[operation.OperationID] = struct{}{}
@@ -391,6 +395,7 @@ func (e *Editor) pushAcceptedCommand(execution executor.Executor, commitMessage 
 }
 
 func (e *Editor) executeHistoryOperation(execution executor.Executor, operation model.Operation, complete func(model.AcceptedOperation, error)) {
+	defer uistage.Begin(uistage.Dispatch).End()
 	if e.HasPastePlacement() {
 		complete(model.AcceptedOperation{}, fmt.Errorf("confirm or cancel paste before undo/redo"))
 		return
@@ -462,6 +467,7 @@ func (e *Editor) syncFromExecutor(execution executor.Executor, apply bool, activ
 }
 
 func (e *Editor) refreshCollaborationView(activeLevel int, coords []model.Coord, visible model.Snapshot) {
+	defer uistage.Begin(uistage.Refresh).End()
 	e.pMap.Snapshot().Sync()
 	e.updateAreasZones()
 	points := make([]util.Point, 0, len(coords))

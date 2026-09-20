@@ -5,11 +5,9 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 
 	"github.com/SpaiR/imgui-go"
-	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/executor"
@@ -34,25 +32,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	if os.Getenv("APHELIONDMM_GL_TEST") != "1" {
 		t.Skip("set APHELIONDMM_GL_TEST=1 for the real hidden-context workspace save gate")
 	}
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-	if err := glfw.Init(); err != nil {
-		t.Fatal(err)
-	}
-	defer glfw.Terminate()
-	glfw.WindowHint(glfw.Visible, glfw.False)
-	glfw.WindowHint(glfw.ContextVersionMajor, 3)
-	glfw.WindowHint(glfw.ContextVersionMinor, 3)
-	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
-	window, err := glfw.CreateWindow(64, 64, "Workspace save verification", nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer window.Destroy()
-	window.MakeContextCurrent()
-	if err := gl.Init(); err != nil {
-		t.Fatal(err)
-	}
+	workspaceContext(t)
 	imguiContext := imgui.CreateContext(nil)
 	defer imguiContext.Destroy()
 
