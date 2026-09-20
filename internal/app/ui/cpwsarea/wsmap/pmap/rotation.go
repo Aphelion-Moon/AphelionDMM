@@ -16,15 +16,17 @@ func (p *PaneMap) rotateSelection(clockwise bool) {
 	if !p.canTransformSelection() {
 		return
 	}
-	if g := tools.Selected().(*tools.ToolGrab); g.Placing() {
-		transform := editing.PlacementRotateLeft
-		if clockwise {
-			transform = editing.PlacementRotateRight
-		}
-		_ = g.TransformPlacement(transform) // Errors remain visible in placement controls.
+	g := tools.Selected().(*tools.ToolGrab)
+	transform := editing.PlacementRotateLeft
+	if clockwise {
+		transform = editing.PlacementRotateRight
+	}
+	action := editing.RepeatTransform{Orientation: transform}
+	if g.Placing() {
+		_ = p.editor.TrackRepeatTransform(action, true, func() error { return g.TransformPlacement(transform) }) // Errors remain visible in placement controls.
 		return
 	}
-	if err := tools.Selected().(*tools.ToolGrab).Rotate(clockwise, p.editor.RotateSelection); err != nil {
+	if err := p.editor.TrackRepeatTransform(action, false, func() error { return g.Rotate(clockwise, p.editor.RotateSelection) }); err != nil {
 		util.ShowErrorDialog("Unable to rotate selection: " + err.Error())
 	}
 }

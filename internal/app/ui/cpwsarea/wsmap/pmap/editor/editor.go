@@ -41,6 +41,10 @@ type Editor struct {
 	selectionMoveGeneration uint64
 	selectionOutcome        func(bool)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - REPEAT TRANSFORM
+	repeatTransforms editing.TransformRepeat
+	repeatAccepted   func()
+	// APHELION EDIT ADDITION END
 
 	// APHELION EDIT ADDITION START - COLLABORATION
 	executor              executor.Executor

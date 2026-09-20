@@ -13,6 +13,9 @@ func (p *PaneMap) addShortcuts() {
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	p.addPasteShortcuts()
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - REPEAT TRANSFORM
+	p.addRepeatTransformShortcut()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - EDITOR SHORTCUTS
 	p.addSelectionNudgeShortcuts()
 	p.addSelectionMirrorShortcuts()

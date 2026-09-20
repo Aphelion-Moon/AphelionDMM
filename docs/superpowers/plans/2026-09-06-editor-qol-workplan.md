@@ -247,6 +247,12 @@ fences are separate checks.
 5. **Reusable stamps and repeated actions.** Prototype named selection stamps
    and repeat-last-transform after copy/paste identity and preview semantics are
    verified. Persist mechanical map data only; do not generate content or assets.
+   The [repeat-transform prototype](../../verification/2026-09-20-repeat-transform.md)
+   now exposes F4 and a toolbar action for current-selection rotation, mirroring
+   and recorded grid moves, plus floating paste orientation. Accepted-operation
+   ownership, rejection, undo/redo, custom bindings and input guards pass native
+   workspace checks. Named stamps, human acceptance and large-selection
+   qualification remain open.
 
 The comparison sources are the official
 [Tiled tile-editing manual](https://doc.mapeditor.org/en/stable/manual/editing-tile-layers/)

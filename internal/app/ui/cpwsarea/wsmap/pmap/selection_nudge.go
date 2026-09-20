@@ -44,19 +44,26 @@ func (p *PaneMap) addSelectionNudgeShortcuts() {
 }
 
 func (p *PaneMap) canNudgeSelection(shift util.Point) bool {
+	return p.canNudgeSelectionBy(p.selectionNudgeShift(shift))
+}
+
+func (p *PaneMap) canNudgeSelectionBy(shift util.Point) bool {
 	if !p.canRotateSelection() {
 		return false
 	}
-	shift = p.selectionNudgeShift(shift)
 	area := tools.Selected().(*tools.ToolGrab).Bounds().Plus(float32(shift.X), float32(shift.Y))
 	return area.X1 >= 1 && area.Y1 >= 1 && area.X2 <= float32(p.dmm.MaxX) && area.Y2 <= float32(p.dmm.MaxY)
 }
 
 func (p *PaneMap) nudgeSelection(shift util.Point) {
-	if !p.canNudgeSelection(shift) {
+	p.nudgeSelectionBy(p.selectionNudgeShift(shift))
+}
+
+func (p *PaneMap) nudgeSelectionBy(shift util.Point) {
+	if !p.canNudgeSelectionBy(shift) {
 		return
 	}
-	if err := tools.Selected().(*tools.ToolGrab).Nudge(p.selectionNudgeShift(shift)); err != nil {
+	if err := p.editor.TrackRepeatTransform(editing.RepeatTransform{Shift: shift}, false, func() error { return tools.Selected().(*tools.ToolGrab).Nudge(shift) }); err != nil {
 		util.ShowErrorDialog("Unable to move selection: " + err.Error())
 	}
 }

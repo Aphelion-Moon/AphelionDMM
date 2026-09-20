@@ -146,6 +146,7 @@ func (p *PaneMap) showToolsPanel() {
 		if !tools.Selected().(*tools.ToolGrab).Placing() {
 			p.showSelectionNudgeButtons()
 		}
+		p.showRepeatTransformButton()
 	}
 	// APHELION EDIT ADDITION END
 }

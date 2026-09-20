@@ -270,6 +270,7 @@ func (e *Editor) BeginTileChange(point util.Point) {
 func (e *Editor) commitOperation(commitMessage string) {
 	defer uistage.Begin(uistage.Commit).End()
 	selectionOutcome := e.selectionOutcome
+	repeatAccepted := e.repeatAccepted
 	if len(e.pendingChanges) == 0 {
 		selectionApplied(selectionOutcome, false)
 		return
@@ -326,6 +327,9 @@ func (e *Editor) commitOperation(commitMessage string) {
 	acceptedChanges := model.CloneOperation(operation).Changes
 	activeLevel := e.pMap.ActiveLevel()
 	e.submitOperation(execution, operation, func(accepted model.AcceptedOperation) {
+		if repeatAccepted != nil {
+			repeatAccepted()
+		}
 		e.syncFromExecutor(execution, false, activeLevel, coords)
 		selectionApplied(selectionOutcome, true)
 		e.pushAcceptedCommand(execution, commitMessage, accepted, acceptedChanges, activeLevel, coords, selectionOutcome)
@@ -533,6 +537,7 @@ func (e *Editor) setAuthoritative(snapshot model.Snapshot) {
 }
 
 func (e *Editor) resetAttachment() {
+	e.repeatTransforms.Clear()
 	e.mapViewGeneration++
 	// An attachment reset may follow installation of a replacement snapshot.
 	// Drop old preview ownership without restoring it over that new authority.

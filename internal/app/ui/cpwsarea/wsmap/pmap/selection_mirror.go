@@ -22,15 +22,17 @@ func (p *PaneMap) mirrorSelection(axis editing.MirrorAxis) {
 	if !p.canTransformSelection() {
 		return
 	}
-	if g := tools.Selected().(*tools.ToolGrab); g.Placing() {
-		transform := editing.PlacementMirrorHorizontal
-		if axis == editing.MirrorVertical {
-			transform = editing.PlacementMirrorVertical
-		}
-		_ = g.TransformPlacement(transform)
+	g := tools.Selected().(*tools.ToolGrab)
+	transform := editing.PlacementMirrorHorizontal
+	if axis == editing.MirrorVertical {
+		transform = editing.PlacementMirrorVertical
+	}
+	action := editing.RepeatTransform{Orientation: transform}
+	if g.Placing() {
+		_ = p.editor.TrackRepeatTransform(action, true, func() error { return g.TransformPlacement(transform) })
 		return
 	}
-	if err := tools.Selected().(*tools.ToolGrab).Mirror(axis, p.editor.MirrorSelection); err != nil {
+	if err := p.editor.TrackRepeatTransform(action, false, func() error { return g.Mirror(axis, p.editor.MirrorSelection) }); err != nil {
 		util.ShowErrorDialog("Unable to mirror selection: " + err.Error())
 	}
 }
