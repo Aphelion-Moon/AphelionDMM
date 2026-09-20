@@ -164,6 +164,10 @@ fences are separate checks.
    transferred press can start another gesture. Native two-map checks cover
    source/destination histories and fresh destination input; broader temporary
    tool and focus combinations remain open.
+   The [held-tool ownership repair](../../verification/2026-09-20-held-tool-ownership.md)
+   fixes stale restoration, overlapping S/D/R releases and loss of a different
+   explicit tool choice. Native mouse checks preserve the active-drag input guard
+   and committed history. Broader cross-pane/OS interactions remain open.
    Separate background restoration during one gesture from committed history;
    never restore stale copied tiles over a newer remote edit.
    The tile-commit fallback and local resize failure/undo paths are repaired.

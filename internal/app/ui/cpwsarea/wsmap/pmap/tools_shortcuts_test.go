@@ -107,3 +107,92 @@ func TestTemporaryToolsDoNotStealTextInput(t *testing.T) {
 		imgui.EndFrame()
 	}
 }
+
+func TestTemporaryToolReleaseOwnership(t *testing.T) {
+	type step struct {
+		keys             []glfw.Key
+		selectTool, want string
+	}
+	for _, scenario := range []struct {
+		name  string
+		steps []step
+	}{
+		{"already_selected_tool", []step{
+			{keys: []glfw.Key{glfw.KeyD}, want: tools.TNDelete},
+			{want: tools.TNGrab},
+			{selectTool: tools.TNPick, keys: []glfw.Key{glfw.KeyS}, want: tools.TNPick},
+			{want: tools.TNPick},
+		}},
+		{"overlapping_holds", []step{
+			{keys: []glfw.Key{glfw.KeyS}, want: tools.TNPick},
+			{keys: []glfw.Key{glfw.KeyS, glfw.KeyD}, want: tools.TNPick},
+			{keys: []glfw.Key{glfw.KeyD}, want: tools.TNDelete},
+			{want: tools.TNGrab},
+		}},
+		{"explicit_selection", []step{
+			{keys: []glfw.Key{glfw.KeyD}, want: tools.TNDelete},
+			{selectTool: tools.TNMove, keys: []glfw.Key{glfw.KeyD}, want: tools.TNMove},
+			{want: tools.TNMove},
+		}},
+		{"shortcut_release", []step{
+			{keys: []glfw.Key{glfw.KeyLeftControl, glfw.KeyS}, want: tools.TNGrab},
+			{keys: []glfw.Key{glfw.KeyS}, want: tools.TNGrab},
+			{want: tools.TNGrab},
+		}},
+		{"three_holds", []step{
+			{keys: []glfw.Key{glfw.KeyR}, want: tools.TNReplace},
+			{keys: []glfw.Key{glfw.KeyR, glfw.KeyD}, want: tools.TNDelete},
+			{keys: []glfw.Key{glfw.KeyR, glfw.KeyD, glfw.KeyS}, want: tools.TNPick},
+			{keys: []glfw.Key{glfw.KeyR, glfw.KeyS}, want: tools.TNPick},
+			{keys: []glfw.Key{glfw.KeyR}, want: tools.TNReplace},
+			{want: tools.TNGrab},
+		}},
+		{"release_during_shortcut", []step{
+			{keys: []glfw.Key{glfw.KeyD}, want: tools.TNDelete},
+			{keys: []glfw.Key{glfw.KeyLeftControl}, want: tools.TNDelete},
+			{want: tools.TNGrab},
+		}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			runtime.LockOSThread()
+			defer runtime.UnlockOSThread()
+			ctx := imgui.CreateContext(nil)
+			defer ctx.Destroy()
+			io := imgui.CurrentIO()
+			io.SetIniFilename("")
+			io.SetDisplaySize(imgui.Vec2{X: 640, Y: 480})
+			io.Fonts().TextureDataRGBA32()
+			previous := tools.Selected().Name()
+			defer tools.SetSelected(previous)
+			keys := []glfw.Key{glfw.KeyS, glfw.KeyD, glfw.KeyR, glfw.KeyLeftControl}
+			defer func() {
+				for _, key := range keys {
+					io.KeyRelease(int(key))
+				}
+				shortcut.BeginFrame()
+				imgui.NewFrame()
+				processTempToolsMode()
+				imgui.EndFrame()
+			}()
+			tools.SetSelected(tools.TNGrab)
+			for i, s := range scenario.steps {
+				for _, key := range keys {
+					io.KeyRelease(int(key))
+				}
+				for _, key := range s.keys {
+					io.KeyPress(int(key))
+				}
+				if s.selectTool != "" {
+					tools.SetSelected(s.selectTool)
+				}
+				shortcut.BeginFrame()
+				imgui.NewFrame()
+				processTempToolsMode()
+				imgui.EndFrame()
+				if got := tools.Selected().Name(); got != s.want {
+					t.Fatalf("step %d: selected %s, want %s", i, got, s.want)
+				}
+			}
+		})
+	}
+}

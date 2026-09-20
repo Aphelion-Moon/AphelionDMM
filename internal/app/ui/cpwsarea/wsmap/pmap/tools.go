@@ -1,6 +1,9 @@
 package pmap
 
 import (
+	// APHELION EDIT ADDITION START - HELD TOOL OWNERSHIP
+	"sdmm/internal/aphelion/hotkeys"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
 	"sdmm/internal/app/ui/shortcut"
@@ -18,6 +21,7 @@ func init() {
 	})
 }
 
+/* APHELION EDIT REMOVAL START - HELD TOOL OWNERSHIP
 var (
 	tmpToolIsInTemporalMode bool
 	tmpToolLastSelectedName string
@@ -85,6 +89,36 @@ func processTempToolMode(key, altKey int, modeName string) bool {
 
 	return isKeyDown
 }
+APHELION EDIT REMOVAL END */
+
+// APHELION EDIT ADDITION START - HELD TOOL OWNERSHIP
+var temporaryTools hotkeys.HeldTools
+
+func processTempToolsMode() {
+	io := imgui.CurrentIO()
+	blocked := shortcut.BackgroundInputBlocked() || imgui.IsAnyItemActive() || io.WantTextInput() ||
+		imgui.IsKeyDown(int(glfw.KeyLeftControl)) || imgui.IsKeyDown(int(glfw.KeyRightControl)) ||
+		imgui.IsKeyDown(int(glfw.KeyLeftSuper)) || imgui.IsKeyDown(int(glfw.KeyRightSuper))
+	p := activePane
+	if p == nil {
+		p = lastActivePane
+	}
+	visible := p == nil || p.canvasControl.Active() || p.shortcuts.Visible()
+	// Preserve the inherited S, D, R priority, but observe all three keys on
+	// every frame so releasing one can reveal another admitted held key.
+	inputs := []hotkeys.HeldToolInput{
+		{Name: tools.TNPick, Down: visible && imgui.IsKeyDown(int(glfw.KeyS)), Pressed: visible && imgui.IsKeyPressedV(int(glfw.KeyS), false)},
+		{Name: tools.TNDelete, Down: visible && imgui.IsKeyDown(int(glfw.KeyD)), Pressed: visible && imgui.IsKeyPressedV(int(glfw.KeyD), false)},
+		{Name: tools.TNReplace, Down: visible && imgui.IsKeyDown(int(glfw.KeyR)), Pressed: visible && imgui.IsKeyPressedV(int(glfw.KeyR), false)},
+	}
+	selected := tools.Selected().Name()
+	if next := temporaryTools.Update(selected, blocked, inputs); next != selected {
+		log.Print("selecting held tool:", next)
+		tools.SetSelected(next)
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func selectAddTool() {
 	tools.SetSelected(tools.TNAdd)
