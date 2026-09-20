@@ -111,7 +111,14 @@ func (e *Editor) TileDeleteSelected() {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	for _, tile := range tools.SelectedTiles() {
+	// APHELION EDIT ADDITION START - BRUSH CAPTURE
+	targets := tools.SelectedTiles()
+	if !e.TryBeginTileChange(targets...) {
+		return
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - BRUSH CAPTURE - ORIGINAL: for _, tile := range tools.SelectedTiles() {
+	for _, tile := range targets {
 		e.TileDelete(tile)
 	}
 }
@@ -124,8 +131,10 @@ func (e *Editor) TileDelete(coord util.Point) {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	// APHELION EDIT ADDITION START - COLLABORATION
-	e.BeginTileChange(coord)
+	// APHELION EDIT ADDITION START - BRUSH CAPTURE
+	if !e.TryBeginTileChange(coord) {
+		return
+	}
 	// APHELION EDIT ADDITION END
 	tile := e.dmm.GetTile(coord)
 	e.tileDelete(tile)

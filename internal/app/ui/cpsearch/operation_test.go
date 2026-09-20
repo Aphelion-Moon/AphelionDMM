@@ -96,8 +96,12 @@ func searchOperationFixture(t *testing.T) (*Search, *searchOperationApp) {
 }
 
 func searchOperationFixtureLevels(t *testing.T, levels int) (*Search, *searchOperationApp) {
+	return searchOperationFixtureSize(t, 3, 1, levels)
+}
+
+func searchOperationFixtureSize(t *testing.T, cells, variants, levels int) (*Search, *searchOperationApp) {
 	t.Helper()
-	s := searchFixture(t, 3, 1)
+	s := searchFixture(t, cells, variants)
 	objects := make(map[string]*dmenv.Object)
 	for _, path := range []string{"/world", "/area/test", "/turf/test", "/obj/search", "/obj/replacement"} {
 		vars := &dmvars.MutableVariables{}

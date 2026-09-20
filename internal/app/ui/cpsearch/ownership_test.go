@@ -39,10 +39,12 @@ func TestSearchActionsAfterMapClose(t *testing.T) {
 
 func TestSearchChangedRowIsRefreshedWithoutRetargeting(t *testing.T) {
 	searchUI(t)
-	s := searchFixture(t, 3, 1)
+	s, _ := searchOperationFixture(t)
 	s.SearchByPath("/obj/search")
 	ed := s.app.CurrentEditor()
 	ed.InstanceReplace(s.results()[0], dmmprefab.New(500, "/obj/changed", dmvars.FromParent(nil)))
+	ed.CommitOperation("Change fixture row")
+	searchAuthority(t, ed)
 	s.selectInstance(0)
 	if len(ed.FlickInstance()) != 0 {
 		t.Error("stale row action retargeted the refreshed list")
@@ -57,13 +59,15 @@ func TestSearchChangedRowIsRefreshedWithoutRetargeting(t *testing.T) {
 }
 
 func TestSearchAutomaticRefreshPreservesFilterBounds(t *testing.T) {
-	s := searchFixture(t, 5, 1)
+	s, _ := searchOperationFixtureSize(t, 5, 1, 1)
 	s.SearchByPath("/obj/search")
 	bounds := util.Bounds{X1: 2, Y1: 1, X2: 3, Y2: 1}
 	s.filterActive, s.filterBound = true, bounds
 	s.updateFilteredResults()
 	ed := s.app.CurrentEditor()
 	ed.InstanceReplace(s.results()[0], dmmprefab.New(500, "/obj/changed", dmvars.FromParent(nil)))
+	ed.CommitOperation("Change fixture row")
+	searchAuthority(t, ed)
 	if !s.ensureCurrent() || s.filterBound != bounds || !s.filterActive {
 		t.Fatal("automatic refresh discarded the current-map filter")
 	}

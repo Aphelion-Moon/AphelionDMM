@@ -70,8 +70,10 @@ func (tool) OnDeselect() {
 // Adds object above and tile with a replacement.
 // Mirrors that behaviour in the alt mode.
 func (t *tool) basicPrefabAdd(tile *dmmap.Tile, prefab *dmmprefab.Prefab) {
-	// APHELION EDIT ADDITION START - COLLABORATION
-	ed.BeginTileChange(tile.Coord)
+	// APHELION EDIT ADDITION START - BRUSH CAPTURE
+	if !ed.TryBeginTileChange(tile.Coord) {
+		return
+	}
 	// APHELION EDIT ADDITION END
 	if !t.altBehaviour {
 		if dm.IsPath(prefab.Path(), "/area") {

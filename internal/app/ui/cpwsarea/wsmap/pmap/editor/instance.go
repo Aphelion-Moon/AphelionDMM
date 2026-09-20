@@ -81,8 +81,10 @@ func (e *Editor) InstanceDelete(i *dmminstance.Instance) {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	// APHELION EDIT ADDITION START - COLLABORATION
-	e.BeginTileChange(i.Coord())
+	// APHELION EDIT ADDITION START - BRUSH CAPTURE
+	if !e.TryBeginTileChange(i.Coord()) {
+		return
+	}
 	// APHELION EDIT ADDITION END
 	tile := e.dmm.GetTile(i.Coord())
 	tile.InstancesRemoveByInstance(i)
@@ -114,8 +116,10 @@ func (e *Editor) InstanceReplace(i *dmminstance.Instance, prefab *dmmprefab.Pref
 		return
 	}
 	// APHELION EDIT ADDITION END
-	// APHELION EDIT ADDITION START - COLLABORATION
-	e.BeginTileChange(i.Coord())
+	// APHELION EDIT ADDITION START - BRUSH CAPTURE
+	if !e.TryBeginTileChange(i.Coord()) {
+		return
+	}
 	// APHELION EDIT ADDITION END
 	tile := e.dmm.GetTile(i.Coord())
 

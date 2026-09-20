@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
@@ -29,6 +30,65 @@ func captureEditor(t *testing.T) *Editor {
 	e.initializeCollaboration()
 	e.app = &noopReportingApp{editorTestApp: e.app.(*editorTestApp)}
 	return e
+}
+
+func TestBrushBatchCaptureReleasesOnlyNewEntries(t *testing.T) {
+	for _, existing := range []bool{false, true} {
+		name := "empty journal"
+		if existing {
+			name = "earlier edit"
+		}
+		t.Run(name, func(t *testing.T) {
+			e := captureEditor(t)
+			authority := e.executor
+			beforeAuthority, err := authority.Snapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			owned := util.Point{X: 3, Y: 1, Z: 1}
+			if existing {
+				instance := e.dmm.GetTile(owned).Instances()[2]
+				prefab := instance.Prefab()
+				e.InstanceReplace(instance, dmmprefab.New(dmmprefab.IdNone, prefab.Path(), dmvars.Set(prefab.Vars(), "dir", "4")))
+			}
+			fault := util.Point{X: 4, Y: 2, Z: 1}
+			e.dmm.GetTile(fault).Instances()[2].SetStableID("invalid-brush-batch")
+			before := e.dmm.Copy()
+			first := util.Point{X: 1, Y: 1, Z: 1}
+			if e.TryBeginTileChange(owned, first, first, fault) {
+				t.Fatal("invalid batch captured successfully")
+			}
+			if !reflect.DeepEqual(e.dmm, &before) {
+				t.Fatal("preflight changed map contents")
+			}
+			wantEntries := 0
+			if existing {
+				wantEntries = 1
+			}
+			if len(e.pendingChanges) != wantEntries {
+				t.Fatal("failed batch left new captures or discarded old ones")
+			}
+			if existing {
+				if _, ok := e.pendingChanges[model.Coord{X: owned.X, Y: owned.Y, Z: owned.Z}]; !ok {
+					t.Fatal("failed batch released another edit's capture")
+				}
+				if err := e.AttachCollaborationExecutor(authority); err == nil {
+					t.Fatal("earlier intent lost its replacement guard")
+				}
+			} else {
+				if _, err := e.SaveSnapshot(context.Background()); err == nil {
+					t.Fatal("failed capture lost the Save guard")
+				}
+				if err := e.AttachCollaborationExecutor(authority); err != nil {
+					t.Fatal("unused captures blocked validated recovery", err)
+				}
+				recovered, err := e.SaveSnapshot(context.Background())
+				if err != nil || !reflect.DeepEqual(recovered, beforeAuthority) {
+					t.Fatal("recovery adopted invalid display contents", err)
+				}
+			}
+		})
+	}
 }
 
 func TestSelectionCaptureFailureAllowsValidatedRecovery(t *testing.T) {

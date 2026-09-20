@@ -30,17 +30,23 @@ import (
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
+	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 )
 
 type mouseNetworkApp struct {
 	wsmap.App
-	environment *dmenv.Dme
-	commands    *command.Storage
-	queued      chan struct{}
-	mouse       func(uint, uint)
-	errors      []error
+	environment    *dmenv.Dme
+	commands       *command.Storage
+	queued         chan struct{}
+	mouse          func(uint, uint)
+	errors         []error
+	selectedPrefab *dmmprefab.Prefab
+}
+
+func (a *mouseNetworkApp) SelectedPrefab() (*dmmprefab.Prefab, bool) {
+	return a.selectedPrefab, a.selectedPrefab != nil
 }
 
 func (a *mouseNetworkApp) LoadedEnvironment() *dmenv.Dme    { return a.environment }

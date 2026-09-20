@@ -60,7 +60,7 @@ type editor interface {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - INSTANCE MOVE CAPTURE
 	CanStartMapEdit() bool
-	TryBeginTileChange(util.Point) bool
+	TryBeginTileChange(...util.Point) bool
 	// APHELION EDIT ADDITION END
 
 	UpdateCanvasByCoords([]util.Point)

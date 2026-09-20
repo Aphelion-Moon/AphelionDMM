@@ -7,7 +7,6 @@ import (
 	"github.com/SpaiR/imgui-go"
 	mapsearch "sdmm/internal/aphelion/search"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/editor"
-	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
@@ -58,17 +57,9 @@ func TestSearchLevelControls(t *testing.T) {
 }
 
 func TestSearchLevelFilterCombinesBoundsAndSurvivesRefresh(t *testing.T) {
-	s := searchFixture(t, 2, 2)
+	s, app := searchOperationFixtureSize(t, 2, 2, 3)
 	e := s.app.CurrentEditor()
 	m := e.Dmm()
-	for z := 2; z <= 3; z++ {
-		for x := 1; x <= 2; x++ {
-			tile := &dmmap.Tile{Coord: util.Point{X: x, Y: 1, Z: z}}
-			tile.InstancesSet(m.Tiles[x-1].Instances().Prefabs())
-			m.Tiles = append(m.Tiles, tile)
-		}
-	}
-	m.MaxZ = 3
 	s.SearchByPath("/obj/search")
 	s.filterActive = true
 	s.filterLevels = mapsearch.LevelRange{First: 2, Last: 3}
@@ -88,20 +79,23 @@ func TestSearchLevelFilterCombinesBoundsAndSurvivesRefresh(t *testing.T) {
 		t.Fatal("XY/Z intersection changed membership or order")
 	}
 	e.InstanceReplace(s.results()[0], dmmprefab.New(500, "/obj/changed", dmvars.FromParent(nil)))
+	e.CommitOperation("Change fixture row")
+	searchAuthority(t, e)
 	s.Sync()
 	if !s.filterActive || s.filterLevels != (mapsearch.LevelRange{First: 2, Last: 3}) || len(s.results()) != 1 || s.results()[0].Coord().Z != 3 {
 		t.Fatal("same-map refresh lost the Z filter")
 	}
 	// A shrink must not clamp Z=3 to Z=1 and widen a later bulk mutation.
 	s.filterLevels = mapsearch.LevelRange{First: 3, Last: 3}
-	m.Tiles, m.MaxZ = m.Tiles[:2], 1
-	e.BeginTileChange(util.Point{X: 1, Y: 1, Z: 1})
+	if err := e.ResizeMap(2, 1, 1); err != nil {
+		t.Fatal(err)
+	}
 	s.Sync()
 	if s.filterLevels.First != 3 || len(s.results()) != 0 {
 		t.Fatal("shrink broadened the requested levels")
 	}
 	other := m.Copy()
-	s.app.(*searchTestApp).current = editor.New(s.app.(*searchTestApp), nil, &other)
+	app.current = editor.New(app, nil, &other)
 	s.ensureCurrent()
 	if !s.filterLevels.IsAll() || !s.filterBound.IsEmpty() || len(s.results()) != 2 {
 		t.Fatal("map switch retained another map's filter")

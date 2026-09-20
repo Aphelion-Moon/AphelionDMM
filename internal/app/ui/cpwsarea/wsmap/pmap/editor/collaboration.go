@@ -212,15 +212,30 @@ func (e *Editor) CanChangeMapSize() bool {
 	return local && e.history.Valid() && e.collaborationErr == nil && e.selectionMove == nil && len(e.pendingChanges) == 0 && len(e.unresolvedSubmissions) == 0
 }
 
-// TryBeginTileChange lets incremental tool gestures refuse display mutation
-// unless a before-state is available on the current, editable attachment.
-func (e *Editor) TryBeginTileChange(point util.Point) bool {
-	if e.mapViewClosed || !e.history.Valid() || e.HasPastePlacement() || e.selectionMove != nil {
+// TryBeginTileChange captures every target before a tool mutates the display.
+// A failed batch releases only its newly acquired captures, retaining earlier
+// gesture state and the capture fault that guards Save.
+func (e *Editor) TryBeginTileChange(points ...util.Point) bool {
+	if e.mapViewClosed || !e.history.Valid() || e.HasPastePlacement() {
 		return false
 	}
-	e.BeginTileChange(point)
-	_, captured := e.pendingChanges[model.Coord{X: point.X, Y: point.Y, Z: point.Z}]
-	return e.executor != nil && e.collaborationErr == nil && captured
+	acquired := make([]model.Coord, 0, len(points))
+	for _, point := range points {
+		coord := model.Coord{X: point.X, Y: point.Y, Z: point.Z}
+		_, existed := e.pendingChanges[coord]
+		e.BeginTileChange(point)
+		_, captured := e.pendingChanges[coord]
+		if e.executor == nil || e.collaborationErr != nil || !captured {
+			for _, key := range acquired {
+				delete(e.pendingChanges, key)
+			}
+			return false
+		}
+		if !existed {
+			acquired = append(acquired, coord)
+		}
+	}
+	return e.executor != nil && e.collaborationErr == nil
 }
 
 func (e *Editor) BeginTileChange(point util.Point) {

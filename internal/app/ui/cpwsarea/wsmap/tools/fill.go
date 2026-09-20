@@ -72,6 +72,9 @@ func (t *ToolFill) onStop(util.Point) {
 
 	// Fill the area.
 	if prefab, ok := ed.SelectedPrefab(); ok {
+		// APHELION EDIT ADDITION START - BRUSH CAPTURE
+		var targets []util.Point
+		// APHELION EDIT ADDITION END
 		fillTile := func(x, y int) {
 			coord := util.Point{X: x, Y: y, Z: t.start.Z}
 			tile := ed.Dmm().GetTile(coord)
@@ -83,17 +86,27 @@ func (t *ToolFill) onStop(util.Point) {
 					if y > t.fillArea.Y1 && y < t.fillArea.Y2 && x > t.fillArea.X1 && x < t.fillArea.X2 {
 						continue
 					}
-					fillTile(int(x), int(y))
+					// APHELION EDIT CHANGE - BRUSH CAPTURE - ORIGINAL: fillTile(int(x), int(y))
+					targets = append(targets, util.Point{X: int(x), Y: int(y), Z: t.start.Z})
 				}
 			}
 		} else {
 			for x := t.fillArea.X1; x <= t.fillArea.X2; x++ {
 				for y := t.fillArea.Y1; y <= t.fillArea.Y2; y++ {
-					fillTile(int(x), int(y))
+					// APHELION EDIT CHANGE - BRUSH CAPTURE - ORIGINAL: fillTile(int(x), int(y))
+					targets = append(targets, util.Point{X: int(x), Y: int(y), Z: t.start.Z})
 				}
 			}
 		}
 
+		// APHELION EDIT ADDITION START - BRUSH CAPTURE
+		// Fill is one action: a later invalid tile must not leave a partial fill.
+		if ed.TryBeginTileChange(targets...) {
+			for _, coord := range targets {
+				fillTile(coord.X, coord.Y)
+			}
+		}
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT CHANGE - COLLABORATION - ORIGINAL: go ed.CommitChanges("Fill Atoms")
 		ed.CommitOperation("Fill Atoms")
 	}
