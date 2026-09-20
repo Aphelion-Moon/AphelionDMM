@@ -104,7 +104,14 @@ for the precise measurement boundaries and remaining campaign gates.
   `f9e3a4ac79e06e22910adca4d6828528e55bd59d5d3ddd4c3b409d6cb76c1d8c`).
   The DME is 644,567 bytes, SHA-256
   `0a0f65cc07db67423a4a63021ee026ca98baa256b787548abfaac0a325c296e2`.
-  Counts, round-trip checks and representative performance remain to be measured.
+  The [IceBox representative check](../../verification/2026-09-20-icebox-roundtrip.md)
+  now inventories 195,075 cells on three levels, 431,102 placed prefabs, 3,003
+  types and 15,364 explicit variable occurrences. Five fresh-process samples
+  pass native DME parsing and exact DMM/TGM collaboration round trips with
+  identical hashes. Baseline parse/import/atomic-save timings are recorded;
+  interactive, cold-cache, rendering and resource checks remain open. Full MCP
+  inspection is blocked because `dm_map_info` returns about 2.47 MB against its
+  1 MiB cap, even for the original map, with no pagination input available.
 - [ ] Add UI-thread stage timings around gesture capture, operation dispatch,
   projection application, `refreshCollaborationView`, bucket rebuild and next
   displayed frame. Instrument native parser transfer, icon decoding and upload
