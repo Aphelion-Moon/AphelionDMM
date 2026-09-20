@@ -422,6 +422,10 @@ bookkeeping scales with new captured cells and should be included in stage costs
   large laptop variation observed in the initial baseline.
 - [ ] Run the maintained `task verify`, affected race and real database gates,
   plus shipped-entry-point smoke and full desktop/service scenarios.
+  The [September 20 PostgreSQL gate](../../verification/2026-09-20-postgresql-gate.md)
+  passes all 12 package tests with race instrumentation and no skips against an
+  isolated PostgreSQL 17.11 cluster, including exact-hash logical restore. Full
+  desktop/service scenarios and deployed database qualification remain open.
 - [ ] Publish both positive and negative results, measured limits, and remaining
   unrun domains. Obtain named-human desktop acceptance and separate hosted CI /
   deployment evidence. Leave Git operations and protected infrastructure under
