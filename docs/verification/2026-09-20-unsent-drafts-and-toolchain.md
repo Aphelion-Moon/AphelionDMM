@@ -60,6 +60,10 @@ not establish that the warning is harmless.
 
 ## Remaining boundaries
 
+The subsequent [delivery and interrupted-draft pass](2026-09-20-delivery-limits-and-interrupted-drafts.md)
+qualifies large engine actions, reply headroom, lower server limits and recoverable
+interruption. Its remaining-boundaries section supersedes those items below.
+
 - Run `TestSearchOversizedSubmissionRetainsDraftAndAllowsRetry` with
   `APHELIONDMM_GL_TEST=1` on an OpenGL-capable Windows session, then complete
   named-human desktop acceptance. No driver or live-service changes were made.

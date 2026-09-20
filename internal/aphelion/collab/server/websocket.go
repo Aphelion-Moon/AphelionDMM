@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -463,6 +464,9 @@ func (service *Service) handleClientMessage(ctx context.Context, connection *web
 }
 
 func rejectionCode(err error, fallback string) string {
+	if errors.Is(err, errDeliveryLimit) {
+		return "limit_exceeded"
+	}
 	if code := engine.CodeOf(err); code != "" {
 		return string(code)
 	}
@@ -510,16 +514,40 @@ func headerContains(values []string, target string) bool {
 }
 
 func writeServerEnvelope(ctx context.Context, connection *websocket.Conn, envelope protocol.ServerEnvelope, payload any) error {
-	payloadJSON, err := json.Marshal(payload)
+	data, err := marshalServerEnvelope(envelope, payload)
 	if err != nil {
 		return err
 	}
-	envelope.Payload = payloadJSON
-	data, err := json.Marshal(envelope)
-	if err != nil {
-		return err
+	if len(data) > protocol.MaxMessageBytes {
+		// Conflict details are optional. Keep the operation ID and authoritative
+		// revision/hash intact so clients can resolve their pending draft, even
+		// when the current tiles are much larger than the rejected request.
+		if rejection, ok := payload.(protocol.OperationRejectedPayload); ok && envelope.Type == protocol.ServerOperationRejected {
+			rejection.AuthoritativeValues = nil
+			data, err = marshalServerEnvelope(envelope, rejection)
+			if err != nil {
+				return err
+			}
+		}
+		if len(data) > protocol.MaxMessageBytes {
+			return fmt.Errorf("server message is %d bytes, maximum is %d", len(data), protocol.MaxMessageBytes)
+		}
 	}
 	writeContext, cancel := context.WithTimeout(ctx, webSocketIOTimeout)
 	defer cancel()
 	return connection.Write(writeContext, websocket.MessageText, data)
+}
+
+func marshalServerEnvelope(envelope protocol.ServerEnvelope, payload any) ([]byte, error) {
+	// Reply prefixes can push a valid client ID past the wire limit. Keep the
+	// normal IDs unchanged and use a stable bounded identity for long replies.
+	if len(envelope.MessageID) > protocol.MaxIdentifierBytes {
+		envelope.MessageID = fmt.Sprintf("response-%x", sha256.Sum256([]byte(envelope.MessageID)))
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	envelope.Payload = payloadJSON
+	return json.Marshal(envelope)
 }

@@ -1,5 +1,9 @@
 # ADMM performance follow-up workplan
 
+Latest continuation: [delivery limits and interrupted drafts](../../verification/2026-09-20-delivery-limits-and-interrupted-drafts.md)
+qualifies the server tile/wire boundaries and recoverable queued intent. It does
+not close large desktop action UX or establish performance improvements.
+
 September 20: [unsent-draft retention and toolchain evidence](../../verification/2026-09-20-unsent-drafts-and-toolchain.md)
 closes reproduced pre-submission intent loss. Large-action, desktop, hosting and
 performance qualification remain open; the stopping-point text below is historical.

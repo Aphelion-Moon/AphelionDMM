@@ -100,7 +100,7 @@ func (panel *Panel) Process(int32) {
 		imgui.Text("Conflicts")
 		for index, conflict := range view.Conflicts {
 			imgui.TextWrapped(view.ConflictSummaries[index])
-			imgui.TextDisabled(fmt.Sprintf("Rejected at revision %d", conflict.Revision))
+			imgui.TextDisabled(fmt.Sprintf("Recorded at revision %d", conflict.Revision))
 			panel.renderConflictValues(conflict, index)
 			buttonSuffix := "##conflict-" + strconv.Itoa(index)
 			w.Button("Refresh"+buttonSuffix, func() { panel.app.DoResolveCollaborationConflict(conflict.OperationID, ConflictActionRefresh) }).Build()

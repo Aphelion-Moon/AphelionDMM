@@ -17,7 +17,10 @@ var (
 	ErrExecutorTerminated = errors.New("collaboration network executor was terminated")
 )
 
-const maxRetainedConflicts = 100
+const (
+	maxRetainedConflicts        = 100
+	conflictDeliveryUnconfirmed = "delivery_unconfirmed"
+)
 
 type operationResult struct {
 	accepted model.AcceptedOperation
@@ -199,7 +202,8 @@ func (network *NetworkExecutor) Conflicts() []Conflict {
 	return conflicts
 }
 
-// Suspend rolls back unacknowledged operations while retaining acknowledged state for reconnect.
+// Suspend rolls back speculation and retains unacknowledged intent for explicit
+// recovery. A queued operation may already be durable; never resend it here.
 func (network *NetworkExecutor) Suspend(cause error) {
 	if cause == nil {
 		cause = ErrTransportNotConnected
@@ -214,6 +218,17 @@ func (network *NetworkExecutor) suspendLocked(cause error) {
 		return
 	}
 	network.suspended = cause
+	snapshot := network.projection.Acknowledged
+	if hash, err := snapshot.Hash(); err == nil {
+		for _, operation := range network.projection.Pending {
+			network.retainConflictLocked(Conflict{
+				OperationID: operation.OperationID, Draft: operation,
+				Code:     conflictDeliveryUnconfirmed,
+				Message:  "Connection ended before acknowledgement. This edit may already have been applied; reconnect before deciding whether to rebuild it.",
+				Revision: snapshot.Revision, MapHash: hash,
+			})
+		}
+	}
 	for operationID, waiter := range network.pending {
 		delete(network.pending, operationID)
 		waiter <- operationResult{err: cause}
@@ -278,7 +293,8 @@ func (network *NetworkExecutor) ReplaceAcknowledgedSnapshot(ctx context.Context,
 		return nil
 	}
 	network.projection = NewProjection(snapshot)
-	network.conflicts = nil
+	// Snapshot fallback carries no operation IDs. Keep unresolved drafts; their
+	// rebuild path compares intended values with this fresh authority instead.
 	network.publishLocked()
 	return nil
 }
@@ -408,6 +424,12 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 		network.projection = projection
 		network.accepted[payload.Operation.OperationID] = model.CloneAcceptedOperation(payload.Operation)
 		network.acceptedHashes[payload.Operation.OperationID] = payload.MapHash
+		if index, found := network.conflictLocked(payload.Operation.OperationID); found {
+			conflict := network.conflicts[index]
+			if conflict.Code == conflictDeliveryUnconfirmed && model.SameOperation(conflict.Draft, payload.Operation.Operation) {
+				network.conflicts = append(network.conflicts[:index], network.conflicts[index+1:]...)
+			}
+		}
 		if waiter, exists := network.pending[payload.Operation.OperationID]; exists {
 			delete(network.pending, payload.Operation.OperationID)
 			waiter <- operationResult{accepted: model.CloneAcceptedOperation(payload.Operation)}

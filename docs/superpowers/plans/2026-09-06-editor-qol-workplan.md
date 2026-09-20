@@ -2,6 +2,10 @@
 
 Baseline: commit `052e1acb02b790641d63466de40c91d56028383b`.
 
+Latest continuation: [delivery limits and interrupted drafts](../../verification/2026-09-20-delivery-limits-and-interrupted-drafts.md)
+records large-action, duplicate/undo/replay, and recoverable interruption evidence.
+Desktop acceptance and wider unchecked work remain open.
+
 September 20 continuation from committed `f243e913`: local network submission
 failures now retain drafts, with actual Search and WebSocket regressions. See
 [current evidence and blockers](../../verification/2026-09-20-unsent-drafts-and-toolchain.md).

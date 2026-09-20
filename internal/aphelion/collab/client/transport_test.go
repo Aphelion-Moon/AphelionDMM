@@ -168,7 +168,12 @@ func TestCollaborationURLRequiresTLSOutsideLoopback(t *testing.T) {
 
 func startClientTestService(t *testing.T) (string, string, string, model.Snapshot, func()) {
 	t.Helper()
-	service := server.NewService(server.ServiceConfig{AllowedOrigins: []string{"http://127.0.0.1"}})
+	return startClientTestServiceWithConfig(t, server.ServiceConfig{AllowedOrigins: []string{"http://127.0.0.1"}})
+}
+
+func startClientTestServiceWithConfig(t *testing.T, config server.ServiceConfig) (string, string, string, model.Snapshot, func()) {
+	t.Helper()
+	service := server.NewService(config)
 	launchToken, err := service.NewLaunchToken()
 	if err != nil {
 		t.Fatal(err)

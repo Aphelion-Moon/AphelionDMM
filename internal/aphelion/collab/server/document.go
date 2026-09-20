@@ -253,6 +253,9 @@ func submit(ctx context.Context, document *engine.Document, store SessionStore, 
 	if err != nil {
 		return submitResult{}, err
 	}
+	if err := validateOperationDelivery(accepted); err != nil {
+		return submitResult{}, err
+	}
 	storeContext := ctx
 	finishStore := func(error) {}
 	if observability != nil {

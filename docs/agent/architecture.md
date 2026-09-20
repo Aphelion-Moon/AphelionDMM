@@ -107,6 +107,14 @@ New Aphelion-owned packages:
 
 Each open document has one authoritative mutation loop. It serializes durable operations and owns the current revision. Network readers, presence updates, persistence, rendering, and telemetry may run concurrently, but they cannot mutate authoritative document state directly.
 
+Before durable append, the server reserves wire headroom for acceptance, replay,
+duplicate delivery and actor-scoped inverse metadata. Oversized optional rejection
+details are omitted while retaining operation identity and authority. Recoverable
+client suspension retains uncertain drafts without automatic resubmission; snapshot
+fallback preserves them and matching accepted replay resolves them. See the
+[delivery/recovery evidence](../verification/2026-09-20-delivery-limits-and-interrupted-drafts.md)
+for exact size, persistence, replay and remaining desktop boundaries.
+
 Engine branches share private immutable snapshot and accepted-operation payloads.
 Each branch owns its mutable history maps; validation copies the tile table before
 replacing or appending states. Public inputs, outputs and changed tile states are
