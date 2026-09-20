@@ -22,6 +22,19 @@ type validatedRecovery struct {
 	document *engine.Document
 }
 
+func (cache *recoveryCache) validate(state engine.RecoveryState) error {
+	cache.mutex.Lock()
+	matched := cache.entry != nil && reflect.DeepEqual(cache.entry.state, state)
+	cache.mutex.Unlock()
+	// Load has read every durable row. An exact match needs no second engine
+	// reconstruction and must not take ownership of the append candidate.
+	if matched {
+		return nil
+	}
+	_, err := state.Restore()
+	return err
+}
+
 func (cache *recoveryCache) restore(state engine.RecoveryState) (*engine.Document, error) {
 	cache.mutex.Lock()
 	entry := cache.entry

@@ -190,18 +190,17 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 	// Both writers remain at revision zero while the server acquires the ten
 	// conflicting before-values. All other writer coordinates are disjoint.
 	waitWriterCondition(t, ctx, func() bool { return owner.Status().Revision >= 10 })
+	// Observe each injected outcome before enqueueing the next offer. The
+	// transport still withholds every callback, leaving sixteen pending drafts
+	// per writer without overflowing the small queue before the write stall.
 	for _, writer := range writers {
+		seen := make(map[model.OperationID]bool)
 		for _, draft := range writer.drafts {
 			if err := writer.network.ExecuteAsync(ctx, draft, func(accepted model.AcceptedOperation, err error) {
 				writer.completed <- mixedWriterCompletion{id: draft.OperationID, accepted: accepted, err: err}
 			}); err != nil {
 				t.Fatal(err)
 			}
-		}
-	}
-	for _, writer := range writers {
-		seen := make(map[model.OperationID]bool)
-		for range writer.drafts {
 			select {
 			case observation := <-writer.first.observed:
 				if seen[observation.id] || observation.outcome != writer.first.outcomes[observation.id] {
@@ -326,7 +325,7 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 			t.Fatal("initial recovered authority differs between clients")
 		}
 	}
-	for _, writer := range writers {
+	for index, writer := range writers {
 		wantTransports := int32(2)
 		if snapshotFallback {
 			wantTransports++
@@ -334,6 +333,9 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 		if writer.offers.Load() != 16 || writer.transports.Load() != wantTransports || writer.client.NetworkExecutor() != writer.network {
 			t.Fatalf("recovery offers=%d (want 16), transports=%d (want %d), same executor=%t", writer.offers.Load(), writer.transports.Load(), wantTransports, writer.client.NetworkExecutor() == writer.network)
 		}
+		// Each prior writer submitted twenty explicit recovery operations. Their
+		// callbacks do not imply this writer has received those broadcasts yet.
+		waitForClientRevision(t, ctx, writer.client, model.Revision(76+index*20))
 		verifyMixedWriterDrafts(t, writer, snapshotFallback)
 		for _, draft := range writer.drafts {
 			outcome := writer.first.outcomes[draft.OperationID]

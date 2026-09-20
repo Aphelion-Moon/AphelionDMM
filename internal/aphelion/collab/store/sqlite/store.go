@@ -198,7 +198,7 @@ func (store *Store) Load(ctx context.Context, documentID model.DocumentID) (mode
 	if err != nil {
 		return model.Snapshot{}, nil, err
 	}
-	if _, err := state.Restore(); err != nil {
+	if err := store.recovery.validate(state); err != nil {
 		return model.Snapshot{}, nil, err
 	}
 	replay := make([]model.AcceptedOperation, 0)

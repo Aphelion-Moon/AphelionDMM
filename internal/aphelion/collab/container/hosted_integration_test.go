@@ -51,7 +51,9 @@ func TestHostedImageLifecycle(t *testing.T) {
 	oidcPort, caPEM, oidcFixture, telemetrySink, stopOIDC := startOIDCFixture(t, clientSecret)
 	t.Cleanup(stopOIDC)
 	caPath := filepath.Join(root, "fixture-ca.pem")
-	if err := os.WriteFile(caPath, caPEM, 0o600); err != nil {
+	// These bind mounts contain public configuration and a public CA only;
+	// credentials are passed separately. The image's non-root UID must read them.
+	if err := os.WriteFile(caPath, caPEM, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	configPath := filepath.Join(root, "hosted.yaml")
@@ -76,7 +78,7 @@ limits:
 telemetry:
   endpoint: "https://host.docker.internal:%d"
 `, oidcPort, oidcPort)
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(config), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

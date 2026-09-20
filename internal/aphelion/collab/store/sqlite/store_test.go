@@ -387,6 +387,9 @@ func TestAppendRechecksChangedDurableHistory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if _, _, err := value.Load(ctx, fixture.Initial.DocumentID); err == nil {
+				t.Fatal("load accepted changed corrupt history after an earlier successful append")
+			}
 			if err := value.Append(ctx, fixture.Second); err == nil {
 				t.Fatal("append accepted changed corrupt history after an earlier successful append")
 			}
@@ -394,6 +397,36 @@ func TestAppendRechecksChangedDurableHistory(t *testing.T) {
 				t.Fatalf("failed append was persisted: found=%t err=%v", found, err)
 			}
 		})
+	}
+}
+
+func TestLoadDoesNotExposeValidatedHistory(t *testing.T) {
+	ctx := context.Background()
+	fixture, err := collabstore.NewConformanceFixture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, err := Open(filepath.Join(t.TempDir(), "load.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	if err := value.Create(ctx, fixture.Initial); err != nil {
+		t.Fatal(err)
+	}
+	if err := value.Append(ctx, fixture.First); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		snapshot, replay, err := value.Load(ctx, fixture.Initial.DocumentID)
+		if err != nil || !reflect.DeepEqual(snapshot, model.CloneSnapshot(fixture.Initial)) || len(replay) != 1 || !reflect.DeepEqual(replay[0], fixture.First) {
+			t.Fatalf("load differs from durable history: %v", err)
+		}
+		replay[0].BaseMapHash = strings.Repeat("f", 64)
+		snapshot.EnvironmentHash = strings.Repeat("e", 64)
+	}
+	if err := value.Append(ctx, fixture.Second); err != nil {
+		t.Fatalf("append after modifying returned data: %v", err)
 	}
 }
 
