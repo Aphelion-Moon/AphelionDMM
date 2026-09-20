@@ -8,10 +8,61 @@ import (
 
 	"sdmm/internal/aphelion/collab/mapadapter"
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 	"sdmm/internal/dmapi/dmvars"
+	"sdmm/internal/util"
 )
+
+func TestInstanceBatchReplacementPreservesMixedTargetsAndHistory(t *testing.T) {
+	e := selectionEditor(t)
+	first := e.dmm.Tiles[0]
+	second := &dmmap.Tile{Coord: util.Point{X: 2, Y: 1, Z: 1}}
+	second.InstancesSet(first.Instances().Prefabs())
+	e.dmm.Tiles = append(e.dmm.Tiles, second)
+	e.dmm.MaxX = 2
+	for range 64 {
+		first.InstancesAdd(first.Instances()[2].Prefab())
+	}
+	e.initializeCollaboration()
+	before := model.CloneSnapshot(e.authoritative)
+	// Interleave tiles, repeat a target, and include an incompatible base type.
+	targets := []*dmminstance.Instance{second.Instances()[2], first.Instances()[0]}
+	targets = append(targets, first.Instances()[2:]...)
+	targets = append(targets, second.Instances()[2])
+	replacement := dmmprefab.New(dmmprefab.IdNone, "/obj/replaced", dmvars.Set(first.Instances()[2].Prefab().Vars(), "dir", "4"))
+	e.CommitInstanceBatch(targets, replacement, "Replace mixed search results")
+	after, err := e.SaveSnapshot(context.Background())
+	if err != nil || after.Revision != before.Revision+1 || !e.CanStartMapEdit() {
+		t.Fatalf("batch failed: %v", err)
+	}
+	for index, tile := range after.Tiles {
+		for offset, instance := range tile.State.Prefabs {
+			original := before.Tiles[index].State.Prefabs[offset]
+			if instance.StableID != original.StableID {
+				t.Fatal("replacement changed instance order or identity")
+			}
+			if offset < 2 {
+				if !reflect.DeepEqual(instance, original) {
+					t.Fatal("replacement changed an incompatible or unselected base")
+				}
+			} else if instance.Path != "/obj/replaced" {
+				t.Fatal("replacement omitted a selected object")
+			}
+		}
+	}
+	e.app.CommandStorage().UndoV("test")
+	undone, err := e.SaveSnapshot(context.Background())
+	if err != nil || !reflect.DeepEqual(undone.Tiles, before.Tiles) {
+		t.Fatalf("undo failed: %v", err)
+	}
+	e.app.CommandStorage().RedoV("test")
+	redone, err := e.SaveSnapshot(context.Background())
+	if err != nil || !reflect.DeepEqual(redone.Tiles, after.Tiles) {
+		t.Fatalf("redo failed: %v", err)
+	}
+}
 
 func TestInstanceBatchRetainsIntentAfterSnapshotFailure(t *testing.T) {
 	e := selectionEditor(t)

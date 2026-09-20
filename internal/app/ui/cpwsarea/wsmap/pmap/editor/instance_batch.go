@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"sdmm/internal/aphelion/collab/mapadapter"
+	"sdmm/internal/aphelion/search"
+	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
@@ -19,19 +21,13 @@ func (e *Editor) CommitInstanceBatch(instances []*dmminstance.Instance, replacem
 	if !e.CanStartMapEdit() || len(instances) == 0 {
 		return
 	}
-	for _, instance := range instances {
-		found := false
-		if instance != nil && e.dmm.HasTile(instance.Coord()) {
-			for _, current := range e.dmm.GetTile(instance.Coord()).Instances() {
-				found = found || current == instance
-			}
-		}
-		if !found {
-			clear(e.pendingChanges)
-			e.reportCollaborationError("Unable to apply search action", fmt.Errorf("search result no longer belongs to the current map"))
-			return
-		}
-		e.BeginTileChange(instance.Coord())
+	tiles, err := search.CurrentTiles(e.dmm, instances)
+	if err != nil {
+		e.reportCollaborationError("Unable to apply search action", err)
+		return
+	}
+	for _, tile := range tiles {
+		e.BeginTileChange(tile.Coord)
 		if e.collaborationErr != nil {
 			// CanStartMapEdit required an empty journal, so every capture here
 			// belongs to this batch. Keep the fault, but release unused before-states.
@@ -53,8 +49,10 @@ func (e *Editor) CommitInstanceBatch(instances []*dmminstance.Instance, replacem
 	for _, instance := range instances {
 		if replacement == nil {
 			e.InstanceDelete(instance)
-		} else {
-			e.InstanceReplace(instance, replacement)
+		} else if dm.IsPathBaseSame(instance.Prefab().Path(), replacement.Path()) {
+			// Exact current membership and every before-state were checked above.
+			// Preserve InstanceReplace's base-type rule without rescanning the tile.
+			instance.SetPrefab(replacement)
 		}
 	}
 	e.CommitOperation(message)

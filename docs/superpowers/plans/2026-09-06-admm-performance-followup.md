@@ -319,7 +319,12 @@ result-reference release have red/green regressions.
   instances with five alternating pairs and exact display/authority checks.
   The 4,096-instance candidate median is 54.970 ms before rendering or changed-
   operation submission. Replacement validation adds five allocations; overlapping
-  timing ranges establish no speedup. Profile/group repeated tile scans next.
+  timing ranges establish no speedup. The
+  [September 20 scan removal](../../verification/2026-09-20-search-batch-scans.md)
+  profiles and removes repeated membership/replacement tile scans. Five matched
+  pairs preserve hashes; at 4,096 objects median warm no-op batch time falls from
+  15.503 to 1.112 ms, while temporary allocation increases about 148 KB/call.
+  Sparse/multilevel, changed-operation and native latency evidence remain open.
 - [ ] Qualify the actual 4,096-tile engine bound and 1 MiB protocol message bound
   (including lower configured hosted limits). Preserve one-action history and
   inspectable failed intent; batching semantics are not changed by this repair.
