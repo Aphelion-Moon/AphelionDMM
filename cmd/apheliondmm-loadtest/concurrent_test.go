@@ -58,7 +58,13 @@ func TestConcurrentProducedBinary(t *testing.T) {
 
 func testConcurrentCommand(t *testing.T, binary bool) {
 	t.Helper()
-	path := writeConcurrentFixture(t, concurrentCommandFixture)
+	var path string
+	if binary {
+		path = os.Getenv("APHELIONDMM_LOADTEST_SCENARIO")
+	}
+	if path == "" {
+		path = writeConcurrentFixture(t, concurrentCommandFixture)
+	}
 	scenario, err := loadConcurrentScenario(path)
 	if err != nil {
 		t.Fatal(err)
@@ -117,11 +123,11 @@ func testConcurrentCommand(t *testing.T, binary bool) {
 	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
 		t.Fatal(err)
 	}
-	if !result.GatePassed || result.Mode != "concurrent-independent-v1" || result.SentOperations != 9 || result.AcceptedOperations != 7 || result.RejectedOperations != 2 || result.AppliedDeliveries != 21 || result.ServerMapHash != scenario.ExpectedMapHash || len(result.Clients) != 3 {
+	if !result.GatePassed || result.Mode != "concurrent-independent-v1" || result.ScheduledOperations != scenario.Config.Operations || result.StartedOperations != scenario.Config.Operations || result.SentOperations != scenario.Config.Operations || result.AcceptedOperations != scenario.ExpectedAccepted || result.RejectedOperations != scenario.ExpectedRejected || result.AppliedDeliveries != scenario.ExpectedAccepted*scenario.Config.Clients || result.ServerMapHash != scenario.ExpectedMapHash || len(result.Clients) != scenario.Config.Clients {
 		t.Fatalf("incorrect command result: %s", &output)
 	}
 	for _, client := range result.Clients {
-		if client.Revision != 7 || client.MapHash != scenario.ExpectedMapHash || client.AppliedOperations != 7 {
+		if int(client.Revision) != scenario.ExpectedAccepted || client.MapHash != scenario.ExpectedMapHash || client.AppliedOperations != scenario.ExpectedAccepted {
 			t.Fatalf("client differs: %#v", client)
 		}
 	}
@@ -147,7 +153,7 @@ func testConcurrentCommand(t *testing.T, binary bool) {
 		t.Fatal(err)
 	}
 	recoveredHash, err := document.Snapshot().Hash()
-	if err != nil || document.Snapshot().Revision != 7 || recoveredHash != scenario.ExpectedMapHash {
+	if err != nil || int(document.Snapshot().Revision) != scenario.ExpectedAccepted || recoveredHash != scenario.ExpectedMapHash {
 		t.Fatalf("durable reopen differs: revision=%d hash=%s err=%v", document.Snapshot().Revision, recoveredHash, err)
 	}
 	if binary {

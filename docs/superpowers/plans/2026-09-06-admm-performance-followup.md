@@ -1,5 +1,13 @@
 # ADMM performance follow-up workplan
 
+September 20: the [concurrent SQLite rate sweep](../../verification/2026-09-20-concurrent-rate-sweep.md)
+completed separate warmups and five measured trials at each offered rate.
+All 40/80-operation-per-second trials passed; all 160-rate trials failed,
+including two slow-consumer disconnects with unresolved sender outcomes.
+Exact recovery under independent load and representative capacity remain open.
+The separate allocation profile supports investigating retained-history replay
+in durable append; it does not attribute the latency or establish a repair.
+
 September 20 follow-up: [bounded slow-consumer recovery](../../verification/2026-09-20-slow-consumer-recovery.md)
 now passes through real session clients and server queue overflow with memory
 and SQLite stores. This is correctness evidence, not a load-campaign result.
