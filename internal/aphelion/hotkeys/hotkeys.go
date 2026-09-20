@@ -57,27 +57,30 @@ func Pressed(keys [][2]glfw.Key, down, pressed func(glfw.Key) bool) bool {
 func Reference(bindings []Binding) []Entry {
 	var result []Entry
 	seen := make(map[Entry]bool)
-	for _, binding := range bindings {
-		var parts []string
-		for _, pair := range binding.Keys {
-			label := keyName(pair[0])
-			if alternate := keyName(pair[1]); alternate != "" && alternate != label {
-				label += " / " + alternate
+	for _, action := range Catalog(bindings) {
+		for _, chord := range action.Chords {
+			binding := Binding{Name: action.Name, Keys: chord}
+			var parts []string
+			for _, pair := range binding.Keys {
+				label := keyName(pair[0])
+				if alternate := keyName(pair[1]); alternate != "" && alternate != label {
+					label += " / " + alternate
+				}
+				parts = append(parts, label)
 			}
-			parts = append(parts, label)
-		}
-		context, action, _ := strings.Cut(binding.Name, "#")
-		if value, ok := map[string]string{"menu": "General", "pmap": "Map", "tilemenu": "Tile menu", "cpsearch": "Search", "cpenvironment": "Environment", "cpvareditor": "Variables", "wsempty": "Empty workspace"}[context]; ok {
-			context = value
-		}
-		label, exists := labels[binding.Name]
-		if !exists {
-			label = humanize(action)
-		}
-		entry := Entry{context, label, strings.Join(parts, "+")}
-		if !seen[entry] {
-			seen[entry] = true
-			result = append(result, entry)
+			context, action, _ := strings.Cut(binding.Name, "#")
+			if value, ok := map[string]string{"menu": "General", "pmap": "Map", "tilemenu": "Tile menu", "cpsearch": "Search", "cpenvironment": "Environment", "cpvareditor": "Variables", "wsempty": "Empty workspace"}[context]; ok {
+				context = value
+			}
+			label, exists := labels[binding.Name]
+			if !exists {
+				label = humanize(action)
+			}
+			entry := Entry{context, label, strings.Join(parts, "+")}
+			if !seen[entry] {
+				seen[entry] = true
+				result = append(result, entry)
+			}
 		}
 	}
 	sort.Slice(result, func(i, j int) bool {

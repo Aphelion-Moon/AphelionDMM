@@ -2,6 +2,10 @@
 
 Baseline: commit `052e1acb02b790641d63466de40c91d56028383b`.
 
+September 20: the [shortcut action catalog and shared-binding diagnostics](../../verification/2026-09-20-shortcut-catalog.md)
+now derive from the live registry. Editable bindings, preference migration/reset,
+and the native focus/layout interaction matrix remain open.
+
 September 20: [configurable selection grid steps](../../verification/2026-09-20-selection-grid-step.md)
 now share a saved preference across Alt+Arrow and toolbar movement. Tool and
 preference regressions pass; real workspace and human acceptance remain open.
@@ -170,8 +174,9 @@ fences are separate checks.
    destinations, hidden types, map edges, all Z levels, instance ordering,
    stable IDs, failed submission, and exact undo/redo. A custom direction/type
    mapping registry needs project-specific fixtures and reviewable rules.
-3. **Shortcut usability.** Add a per-action binding model and conflict detection
-   before user rebinding. Cover left/right modifiers, keypad aliases, keyboard
+3. **Shortcut usability.** A per-action catalog and potential conflict detection
+   now feed the shortcut reference; user rebinding remains open. The catalog
+   covers left/right modifiers and keypad aliases. Qualify keyboard
    layouts, text fields, popup focus, inactive maps, and repeated keys. The
    reference must consume the same bindings. Retain defaults during preference
    migration and provide a reset-to-default action.

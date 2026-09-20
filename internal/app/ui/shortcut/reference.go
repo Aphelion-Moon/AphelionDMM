@@ -23,11 +23,23 @@ func pressedExact(s Shortcut) bool {
 }
 
 func Reference() []hotkeys.Entry {
+	return hotkeys.Reference(registeredBindings())
+}
+
+func Actions() []hotkeys.Action {
+	return hotkeys.Catalog(registeredBindings())
+}
+
+func SharedBindings() []hotkeys.Conflict {
+	return hotkeys.Conflicts(Actions())
+}
+
+func registeredBindings() []hotkeys.Binding {
 	bindings := make([]hotkeys.Binding, 0, len(shortcuts))
 	for _, s := range shortcuts {
 		bindings = append(bindings, hotkeys.Binding{Name: s.Name, Keys: keys(*s)})
 	}
-	return hotkeys.Reference(bindings)
+	return bindings
 }
 
 // APHELION EDIT ADDITION END

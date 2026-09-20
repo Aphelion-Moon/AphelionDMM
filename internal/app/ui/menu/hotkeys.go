@@ -2,8 +2,10 @@
 package menu
 
 import (
+	"fmt"
 	"strings"
 
+	"sdmm/internal/aphelion/hotkeys"
 	"sdmm/internal/app/ui/shortcut"
 
 	"github.com/SpaiR/imgui-go"
@@ -18,6 +20,19 @@ func (m *Menu) showShortcutReference() {
 		imgui.InputText("Filter", &m.hotkeyFilter)
 		imgui.Separator()
 		filter := strings.ToLower(strings.TrimSpace(m.hotkeyFilter))
+		if conflicts := shortcut.SharedBindings(); len(conflicts) != 0 && imgui.CollapsingHeader(fmt.Sprintf("Shared bindings (%d)", len(conflicts))) {
+			imgui.TextWrapped("Shared keys can belong to different panels. Check which panel has focus when a shortcut runs a different action.")
+			for _, conflict := range conflicts {
+				var descriptions []string
+				for _, entry := range hotkeys.Reference([]hotkeys.Binding{conflict.First, conflict.Second}) {
+					descriptions = append(descriptions, fmt.Sprintf("%s: %s (%s)", entry.Context, entry.Action, entry.Keys))
+				}
+				line := strings.Join(descriptions, " / ")
+				if filter == "" || strings.Contains(strings.ToLower(line), filter) {
+					imgui.BulletText(line)
+				}
+			}
+		}
 		context := ""
 		for _, entry := range shortcut.Reference() {
 			if filter != "" && !strings.Contains(strings.ToLower(entry.Context+" "+entry.Action+" "+entry.Keys), filter) {
