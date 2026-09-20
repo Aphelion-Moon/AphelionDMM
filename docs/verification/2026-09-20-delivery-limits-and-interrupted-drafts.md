@@ -1,5 +1,9 @@
 # Delivery limits and interrupted drafts
 
+Follow-up: [terminal retention, draft inspection/export and guarded desktop close](2026-09-20-draft-inspection-and-export.md)
+now covers those recovery gaps. The remaining boundaries below describe this
+earlier pass.
+
 Baseline: `e2741245`, continuing the unsent-draft handoff. This pass covers
 large-operation delivery and recoverable connection interruption. It does not
 close the wider desktop, performance, integration or hosting workplans.

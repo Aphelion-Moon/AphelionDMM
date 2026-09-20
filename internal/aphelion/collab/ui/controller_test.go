@@ -255,3 +255,5 @@ func (client *fakeCollaborationClient) Leave(context.Context) error {
 }
 
 func (client *fakeCollaborationClient) HasUnacknowledgedOperations() bool { return client.pending }
+
+func (client *fakeCollaborationClient) HasRetainedDrafts() bool { return false }

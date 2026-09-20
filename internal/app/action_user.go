@@ -462,6 +462,11 @@ func (a *app) DoLeaveCollaborationSession() {
 	if a.collaborationController == nil || !a.collaborationController.Active() {
 		return
 	}
+	permit, err := a.collaborationController.BeginProjectReplacement()
+	if err != nil {
+		util.ShowErrorDialog("Unable to leave collaboration: " + err.Error())
+		return
+	}
 	if a.collaborationEditor != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), collaborationActionTimeout)
 		err := a.collaborationEditor.DetachCollaborationExecutor(ctx)
@@ -475,7 +480,7 @@ func (a *app) DoLeaveCollaborationSession() {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), collaborationActionTimeout)
 		defer cancel()
-		if err := a.collaborationController.Leave(ctx); err != nil {
+		if err := a.collaborationController.CompleteProjectReplacement(ctx, permit); err != nil {
 			log.Error().Err(err).Msg("Unable to leave collaboration")
 			window.RunLater(func() {
 				util.ShowErrorDialog("Unable to leave collaboration: " + err.Error())
@@ -514,6 +519,18 @@ func (a *app) DoResolveCollaborationConflict(operationID model.OperationID, acti
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), collaborationActionTimeout)
 	switch action {
+	case collabui.ConflictActionExport:
+		cancel()
+		path, err := dialog.File().Title("Export Collaboration Draft").Filter("JSON draft", "json").SetStartFile("collaboration-draft.json").Save()
+		if errors.Is(err, dialog.ErrCancelled) {
+			return
+		}
+		if err == nil {
+			err = client.ExportConflict(operationID, path)
+		}
+		if err != nil {
+			util.ShowErrorDialog("Unable to export collaboration draft: " + err.Error())
+		}
 	case collabui.ConflictActionRefresh:
 		_, err := client.RefreshConflict(ctx, operationID)
 		cancel()

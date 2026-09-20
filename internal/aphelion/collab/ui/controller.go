@@ -17,6 +17,7 @@ var (
 	ErrSessionActive            = errors.New("a collaboration session is already active")
 	ErrSessionChanged           = errors.New("collaboration session changed while confirmation was open")
 	ErrUnacknowledgedOperations = errors.New("collaboration operations are awaiting acknowledgement")
+	ErrRetainedDrafts           = errors.New("collaboration drafts remain: inspect or export them in the Collaboration panel, then rebuild or explicitly discard them before leaving")
 	ErrReconnectInProgress      = errors.New("collaboration reconnect is already in progress")
 )
 
@@ -81,6 +82,7 @@ type CollaborationClient interface {
 	Join(context.Context, Invitation) error
 	Leave(context.Context) error
 	HasUnacknowledgedOperations() bool
+	HasRetainedDrafts() bool
 }
 
 type NamedCollaborationClient interface {
@@ -196,6 +198,9 @@ func (controller *Controller) BeginProjectReplacement() (ProjectReplacementPermi
 	if controller.client.HasUnacknowledgedOperations() {
 		return ProjectReplacementPermit{}, ErrUnacknowledgedOperations
 	}
+	if controller.client.HasRetainedDrafts() {
+		return ProjectReplacementPermit{}, ErrRetainedDrafts
+	}
 	return ProjectReplacementPermit{generation: controller.generation, active: true}, nil
 }
 
@@ -222,6 +227,10 @@ func (controller *Controller) leave(ctx context.Context, generation uint64, reva
 	if revalidate && controller.client.HasUnacknowledgedOperations() {
 		controller.mutex.Unlock()
 		return ErrUnacknowledgedOperations
+	}
+	if revalidate && controller.client.HasRetainedDrafts() {
+		controller.mutex.Unlock()
+		return ErrRetainedDrafts
 	}
 	service := controller.service
 	controller.active = false

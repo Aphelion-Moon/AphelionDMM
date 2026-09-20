@@ -13,6 +13,7 @@ const (
 	ConflictActionRefresh ConflictAction = "refresh_authoritative"
 	ConflictActionDiscard ConflictAction = "discard_local"
 	ConflictActionRebuild ConflictAction = "rebuild_operation"
+	ConflictActionExport  ConflictAction = "export_draft"
 )
 
 type VariableView struct {
@@ -37,12 +38,33 @@ type ConflictView struct {
 	Message     string
 	Revision    model.Revision
 	Values      []AuthoritativeTileView
+	DraftBefore []AuthoritativeTileView
+	DraftAfter  []AuthoritativeTileView
 	Actions     []ConflictAction
 }
 
 func BuildConflictView(conflict client.Conflict) ConflictView {
-	values := make([]AuthoritativeTileView, len(conflict.AuthoritativeValues))
-	for tileIndex, tile := range conflict.AuthoritativeValues {
+	before := make([]model.Tile, len(conflict.Draft.Changes))
+	after := make([]model.Tile, len(conflict.Draft.Changes))
+	for index, change := range conflict.Draft.Changes {
+		before[index] = model.Tile{Coord: change.Coord, State: change.Before}
+		after[index] = model.Tile{Coord: change.Coord, State: change.After}
+	}
+	return ConflictView{
+		OperationID: conflict.OperationID,
+		Code:        conflict.Code,
+		Message:     conflict.Message,
+		Revision:    conflict.Revision,
+		Values:      buildTileValues(conflict.AuthoritativeValues),
+		DraftBefore: buildTileValues(before),
+		DraftAfter:  buildTileValues(after),
+		Actions:     []ConflictAction{ConflictActionRefresh, ConflictActionDiscard, ConflictActionRebuild, ConflictActionExport},
+	}
+}
+
+func buildTileValues(tiles []model.Tile) []AuthoritativeTileView {
+	values := make([]AuthoritativeTileView, len(tiles))
+	for tileIndex, tile := range tiles {
 		prefabs := make([]PrefabValueView, len(tile.State.Prefabs))
 		for prefabIndex, prefab := range tile.State.Prefabs {
 			variables := make([]VariableView, 0, len(prefab.Vars))
@@ -52,12 +74,7 @@ func BuildConflictView(conflict client.Conflict) ConflictView {
 			sort.Slice(variables, func(left, right int) bool { return variables[left].Name < variables[right].Name })
 			prefabs[prefabIndex] = PrefabValueView{StableID: prefab.StableID, Path: prefab.Path, Variables: variables}
 		}
-		sort.Slice(prefabs, func(left, right int) bool {
-			if prefabs[left].StableID != prefabs[right].StableID {
-				return prefabs[left].StableID < prefabs[right].StableID
-			}
-			return prefabs[left].Path < prefabs[right].Path
-		})
+		// Prefab order is map data; show the original stack order.
 		values[tileIndex] = AuthoritativeTileView{Coord: tile.Coord, Prefabs: prefabs}
 	}
 	sort.Slice(values, func(left, right int) bool {
@@ -69,12 +86,5 @@ func BuildConflictView(conflict client.Conflict) ConflictView {
 		}
 		return values[left].Coord.X < values[right].Coord.X
 	})
-	return ConflictView{
-		OperationID: conflict.OperationID,
-		Code:        conflict.Code,
-		Message:     conflict.Message,
-		Revision:    conflict.Revision,
-		Values:      values,
-		Actions:     []ConflictAction{ConflictActionRefresh, ConflictActionDiscard, ConflictActionRebuild},
-	}
+	return values
 }

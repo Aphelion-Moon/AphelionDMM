@@ -32,7 +32,7 @@ func TestBuildConflictViewExposesAuthoritativeValuesAndSafeActions(t *testing.T)
 	if len(view.Values) != 1 || len(view.Values[0].Prefabs) != 1 || view.Values[0].Prefabs[0].Variables[0].Name != "a" {
 		t.Fatalf("conflict values = %#v", view.Values)
 	}
-	wantActions := []ConflictAction{ConflictActionRefresh, ConflictActionDiscard, ConflictActionRebuild}
+	wantActions := []ConflictAction{ConflictActionRefresh, ConflictActionDiscard, ConflictActionRebuild, ConflictActionExport}
 	if len(view.Actions) != len(wantActions) {
 		t.Fatalf("actions = %#v", view.Actions)
 	}

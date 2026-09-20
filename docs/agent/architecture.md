@@ -115,6 +115,13 @@ fallback preserves them and matching accepted replay resolves them. See the
 [delivery/recovery evidence](../verification/2026-09-20-delivery-limits-and-interrupted-drafts.md)
 for exact size, persistence, replay and remaining desktop boundaries.
 
+Terminal executor failures also retain uncertain drafts and freeze acknowledged
+state. The desktop exposes bounded before/intended-value previews and complete
+JSON draft export through staged atomic replacement. User-initiated leave and
+project/application close require explicit draft resolution or discard. Export
+does not resubmit or resolve an operation; see the
+[draft recovery evidence](../verification/2026-09-20-draft-inspection-and-export.md).
+
 Engine branches share private immutable snapshot and accepted-operation payloads.
 Each branch owns its mutable history maps; validation copies the tile table before
 replacing or appending states. Public inputs, outputs and changed tile states are

@@ -218,13 +218,19 @@ func (network *NetworkExecutor) suspendLocked(cause error) {
 		return
 	}
 	network.suspended = cause
+	network.clearPendingLocked(cause)
+}
+
+// Preserve uncertain delivery on both recoverable and terminal failures. The
+// acknowledged snapshot remains available for inspection and local export.
+func (network *NetworkExecutor) clearPendingLocked(cause error) {
 	snapshot := network.projection.Acknowledged
 	if hash, err := snapshot.Hash(); err == nil {
 		for _, operation := range network.projection.Pending {
 			network.retainConflictLocked(Conflict{
 				OperationID: operation.OperationID, Draft: operation,
 				Code:     conflictDeliveryUnconfirmed,
-				Message:  "Connection ended before acknowledgement. This edit may already have been applied; reconnect before deciding whether to rebuild it.",
+				Message:  "Delivery ended before acknowledgement. This edit may already have been applied; inspect current authority before deciding whether to rebuild it.",
 				Revision: snapshot.Revision, MapHash: hash,
 			})
 		}
@@ -408,6 +414,9 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 	}
 	network.mutex.Lock()
 	defer network.mutex.Unlock()
+	if network.terminal != nil {
+		return network.terminal
+	}
 	switch decoded.Envelope.Type {
 	case protocol.ServerOperationAccepted:
 		payload := decoded.Payload.(*protocol.OperationAcceptedPayload)
@@ -536,12 +545,7 @@ func (network *NetworkExecutor) failAllLocked(cause error) {
 		return
 	}
 	network.terminal = cause
-	for operationID, waiter := range network.pending {
-		delete(network.pending, operationID)
-		waiter <- operationResult{err: cause}
-	}
-	network.projection.Pending = nil
-	network.publishLocked()
+	network.clearPendingLocked(cause)
 }
 
 func (network *NetworkExecutor) publishLocked() {

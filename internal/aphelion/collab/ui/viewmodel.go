@@ -82,13 +82,15 @@ func BuildViewModel(status SessionStatus) ViewModel {
 		actionableConflicts[index] = BuildConflictView(conflict)
 		actionableConflicts[index].Code = redactSensitive(actionableConflicts[index].Code, status.SensitiveValues)
 		actionableConflicts[index].Message = redactSensitive(actionableConflicts[index].Message, status.SensitiveValues)
-		for tileIndex := range actionableConflicts[index].Values {
-			for prefabIndex := range actionableConflicts[index].Values[tileIndex].Prefabs {
-				prefab := &actionableConflicts[index].Values[tileIndex].Prefabs[prefabIndex]
-				prefab.Path = redactSensitive(prefab.Path, status.SensitiveValues)
-				for variableIndex := range prefab.Variables {
-					prefab.Variables[variableIndex].Name = redactSensitive(prefab.Variables[variableIndex].Name, status.SensitiveValues)
-					prefab.Variables[variableIndex].Value = redactSensitive(prefab.Variables[variableIndex].Value, status.SensitiveValues)
+		for _, values := range [][]AuthoritativeTileView{actionableConflicts[index].Values, actionableConflicts[index].DraftBefore, actionableConflicts[index].DraftAfter} {
+			for tileIndex := range values {
+				for prefabIndex := range values[tileIndex].Prefabs {
+					prefab := &values[tileIndex].Prefabs[prefabIndex]
+					prefab.Path = redactSensitive(prefab.Path, status.SensitiveValues)
+					for variableIndex := range prefab.Variables {
+						prefab.Variables[variableIndex].Name = redactSensitive(prefab.Variables[variableIndex].Name, status.SensitiveValues)
+						prefab.Variables[variableIndex].Value = redactSensitive(prefab.Variables[variableIndex].Value, status.SensitiveValues)
+					}
 				}
 			}
 		}
@@ -109,7 +111,7 @@ func BuildViewModel(status SessionStatus) ViewModel {
 		CanCopyInvite:       role == "owner" && status.InviteReady,
 		ShowReconnect:       status.State == client.StateReconnecting,
 		CanReconnect:        status.ReconnectReady && (status.State == client.StateDisconnected || status.State == client.StateReconnecting),
-		CanLeave:            active,
+		CanLeave:            (active || status.SessionID != "") && status.State != client.StateClosed && len(status.Conflicts) == 0,
 	}
 	if status.Err != nil {
 		view.ErrorText = redactSensitive(status.Err.Error(), status.SensitiveValues)

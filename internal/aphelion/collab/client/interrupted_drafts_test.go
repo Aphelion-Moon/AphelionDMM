@@ -127,3 +127,47 @@ func TestLowerServerByteLimitRetainsQueuedDraftOnDisconnect(t *testing.T) {
 		t.Fatal("lower server limit lost queued intent")
 	}
 }
+
+func TestTerminalFailureRetainsDraftAndRejectsLateAcceptance(t *testing.T) {
+	for _, failure := range []string{"terminate", "invalid message"} {
+		t.Run(failure, func(t *testing.T) {
+			snapshot := projectionSnapshot(t)
+			draft := projectionOperation(t, snapshot, 1)
+			transport := newFakeTransport()
+			network, err := NewNetworkExecutor(transport, snapshot, draft.ActorID, "session")
+			if err != nil {
+				t.Fatal(err)
+			}
+			completed := make(chan error, 1)
+			if err := network.ExecuteAsync(context.Background(), draft, func(_ model.AcceptedOperation, err error) { completed <- err }); err != nil {
+				t.Fatal(err)
+			}
+			transport.next(t)
+			if failure == "terminate" {
+				network.Terminate(nil)
+			} else if err := network.Receive(protocol.ServerEnvelope{}); err == nil {
+				t.Fatal("invalid message was accepted")
+			}
+			if err := <-completed; err == nil {
+				t.Fatal("pending execution succeeded after terminal failure")
+			}
+			conflicts := network.Conflicts()
+			if len(conflicts) != 1 || conflicts[0].Code != "delivery_unconfirmed" || !reflect.DeepEqual(conflicts[0].Draft, model.CloneOperation(draft)) {
+				t.Fatal("terminal failure lost pending intent")
+			}
+			accepted := model.AcceptedOperation{Operation: draft, Revision: 1, AcceptedAt: time.Unix(1, 0)}
+			authority := snapshotWithOperation(t, snapshot, accepted)
+			hash, err := authority.Hash()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := network.Receive(serverEnvelope(t, protocol.ServerOperationAccepted, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: hash})); err == nil {
+				t.Fatal("terminal executor accepted a late message")
+			}
+			current, err := network.Snapshot(context.Background())
+			if err != nil || !reflect.DeepEqual(current, model.CloneSnapshot(snapshot)) || network.HasUnacknowledgedOperations() || len(network.Conflicts()) != 1 {
+				t.Fatal("late delivery changed frozen acknowledged state or retained intent")
+			}
+		})
+	}
+}

@@ -2,8 +2,9 @@
 
 Baseline: commit `052e1acb02b790641d63466de40c91d56028383b`.
 
-Latest continuation: [delivery limits and interrupted drafts](../../verification/2026-09-20-delivery-limits-and-interrupted-drafts.md)
-records large-action, duplicate/undo/replay, and recoverable interruption evidence.
+Latest continuation: [draft inspection and export](../../verification/2026-09-20-draft-inspection-and-export.md)
+records terminal-error retention, complete local draft export and guarded desktop
+close, following the [delivery/recovery work](../../verification/2026-09-20-delivery-limits-and-interrupted-drafts.md).
 Desktop acceptance and wider unchecked work remain open.
 
 September 20 continuation from committed `f243e913`: local network submission
