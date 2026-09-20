@@ -107,6 +107,11 @@ for the precise measurement boundaries and remaining campaign gates.
   verifies 32 resize/history replacements through the native disposal queue,
   including old/new texture coexistence, camera preservation and exact history
   hashes. Driver memory and full-application resize endurance remain unmeasured.
+  The [thirty-minute map-content run](../../verification/2026-09-20-workspace-endurance-result.md)
+  completed 17,923 measured cycles with exact save/history checks and collection
+  of each closed editor and canvas texture. It records Go and Windows resource
+  observations, but does not cover representative maps, outer application state,
+  reconnect, crash recovery or all GPU resources; the full gate remains open.
 
 **Gate:** fixed manifests, correct counts/hashes, independent warmup, at least five
 trials, retained raw results, explicit failure/timeout counts and no hidden

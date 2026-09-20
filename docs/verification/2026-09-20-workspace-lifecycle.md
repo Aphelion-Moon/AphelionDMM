@@ -1,5 +1,9 @@
 # Native workspace lifetime probe and shortcut retention
 
+The [completed thirty-minute run](2026-09-20-workspace-endurance-result.md)
+records 17,923 measured cycles, per-cycle correctness/lifetime checks and resource
+observations, with the full-application acceptance limits retained.
+
 Baseline: `ad41161c`. The shortcut registry removed visible entries without
 clearing the unused backing-array slots. Action and enablement callbacks could
 therefore keep a closed map's pane and editor reachable. Removal now clears the
