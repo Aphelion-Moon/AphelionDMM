@@ -1,5 +1,10 @@
 # Real Meridian-MCP contract and staging gate
 
+Follow-up: [diagnostic pagination repair](2026-09-20-meridian-diagnostic-totals.md)
+established that the 50 reported below was the returned page size. Corrected
+evidence reports 1,045 total diagnostics, including 127 errors, 2 warnings and
+916 hints. The original invocation and its limitations remain recorded here.
+
 AphelionDMM revision: `7bf1f0fe`. Both opt-in real-process gates passed without
 skips using the local Meridian-MCP release executable and Meridian-Rift checkout:
 

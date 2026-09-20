@@ -57,7 +57,16 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
 				}
 				'dm_check_errors' {
 					if (-not $parsed) { throw 'diagnostics before parse' }
-					$text = @{ count = 1; diagnostics = @(@{ severity = 'warning'; message = 'fixture' }); state_generation = 7 } | ConvertTo-Json -Compress
+					$diagnostics = @{ count = 1; diagnostics = @(@{ severity = 'warning'; message = 'fixture' }); state_generation = 7 }
+					if ($mode -like 'diagnostic-*') {
+						$diagnostics.total_count = 1045
+						$diagnostics.truncated = $true
+						$diagnostics.summary = @{ total = 1045; by_severity = @{ error = 127; warning = 2; hint = 916 } }
+						if ($mode -eq 'diagnostic-missing-total') { $diagnostics.Remove('total_count') }
+						if ($mode -eq 'diagnostic-small-total') { $diagnostics.total_count = 0 }
+						if ($mode -eq 'diagnostic-bad-severity') { $diagnostics.summary.by_severity.error = 128 }
+					}
+					$text = $diagnostics | ConvertTo-Json -Compress -Depth 8
 					Write-JsonLine @{ jsonrpc = '2.0'; id = $request.id; result = @{ content = @(@{ type = 'text'; text = $text }) } }
 				}
 			}

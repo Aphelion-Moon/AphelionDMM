@@ -220,15 +220,55 @@ func (client *mcpClient) CheckErrors(ctx context.Context, repositoryID string) (
 		return DiagnosticResult{}, err
 	}
 	var decoded struct {
-		Count       uint64          `json:"count"`
+		Count       *uint64         `json:"count"`
+		TotalCount  *uint64         `json:"total_count"`
+		Truncated   bool            `json:"truncated"`
 		Diagnostics json.RawMessage `json:"diagnostics"`
+		Pagination  struct {
+			HasMore bool `json:"has_more"`
+		} `json:"pagination"`
+		Summary struct {
+			Total      *uint64           `json:"total"`
+			BySeverity map[string]uint64 `json:"by_severity"`
+		} `json:"summary"`
 	}
 	if err := json.Unmarshal(payload, &decoded); err != nil {
 		return DiagnosticResult{}, fmt.Errorf("Meridian-MCP diagnostic response is invalid")
 	}
+	var entries []json.RawMessage
+	if decoded.Count == nil || json.Unmarshal(decoded.Diagnostics, &entries) != nil || *decoded.Count != uint64(len(entries)) {
+		return DiagnosticResult{}, fmt.Errorf("Meridian-MCP diagnostic page count is invalid")
+	}
+	count := *decoded.Count
+	truncated := decoded.Truncated || decoded.Pagination.HasMore
+	if decoded.TotalCount != nil {
+		if *decoded.TotalCount < count {
+			return DiagnosticResult{}, fmt.Errorf("Meridian-MCP diagnostic total is smaller than its page")
+		}
+		count = *decoded.TotalCount
+		truncated = truncated || count > *decoded.Count
+	} else if truncated {
+		return DiagnosticResult{}, fmt.Errorf("Meridian-MCP truncated diagnostics omit their total")
+	}
+	if decoded.Summary.Total != nil && *decoded.Summary.Total != count {
+		return DiagnosticResult{}, fmt.Errorf("Meridian-MCP diagnostic summary total is inconsistent")
+	}
+	if decoded.Summary.BySeverity != nil {
+		var sum uint64
+		for _, severityCount := range decoded.Summary.BySeverity {
+			if severityCount > count-sum {
+				return DiagnosticResult{}, fmt.Errorf("Meridian-MCP diagnostic severity totals are inconsistent")
+			}
+			sum += severityCount
+		}
+		if sum != count {
+			return DiagnosticResult{}, fmt.Errorf("Meridian-MCP diagnostic severity totals are incomplete")
+		}
+	}
 	return DiagnosticResult{
 		RepositoryID: repositoryID, StateGeneration: client.stateGeneration, MCPVersion: client.serverVersion,
-		Count: decoded.Count, Diagnostics: decoded.Diagnostics, Raw: payload,
+		Count: count, ReturnedCount: *decoded.Count, Truncated: truncated, SeverityCounts: decoded.Summary.BySeverity,
+		Diagnostics: decoded.Diagnostics, Raw: payload,
 	}, nil
 }
 

@@ -15,8 +15,9 @@ import (
 )
 
 type fakeVerificationClient struct {
-	failAt string
-	calls  []string
+	failAt      string
+	calls       []string
+	diagnostics *DiagnosticResult
 }
 
 func (client *fakeVerificationClient) ParseEnvironment(context.Context, string, string) (EnvironmentResult, error) {
@@ -40,7 +41,25 @@ func (client *fakeVerificationClient) CheckErrors(context.Context, string) (Diag
 	if client.failAt == "diagnostics" {
 		return DiagnosticResult{}, errors.New("diagnostics failed")
 	}
+	if client.diagnostics != nil {
+		return *client.diagnostics, nil
+	}
 	return DiagnosticResult{StateGeneration: 9, MCPVersion: "1.2.3", Count: 0}, nil
+}
+
+func TestVerifierPreservesDiagnosticTotalAndPageEvidence(t *testing.T) {
+	client := &fakeVerificationClient{diagnostics: &DiagnosticResult{
+		StateGeneration: 9, MCPVersion: "1.2.3", Count: 1045, ReturnedCount: 50, Truncated: true,
+		SeverityCounts: map[string]uint64{"error": 127, "warning": 2, "hint": 916},
+	}}
+	verifier, manifest, staged := newVerifyFixture(t, client, fakeAcceptanceRunner{})
+	evidence, err := verifier.Verify(context.Background(), manifest, staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if evidence.Diagnostics != 1045 || evidence.DiagnosticsReturned != 50 || !evidence.DiagnosticsTruncated || evidence.DiagnosticSeverityCounts["error"] != 127 {
+		t.Fatalf("verification discarded the full diagnostic summary: %+v", evidence)
+	}
 }
 
 func (*fakeVerificationClient) Close(context.Context) error { return nil }

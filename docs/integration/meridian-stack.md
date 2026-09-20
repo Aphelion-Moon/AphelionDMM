@@ -1,8 +1,10 @@
 # Meridian toolset acceptance
 
 The [September 20 real MCP/staging gate](../verification/2026-09-20-meridian-staging-gate.md)
-records a successful staged-map inspection, a dirty source checkout and 50 reported
-diagnostics. It is not full stack or authoritative game-build acceptance.
+records a successful staged-map inspection and a dirty source checkout. The
+[pagination correction](../verification/2026-09-20-meridian-diagnostic-totals.md)
+reports 1,045 diagnostics (127 errors), rather than the first page's 50 entries.
+This is not full stack or authoritative game-build acceptance.
 
 AphelionDMM owns the integration coordinator. Meridian-MCP remains a read-only diagnostic sidecar,
 aphelion-content-tools reaches collaboration only through its backend adapter, and Meridian-Rift keeps
@@ -58,6 +60,12 @@ Evidence is written atomically to `.artifacts/stack/evidence.json` unless `-Evid
 The JSON keeps every repository gate separate. MCP diagnostics completing successfully does not mean the
 diagnostic count is zero, and a successful stage does not mean the Meridian build passed. Only
 `stack_accepted: true` means every gate in that invocation passed.
+
+Verification `diagnostics` uses MCP's complete `total_count` when available, with
+`diagnostics_returned`, `diagnostics_truncated` and optional
+`diagnostic_severity_counts` preserving the bounded page and full summary.
+Unpaginated legacy responses use their original count; inconsistent or truncated
+responses missing total metadata fail verification rather than understating it.
 
 Retain the stage manifest, map hashes, MCP evidence, per-gate logs, Git revision, Task version/build output,
 and Meridian build markers when handing work to a maintainer. Authentication, pushes, pull requests, and

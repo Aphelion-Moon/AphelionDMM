@@ -97,18 +97,23 @@ func TestRealMeridianStagingOnly(t *testing.T) {
 		t.Fatal("Meridian-MCP state generation changed during staging-only verification")
 	}
 	evidence := struct {
-		Stage              StagedArtifact `json:"stage"`
-		RepositoryDirty    bool           `json:"repository_dirty"`
-		RepositoryRevision string         `json:"repository_revision"`
-		MCPVersion         string         `json:"mcp_version"`
-		StateGeneration    uint64         `json:"state_generation"`
-		MapDimensions      string         `json:"map_dimensions"`
-		Diagnostics        uint64         `json:"diagnostics"`
+		Stage                    StagedArtifact    `json:"stage"`
+		RepositoryDirty          bool              `json:"repository_dirty"`
+		RepositoryRevision       string            `json:"repository_revision"`
+		MCPVersion               string            `json:"mcp_version"`
+		StateGeneration          uint64            `json:"state_generation"`
+		MapDimensions            string            `json:"map_dimensions"`
+		Diagnostics              uint64            `json:"diagnostics"`
+		DiagnosticsReturned      uint64            `json:"diagnostics_returned"`
+		DiagnosticsTruncated     bool              `json:"diagnostics_truncated"`
+		DiagnosticSeverityCounts map[string]uint64 `json:"diagnostic_severity_counts,omitempty"`
 	}{
 		Stage: artifact, RepositoryDirty: state.Dirty, RepositoryRevision: state.Revision,
 		MCPVersion: parsed.MCPVersion, StateGeneration: parsed.StateGeneration,
-		MapDimensions: strings.Join([]string{uintString(mapResult.Width), uintString(mapResult.Height), uintString(mapResult.Levels)}, "x"),
-		Diagnostics:   diagnostics.Count,
+		MapDimensions:       strings.Join([]string{uintString(mapResult.Width), uintString(mapResult.Height), uintString(mapResult.Levels)}, "x"),
+		Diagnostics:         diagnostics.Count,
+		DiagnosticsReturned: diagnostics.ReturnedCount, DiagnosticsTruncated: diagnostics.Truncated,
+		DiagnosticSeverityCounts: diagnostics.SeverityCounts,
 	}
 	encoded, err := json.MarshalIndent(evidence, "", "  ")
 	if err != nil {

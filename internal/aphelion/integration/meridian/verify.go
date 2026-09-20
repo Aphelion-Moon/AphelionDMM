@@ -47,19 +47,22 @@ type AcceptanceResult struct {
 
 // Evidence is the durable successful verification result for one immutable stage.
 type Evidence struct {
-	RepositoryIdentity string        `json:"repository_identity"`
-	RepositoryRevision string        `json:"repository_revision"`
-	MapTargetID        string        `json:"map_target_id"`
-	OutputMapSHA256    string        `json:"output_map_sha256"`
-	MCPVersion         string        `json:"mcp_version"`
-	StateGeneration    uint64        `json:"state_generation"`
-	MapWidth           uint64        `json:"map_width"`
-	MapHeight          uint64        `json:"map_height"`
-	MapLevels          uint64        `json:"map_levels"`
-	Diagnostics        uint64        `json:"diagnostics"`
-	BuildEntryPoint    string        `json:"build_entry_point"`
-	BuildExitCode      int           `json:"build_exit_code"`
-	Duration           time.Duration `json:"duration"`
+	RepositoryIdentity       string            `json:"repository_identity"`
+	RepositoryRevision       string            `json:"repository_revision"`
+	MapTargetID              string            `json:"map_target_id"`
+	OutputMapSHA256          string            `json:"output_map_sha256"`
+	MCPVersion               string            `json:"mcp_version"`
+	StateGeneration          uint64            `json:"state_generation"`
+	MapWidth                 uint64            `json:"map_width"`
+	MapHeight                uint64            `json:"map_height"`
+	MapLevels                uint64            `json:"map_levels"`
+	Diagnostics              uint64            `json:"diagnostics"`
+	DiagnosticsReturned      uint64            `json:"diagnostics_returned"`
+	DiagnosticsTruncated     bool              `json:"diagnostics_truncated"`
+	DiagnosticSeverityCounts map[string]uint64 `json:"diagnostic_severity_counts,omitempty"`
+	BuildEntryPoint          string            `json:"build_entry_point"`
+	BuildExitCode            int               `json:"build_exit_code"`
+	Duration                 time.Duration     `json:"duration"`
 }
 
 // VerifierConfig freezes the local paths and adapters used by acceptance.
@@ -224,7 +227,9 @@ func (verifier *AcceptanceVerifier) Verify(ctx context.Context, manifest integra
 		MCPVersion: parse.MCPVersion, StateGeneration: parse.StateGeneration,
 		MapWidth: mapResult.Width, MapHeight: mapResult.Height, MapLevels: mapResult.Levels,
 		Diagnostics: diagnostics.Count, BuildEntryPoint: result.EntryPoint, BuildExitCode: result.ExitCode,
-		Duration: time.Since(started),
+		DiagnosticsReturned: diagnostics.ReturnedCount, DiagnosticsTruncated: diagnostics.Truncated,
+		DiagnosticSeverityCounts: diagnostics.SeverityCounts,
+		Duration:                 time.Since(started),
 	}, nil
 }
 

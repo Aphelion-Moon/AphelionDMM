@@ -13,6 +13,31 @@ import (
 
 const testMCPTimeout = 10 * time.Second
 
+func TestMCPDiagnosticTotalsAreNotPageCounts(t *testing.T) {
+	for _, mode := range []string{"diagnostic-page", "diagnostic-missing-total", "diagnostic-small-total", "diagnostic-bad-severity"} {
+		t.Run(mode, func(t *testing.T) {
+			client := newTestMCP(t, mode, testMCPTimeout, 64<<10)
+			defer closeTestMCP(t, client)
+			if _, err := client.ParseEnvironment(context.Background(), "rift", "tgstation.dme"); err != nil {
+				t.Fatal(err)
+			}
+			diagnostics, err := client.CheckErrors(context.Background(), "rift")
+			if mode != "diagnostic-page" {
+				if err == nil {
+					t.Fatal("incomplete or inconsistent diagnostic totals were accepted")
+				}
+				return
+			}
+			if err != nil || diagnostics.Count != 1045 {
+				t.Fatalf("diagnostics = %d, error = %v; want full total 1045, not page count 1", diagnostics.Count, err)
+			}
+			if diagnostics.ReturnedCount != 1 || !diagnostics.Truncated || diagnostics.SeverityCounts["error"] != 127 || diagnostics.SeverityCounts["warning"] != 2 || diagnostics.SeverityCounts["hint"] != 916 {
+				t.Fatalf("diagnostic page/summary evidence was lost: %+v", diagnostics)
+			}
+		})
+	}
+}
+
 func TestMCPNegotiatesAndRequiresParseBeforeInspection(t *testing.T) {
 	client := newTestMCP(t, "normal", testMCPTimeout, 64<<10)
 	defer closeTestMCP(t, client)
@@ -38,7 +63,7 @@ func TestMCPNegotiatesAndRequiresParseBeforeInspection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CheckErrors() error = %v", err)
 	}
-	if diagnostics.StateGeneration != 7 || diagnostics.Count != 1 {
+	if diagnostics.StateGeneration != 7 || diagnostics.Count != 1 || diagnostics.ReturnedCount != 1 || diagnostics.Truncated {
 		t.Fatalf("CheckErrors() = %#v, want one generation-7 diagnostic", diagnostics)
 	}
 }

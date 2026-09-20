@@ -61,7 +61,11 @@ type DiagnosticResult struct {
 	RepositoryID    string
 	StateGeneration uint64
 	MCPVersion      string
-	Count           uint64
-	Diagnostics     json.RawMessage
-	Raw             json.RawMessage
+	// Count is the complete reported total, or an unpaginated legacy count.
+	Count          uint64
+	ReturnedCount  uint64
+	Truncated      bool
+	SeverityCounts map[string]uint64
+	Diagnostics    json.RawMessage
+	Raw            json.RawMessage
 }
