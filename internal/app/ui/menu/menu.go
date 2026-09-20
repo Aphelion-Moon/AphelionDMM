@@ -9,7 +9,9 @@ import (
 	"sdmm/internal/imguiext/icon"
 	"sdmm/internal/imguiext/style"
 	w "sdmm/internal/imguiext/widget"
+	/* APHELION EDIT REMOVAL START - EDITABLE SHORTCUTS
 	"sdmm/internal/platform"
+	APHELION EDIT REMOVAL END */
 	"sdmm/internal/rsc"
 
 	"github.com/SpaiR/imgui-go"
@@ -110,8 +112,12 @@ type Menu struct {
 
 	shortcuts shortcut.Shortcuts
 	// APHELION EDIT ADDITION START - SHORTCUT REFERENCE
-	showHotkeys  bool
-	hotkeyFilter string
+	showHotkeys       bool
+	hotkeyFilter      string
+	hotkeyAction      string
+	hotkeyDraft       string
+	hotkeyError       string
+	hotkeyAllowShared bool
 	// APHELION EDIT ADDITION END
 
 	updateStatus      upStatus
@@ -130,14 +136,16 @@ func (m *Menu) Process() {
 		w.Menu("File", w.Layout{
 			w.MenuItem("New Workspace", m.app.DoNewWorkspace).
 				Icon(icon.File).
-				Shortcut(platform.KeyModName(), "N"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "N")
+				Shortcut(shortcut.Label("menu#DoNewWorkspace")),
 			w.MenuItem("New Map", m.app.DoNewMap).
 				IconEmpty().
 				Enabled(m.app.HasLoadedEnvironment()),
 			w.Separator(),
 			w.MenuItem("Open...", m.app.DoOpen).
 				Icon(icon.FolderOpen).
-				Shortcut(platform.KeyModName(), "O"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "O")
+				Shortcut(shortcut.Label("menu#DoOpen")),
 			w.Menu("Recent Maps", w.Layout{
 				w.Custom(func() {
 					for _, recentMap := range m.app.RecentMaps() {
@@ -158,63 +166,77 @@ func (m *Menu) Process() {
 			w.Separator(),
 			w.MenuItem("Close", m.app.DoClose).
 				IconEmpty().
-				Shortcut(platform.KeyModName(), "W"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "W")
+				Shortcut(shortcut.Label("menu#DoClose")),
 			w.MenuItem("Close All", m.app.DoCloseAll).
 				IconEmpty().
-				Shortcut(platform.KeyModName(), "Shift", "W"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "Shift", "W")
+				Shortcut(shortcut.Label("menu#DoCloseAll")),
 			w.Separator(),
 			w.MenuItem("Save", m.app.DoSave).
 				Icon(icon.Save).
 				Enabled(m.app.HasActiveMap()).
-				Shortcut(platform.KeyModName(), "S"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "S")
+				Shortcut(shortcut.Label("menu#DoSave")),
 			w.MenuItem("Save All", m.app.DoSaveAll).
 				Icon(icon.Save).
 				Enabled(m.app.HasActiveMap()).
-				Shortcut(platform.KeyModName(), "Shift", "S"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "Shift", "S")
+				Shortcut(shortcut.Label("menu#DoSaveAll")),
 			w.Separator(),
 			w.MenuItem("Preferences", m.app.DoOpenPreferences).
 				Icon(icon.Wrench),
 			w.Separator(),
 			w.MenuItem("Exit", m.app.DoExit).
 				IconEmpty().
-				Shortcut(shortcut.Combine(platform.KeyModName(), "Q")),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(shortcut.Combine(platform.KeyModName(), "Q"))
+				Shortcut(shortcut.Label("menu#DoExit")),
 		}),
 
 		w.Menu("Edit", w.Layout{
 			w.MenuItem("Undo", m.app.DoUndo).
 				Icon(icon.Undo).
 				Enabled(m.app.CommandStorage().HasUndo()).
-				Shortcut(platform.KeyModName(), "Z"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "Z")
+				Shortcut(shortcut.Label("menu#DoUndo")),
 			w.MenuItem("Redo", m.app.DoRedo).
 				Icon(icon.Redo).
 				Enabled(m.app.CommandStorage().HasRedo()).
-				Shortcut(platform.KeyModName(), "Shift", "Z"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "Shift", "Z")
+				Shortcut(shortcut.Label("menu#DoRedo")),
 			w.Separator(),
 			w.MenuItem("Copy", m.app.DoCopy).
 				Icon(icon.ContentCopy).
-				Shortcut(platform.KeyModName(), "C"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "C")
+				Shortcut(shortcut.Label("menu#DoCopy")),
 			w.MenuItem("Paste", m.app.DoPaste).
 				Icon(icon.ContentPaste).
 				Enabled(m.app.Clipboard().HasData()).
-				Shortcut(platform.KeyModName(), "V"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "V")
+				Shortcut(shortcut.Label("menu#DoPaste")),
 			w.MenuItem("Cut", m.app.DoCut).
 				Icon(icon.ContentCut).
-				Shortcut(platform.KeyModName(), "X"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "X")
+				Shortcut(shortcut.Label("menu#DoCut")),
 			w.MenuItem("Delete", m.app.DoDelete).
 				Icon(icon.Eraser).
-				Shortcut("Delete"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut("Delete")
+				Shortcut(shortcut.Label("menu#DoDelete")),
 			w.MenuItem("Deselect", m.app.DoDeselect).
 				IconEmpty().
-				Shortcut(platform.KeyModName(), "D"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "D")
+				Shortcut(shortcut.Label("pmap#doDeselectAll")),
 			w.Separator(),
 			w.MenuItem("Search", m.app.DoSearch).
 				Icon(icon.Search).
 				Enabled(m.app.HasActiveMap()).
-				Shortcut(platform.KeyModName(), "F"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "F")
+				Shortcut(shortcut.Label("menu#DoSearch")),
 			w.MenuItem("Go to Coords", m.app.DoOpenJumpWindow).
 				Icon(icon.Shrink).
 				Enabled(m.app.HasActiveMap()).
-				Shortcut(platform.KeyModName(), "G"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "G")
+				Shortcut(shortcut.Label("menu#DoOpenJumpWindow")),
 		}),
 
 		// APHELION EDIT ADDITION START - COLLABORATION
@@ -247,22 +269,26 @@ func (m *Menu) Process() {
 				IconEmpty().
 				Enabled(m.app.HasLoadedEnvironment()).
 				Selected(m.isAreaToggled()).
-				Shortcut(platform.KeyModName(), "1"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "1")
+				Shortcut(shortcut.Label("pmap#doToggleArea")),
 			w.MenuItem("Show Turf", m.doToggleTurf).
 				IconEmpty().
 				Enabled(m.app.HasLoadedEnvironment()).
 				Selected(m.isTurfToggled()).
-				Shortcut(platform.KeyModName(), "2"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "2")
+				Shortcut(shortcut.Label("pmap#doToggleTurf")),
 			w.MenuItem("Show Object", m.doToggleObject).
 				IconEmpty().
 				Enabled(m.app.HasLoadedEnvironment()).
 				Selected(m.isObjectToggled()).
-				Shortcut(platform.KeyModName(), "3"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "3")
+				Shortcut(shortcut.Label("pmap#doToggleObject")),
 			w.MenuItem("Show Mob", m.doToggleMob).
 				IconEmpty().
 				Enabled(m.app.HasLoadedEnvironment()).
 				Selected(m.isMobToggled()).
-				Shortcut(platform.KeyModName(), "4"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "4")
+				Shortcut(shortcut.Label("pmap#doToggleMob")),
 			w.MenuItem("Show All", m.doShowAll).
 				IconEmpty().
 				Enabled(m.app.HasLoadedEnvironment()),
@@ -273,20 +299,22 @@ func (m *Menu) Process() {
 			w.MenuItem("Multi-Z Rendering", m.app.DoMultiZRendering).
 				IconEmpty().
 				Selected(m.app.MultiZRendering()).
-				Shortcut(platform.KeyModName(), "0"),
+				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "0")
+				Shortcut(shortcut.Label("menu#DoMultiZRendering")),
 			w.MenuItem("Mirror Canvas Camera", m.app.DoMirrorCanvasCamera).
 				IconEmpty().
 				Selected(m.app.MirrorCanvasCamera()),
 		}),
 
 		w.Menu("Window", w.Layout{
-			w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut("F5").
+			// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut("F5").
+			w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut(shortcut.Label("menu#DoResetLayout")).
 				Icon(icon.WindowRestore),
 		}),
 
 		w.Menu("Help", w.Layout{
 			// APHELION EDIT ADDITION START - SHORTCUT REFERENCE
-			w.MenuItem("Keyboard Shortcuts", m.openShortcutReference).Shortcut("F1").IconEmpty(),
+			w.MenuItem("Keyboard Shortcuts", m.openShortcutReference).Shortcut(shortcut.Label("menu#showHotkeys")).IconEmpty(),
 			w.Separator(),
 			// APHELION EDIT ADDITION END
 			w.MenuItem("Changelog", m.app.DoOpenChangelog).

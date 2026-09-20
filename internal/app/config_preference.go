@@ -2,6 +2,10 @@ package app
 
 import (
 	"os/exec"
+	// APHELION EDIT ADDITION START - EDITABLE SHORTCUTS
+	"sdmm/internal/aphelion/hotkeys"
+	"sdmm/internal/app/ui/shortcut"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION GRID STEP
 	"sdmm/internal/aphelion/editing"
 	// APHELION EDIT ADDITION END
@@ -84,6 +88,12 @@ func (a *app) loadPreferencesConfig() {
 	}
 
 	a.ConfigRegister(cfg)
+	// APHELION EDIT ADDITION START - EDITABLE SHORTCUTS
+	if cfg.Shortcuts == nil {
+		cfg.Shortcuts = &hotkeys.Settings{}
+	}
+	shortcut.UseSettings(cfg.Shortcuts)
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION GRID STEP
 	cfg.Editor.SelectionMoveStep = editing.NormalizeSelectionMoveStep(cfg.Editor.SelectionMoveStep)
 	// APHELION EDIT ADDITION END

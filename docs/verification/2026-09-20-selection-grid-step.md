@@ -3,6 +3,10 @@
 Baseline: `3f7ae99c`. This implements the configurable grid-step item in the
 editor QoL workplan. It does not complete the broader transform/interaction matrix.
 
+Subsequent verification: after the [graphics driver installation](2026-09-20-graphics-driver.md),
+the native grid-step workspace test and repository gate with OpenGL enabled pass.
+The original skipped-test evidence below describes the implementation pass.
+
 Editor preferences now expose **Selection Move Step**. Alt+Arrow and the Grab
 move buttons read the same current value, and toolbar/help text explains the
 setting. The default remains one tile. Valid values are 1 through 4,095, one less

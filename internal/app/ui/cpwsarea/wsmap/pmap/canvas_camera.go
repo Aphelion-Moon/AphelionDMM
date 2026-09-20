@@ -62,7 +62,8 @@ func (p *PaneMap) processCameraZoom() {
 }
 
 func (p *PaneMap) calcManualCanvasTranslateShift() float32 {
-	return p.calcManualCanvasTranslateShiftV(1)
+	// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: return p.calcManualCanvasTranslateShiftV(1)
+	return float32(dmmap.WorldIconSize)
 }
 
 func (p *PaneMap) calcManualCanvasTranslateShiftV(mod float32) float32 {

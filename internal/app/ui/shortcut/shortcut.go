@@ -52,9 +52,10 @@ func (s Shortcut) weight() int {
 	return weight
 }
 
-func (s Shortcut) isPressed() bool {
+// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: func (s Shortcut) isPressed() bool {
+func (s Shortcut) matchingWeight() int {
 	// APHELION EDIT ADDITION START - SHORTCUT MATCHING
-	return pressedExact(s)
+	return matchingWeight(s)
 	/* APHELION EDIT REMOVAL START - SHORTCUT MATCHING
 	if s.SecondKey == 0 && s.ThirdKey == 0 {
 		if imgui.IsKeyPressed(int(s.FirstKey)) || imgui.IsKeyPressed(int(s.FirstKeyAlt)) {
@@ -102,24 +103,55 @@ func Process() {
 		return
 	}
 
-	var pressedShortcuts []*Shortcut
+	/* APHELION EDIT REMOVAL START - EDITABLE SHORTCUTS
+		var pressedShortcuts []*Shortcut
+
+		for _, shortcut := range shortcuts {
+			if shortcut.IsVisible && shortcut.isPressed() {
+				pressedShortcuts = append(pressedShortcuts, shortcut)
+			}
+		}
+
+		if len(pressedShortcuts) != 0 {
+			sort.Slice(pressedShortcuts, func(i, j int) bool {
+				return pressedShortcuts[i].weight() > pressedShortcuts[j].weight()
+			})
+
+			if shortcut := pressedShortcuts[0]; shortcut.IsEnabled == nil || shortcut.IsEnabled() {
+				log.Print("triggered:", shortcut)
+				shortcut.Action()
+			}
+		}
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - EDITABLE SHORTCUTS
+	type candidate struct {
+		shortcut *Shortcut
+		weight   int
+	}
+	var pressedShortcuts []candidate
 
 	for _, shortcut := range shortcuts {
-		if shortcut.IsVisible && shortcut.isPressed() {
-			pressedShortcuts = append(pressedShortcuts, shortcut)
+		if shortcut.IsVisible {
+			if weight := shortcut.matchingWeight(); weight >= 0 {
+				pressedShortcuts = append(pressedShortcuts, candidate{shortcut, weight})
+			}
 		}
 	}
 
 	if len(pressedShortcuts) != 0 {
-		sort.Slice(pressedShortcuts, func(i, j int) bool {
-			return pressedShortcuts[i].weight() > pressedShortcuts[j].weight()
+		sort.SliceStable(pressedShortcuts, func(i, j int) bool {
+			return pressedShortcuts[i].weight > pressedShortcuts[j].weight
 		})
 
-		if shortcut := pressedShortcuts[0]; shortcut.IsEnabled == nil || shortcut.IsEnabled() {
-			log.Print("triggered:", shortcut)
-			shortcut.Action()
+		for _, candidate := range pressedShortcuts {
+			if shortcut := candidate.shortcut; shortcut.IsEnabled == nil || shortcut.IsEnabled() {
+				log.Print("triggered:", shortcut)
+				shortcut.Action()
+				break
+			}
 		}
 	}
+	// APHELION EDIT ADDITION END
 }
 
 func Combine(keys ...string) string {

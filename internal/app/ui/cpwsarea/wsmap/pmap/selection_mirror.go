@@ -37,9 +37,9 @@ func (p *PaneMap) mirrorSelection(axis editing.MirrorAxis) {
 
 func (p *PaneMap) showSelectionMirrorButtons() {
 	w.Layout{
-		w.Button("Mirror Horizontal H", func() { p.mirrorSelection(editing.MirrorHorizontal) }).Tooltip("Reflect visible contents left/right inside the selection"),
+		w.Button("Mirror Horizontal "+shortcut.Label("pmap#mirrorSelectionHorizontal"), func() { p.mirrorSelection(editing.MirrorHorizontal) }).Tooltip("Reflect visible contents left/right inside the selection"),
 		w.SameLine(),
-		w.Button("Mirror Vertical V", func() { p.mirrorSelection(editing.MirrorVertical) }).Tooltip("Reflect visible contents top/bottom inside the selection"),
+		w.Button("Mirror Vertical "+shortcut.Label("pmap#mirrorSelectionVertical"), func() { p.mirrorSelection(editing.MirrorVertical) }).Tooltip("Reflect visible contents top/bottom inside the selection"),
 	}.Build()
 }
 

@@ -2,6 +2,8 @@
 package shortcut
 
 import (
+	"strings"
+
 	"github.com/SpaiR/imgui-go"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"sdmm/internal/aphelion/hotkeys"
@@ -18,8 +20,82 @@ func keys(s Shortcut) [][2]glfw.Key {
 	return result
 }
 
-func pressedExact(s Shortcut) bool {
-	return hotkeys.Pressed(keys(s), func(k glfw.Key) bool { return imgui.IsKeyDown(int(k)) }, func(k glfw.Key) bool { return imgui.IsKeyPressed(int(k)) })
+var settings = &hotkeys.Settings{}
+
+// UseSettings is called on the UI thread before opening panes.
+func UseSettings(value *hotkeys.Settings) {
+	if value == nil {
+		value = &hotkeys.Settings{}
+	}
+	settings = value
+}
+
+func SetBindings(name string, chords [][][2]glfw.Key) error { return settings.Set(name, chords) }
+func ResetBindings(name string)                             { settings.Reset(name) }
+func ResetAllBindings()                                     { settings.ResetAll() }
+
+func matchingWeight(s Shortcut) int {
+	return settings.Match(s.Name, keys(s), func(k glfw.Key) bool { return imgui.IsKeyDown(int(k)) }, func(k glfw.Key) bool { return imgui.IsKeyPressed(int(k)) })
+}
+
+func effectiveChords(s Shortcut) [][][2]glfw.Key {
+	if chords, ok := settings.Lookup(s.Name); ok {
+		return chords
+	}
+	return [][][2]glfw.Key{keys(s)}
+}
+
+// Defaults includes disabled actions so they can still be customized or reset.
+func Defaults() []hotkeys.Action {
+	var bindings []hotkeys.Binding
+	for _, s := range shortcuts {
+		bindings = append(bindings, hotkeys.Binding{Name: s.Name, Keys: keys(*s)})
+	}
+	return hotkeys.Catalog(bindings)
+}
+
+func BindingsFor(name string) [][][2]glfw.Key {
+	if chords, ok := settings.Lookup(name); ok {
+		return chords
+	}
+	var bindings []hotkeys.Binding
+	for _, s := range shortcuts {
+		if s.Name == name {
+			bindings = append(bindings, hotkeys.Binding{Name: name, Keys: keys(*s)})
+		}
+	}
+	if actions := hotkeys.Catalog(bindings); len(actions) != 0 {
+		return actions[0].Chords
+	}
+	return nil
+}
+
+func PreviewConflicts(name string, chords [][][2]glfw.Key) []hotkeys.Conflict {
+	actions := Actions()
+	var others []hotkeys.Action
+	for _, action := range actions {
+		if action.Name != name {
+			others = append(others, action)
+		}
+	}
+	others = append(others, hotkeys.Action{Name: name, Chords: chords})
+	var result []hotkeys.Conflict
+	for _, conflict := range hotkeys.Conflicts(others) {
+		if conflict.First.Name == name || conflict.Second.Name == name {
+			result = append(result, conflict)
+		}
+	}
+	return result
+}
+
+func Label(name string) string {
+	var labels []string
+	for _, chord := range BindingsFor(name) {
+		for _, entry := range hotkeys.Reference([]hotkeys.Binding{{Name: name, Keys: chord}}) {
+			labels = append(labels, entry.Keys)
+		}
+	}
+	return strings.Join(labels, "; ")
 }
 
 func Reference() []hotkeys.Entry {
@@ -37,7 +113,9 @@ func SharedBindings() []hotkeys.Conflict {
 func registeredBindings() []hotkeys.Binding {
 	bindings := make([]hotkeys.Binding, 0, len(shortcuts))
 	for _, s := range shortcuts {
-		bindings = append(bindings, hotkeys.Binding{Name: s.Name, Keys: keys(*s)})
+		for _, chord := range effectiveChords(*s) {
+			bindings = append(bindings, hotkeys.Binding{Name: s.Name, Keys: chord})
+		}
 	}
 	return bindings
 }

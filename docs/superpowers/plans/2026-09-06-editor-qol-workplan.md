@@ -2,13 +2,18 @@
 
 Baseline: commit `052e1acb02b790641d63466de40c91d56028383b`.
 
-September 20: the [shortcut action catalog and shared-binding diagnostics](../../verification/2026-09-20-shortcut-catalog.md)
-now derive from the live registry. Editable bindings, preference migration/reset,
-and the native focus/layout interaction matrix remain open.
+September 20: [editable shortcut bindings](../../verification/2026-09-20-shortcut-rebinding.md)
+now support saved alternatives, conflict acknowledgment and default resets.
+The [manufacturer graphics driver](../../verification/2026-09-20-graphics-driver.md)
+is installed; native workspace checks and `task verify` with OpenGL gates enabled
+pass. Human acceptance and broader layout/focus qualification remain open.
+
+Earlier September 20: the [shortcut action catalog and shared-binding diagnostics](../../verification/2026-09-20-shortcut-catalog.md)
+established the live-registry foundation used by the rebinding continuation above.
 
 September 20: [configurable selection grid steps](../../verification/2026-09-20-selection-grid-step.md)
-now share a saved preference across Alt+Arrow and toolbar movement. Tool and
-preference regressions pass; real workspace and human acceptance remain open.
+now share a saved preference across Alt+Arrow and toolbar movement. Tool,
+preference and real-workspace regressions pass; human acceptance remains open.
 
 Latest continuation: [draft inspection and export](../../verification/2026-09-20-draft-inspection-and-export.md)
 records terminal-error retention, complete local draft export and guarded desktop
@@ -18,8 +23,9 @@ Desktop acceptance and wider unchecked work remain open.
 September 20 continuation from committed `f243e913`: local network submission
 failures now retain drafts, with actual Search and WebSocket regressions. See
 [current evidence and blockers](../../verification/2026-09-20-unsent-drafts-and-toolchain.md).
-OpenGL initialization is blocked on the current host; broader unchecked work
-below remains open. The stopping-point text below describes September 6.
+OpenGL initialization was initially blocked on this host and is now resolved by
+the driver installation above. Broader unchecked work remains open. The
+stopping-point text below describes September 6.
 
 Execution stopped at the user's request after the
 [final replacement-validation qualification](../../verification/2026-09-06-search-after-values-and-stopping-point.md).
@@ -174,12 +180,13 @@ fences are separate checks.
    destinations, hidden types, map edges, all Z levels, instance ordering,
    stable IDs, failed submission, and exact undo/redo. A custom direction/type
    mapping registry needs project-specific fixtures and reviewable rules.
-3. **Shortcut usability.** A per-action catalog and potential conflict detection
-   now feed the shortcut reference; user rebinding remains open. The catalog
-   covers left/right modifiers and keypad aliases. Qualify keyboard
+3. **Shortcut usability.** A per-action catalog, potential conflict detection,
+   saved rebinding and per-action/all-default resets now feed the dispatcher and
+   shortcut reference. Left/right modifiers and keypad aliases are covered.
+   Qualify keyboard
    layouts, text fields, popup focus, inactive maps, and repeated keys. The
-   reference must consume the same bindings. Retain defaults during preference
-   migration and provide a reset-to-default action.
+   reference consumes the same bindings, and missing/invalid preferences retain
+   defaults. Human acceptance of the editing controls remains open.
 4. **Navigation and selection tools.** Audit existing Go to Coordinates and
    Search/Replace All before claiming they are missing. The
    [search audit](../../verification/2026-09-06-search-performance.md) verifies

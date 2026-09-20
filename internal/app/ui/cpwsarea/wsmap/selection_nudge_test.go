@@ -142,6 +142,24 @@ func TestSelectionWorkspaceRetainsFastCameraPan(t *testing.T) {
 	if grab.Bounds() != area {
 		t.Fatal("camera pan moved selection")
 	}
+	defer shortcut.ResetBindings("pmap#panCameraFastRight")
+	if err := shortcut.SetBindings("pmap#panCameraFastRight", [][][2]glfw.Key{{{glfw.KeyF8, 0}}}); err != nil {
+		t.Fatal(err)
+	}
+	initial = camera.ShiftX
+	pressSelectionShortcut(glfw.KeyF8)
+	if got := camera.ShiftX - initial; got != normal*5 {
+		t.Fatalf("rebound fast pan = %v, want %v", got, normal*5)
+	}
+	defer shortcut.ResetBindings("pmap#doMoveCameraRight")
+	if err := shortcut.SetBindings("pmap#doMoveCameraRight", [][][2]glfw.Key{{{glfw.KeyLeftShift, glfw.KeyRightShift}, {glfw.KeyF9, 0}}}); err != nil {
+		t.Fatal(err)
+	}
+	initial = camera.ShiftX
+	pressSelectionShortcut(glfw.KeyRightShift, glfw.KeyF9)
+	if got := camera.ShiftX - initial; got != normal {
+		t.Fatalf("rebound normal pan = %v, want %v", got, normal)
+	}
 }
 
 func TestSelectionConfiguredGridStepWorkspaceUndoRedo(t *testing.T) {

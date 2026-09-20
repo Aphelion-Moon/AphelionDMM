@@ -6,6 +6,7 @@ import (
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/app/ui/shortcut"
+	"sdmm/internal/dmapi/dmmap"
 	w "sdmm/internal/imguiext/widget"
 	"sdmm/internal/util"
 
@@ -31,16 +32,14 @@ func (p *PaneMap) addSelectionNudgeShortcuts() {
 	}
 	// Shifted camera movement was previously an implicit bare-arrow modifier.
 	// Register it explicitly now that shortcut matching requires exact modifiers.
-	for _, pan := range []struct {
-		name   string
-		key    glfw.Key
-		action func()
-	}{
-		{"Left", glfw.KeyLeft, p.doMoveCameraLeft}, {"Right", glfw.KeyRight, p.doMoveCameraRight},
-		{"Up", glfw.KeyUp, p.doMoveCameraUp}, {"Down", glfw.KeyDown, p.doMoveCameraDown},
-	} {
+	for _, pan := range selectionNudges {
 		p.shortcuts.Add(shortcut.Shortcut{Name: "pmap#panCameraFast" + pan.name,
-			FirstKey: glfw.KeyLeftShift, FirstKeyAlt: glfw.KeyRightShift, SecondKey: pan.key, Action: pan.action})
+			FirstKey: glfw.KeyLeftShift, FirstKeyAlt: glfw.KeyRightShift, SecondKey: pan.key,
+			Action: func() {
+				// Speed belongs to the action, even when its custom chord omits Shift.
+				step := float32(dmmap.WorldIconSize) * 5
+				p.translateCanvas(-float32(pan.shift.X)*step, float32(pan.shift.Y)*step)
+			}})
 	}
 }
 
@@ -68,7 +67,7 @@ func (p *PaneMap) showSelectionNudgeButtons() {
 	for _, direction := range selectionNudges {
 		w.SameLine().Build()
 		w.Disabled(!p.canNudgeSelection(direction.shift),
-			w.Button(direction.name, func() { p.nudgeSelection(direction.shift) }).Tooltip(fmt.Sprintf("Alt+%s: move visible selection contents %d tile(s). Configure Selection Move Step in Editor preferences.", direction.name, step))).Build()
+			w.Button(direction.name, func() { p.nudgeSelection(direction.shift) }).Tooltip(fmt.Sprintf("%s: move visible selection contents %d tile(s). Configure Selection Move Step in Editor preferences.", shortcut.Label("pmap#nudgeSelection"+direction.name), step))).Build()
 	}
 }
 
