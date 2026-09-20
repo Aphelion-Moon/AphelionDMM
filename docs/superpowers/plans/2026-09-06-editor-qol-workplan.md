@@ -153,7 +153,11 @@ fences are separate checks.
    The [delayed rectangular-chain check](../../verification/2026-09-20-selection-network-chains.md)
    now covers accepted, rejected and mixed rotation/nudge outcomes during a
    newer editor preview, with exact display/authority and undo/redo geometry.
-   Physical mouse routing and the wider cases above remain open.
+   The [mouse/frame continuation](../../verification/2026-09-20-mouse-network-selection.md)
+   now combines screen-coordinate callbacks, ImGui button input, actual canvas
+   control and registered frame jobs with delayed rotation outcomes and drag
+   release, including unsent draft preservation and undo/redo. OS event delivery,
+   physical interaction and the wider cases above remain open.
    Separate background restoration during one gesture from committed history;
    never restore stale copied tiles over a newer remote edit.
    The tile-commit fallback and local resize failure/undo paths are repaired.
