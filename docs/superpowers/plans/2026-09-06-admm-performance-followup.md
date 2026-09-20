@@ -103,6 +103,10 @@ for the precise measurement boundaries and remaining campaign gates.
   separately verifies release of the enclosing tab list and active/focus
   references through guarded close paths, without claiming native tab interaction
   or full application endurance coverage.
+  The [resize canvas lifetime repair](../../verification/2026-09-20-resize-canvas-lifetime.md)
+  verifies 32 resize/history replacements through the native disposal queue,
+  including old/new texture coexistence, camera preservation and exact history
+  hashes. Driver memory and full-application resize endurance remain unmeasured.
 
 **Gate:** fixed manifests, correct counts/hashes, independent warmup, at least five
 trials, retained raw results, explicit failure/timeout counts and no hidden

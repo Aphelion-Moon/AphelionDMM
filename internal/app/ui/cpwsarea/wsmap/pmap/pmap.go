@@ -377,6 +377,11 @@ func (p *PaneMap) syncActivePane() {
 // Needed when changing global parts of the map, like the map size etc.
 func (p *PaneMap) reloadCanvas() {
 	oldCamera := p.canvas.Render().Camera // To keep current camera position
+	// APHELION EDIT ADDITION START - RESIZED CANVAS LIFETIME
+	// Keep already-built draw commands valid until the next frame, then
+	// release the replaced framebuffer and texture through the normal queue.
+	p.canvas.Dispose()
+	// APHELION EDIT ADDITION END
 	p.canvas = canvas.New()
 	p.canvas.Render().Camera = oldCamera
 	p.canvas.Render().SetOverlay(p.canvasOverlay)
