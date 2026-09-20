@@ -151,6 +151,11 @@ func (e *Editor) DetachCollaborationExecutor(ctx context.Context) error {
 
 // ProcessCollaborationUpdates applies the latest network projection on the UI thread.
 func (e *Editor) ProcessCollaborationUpdates() {
+	// A fault without acquired captures still owns its damaged display. Keep
+	// incoming projections queued until explicit recovery or attachment.
+	if e.collaborationErr != nil {
+		return
+	}
 	if e.selectionMove != nil && e.selectionMove.Level() != e.pMap.ActiveLevel() {
 		e.FinishSelectionMove(e.selectionMove, true)
 	}
@@ -189,6 +194,9 @@ func (e *Editor) ProcessCollaborationUpdates() {
 
 // RefreshCollaborationSnapshot applies the executor's authoritative snapshot on the UI thread.
 func (e *Editor) RefreshCollaborationSnapshot(ctx context.Context) error {
+	if e.collaborationErr != nil {
+		return fmt.Errorf("inspect and explicitly discard the retained local edit before refreshing")
+	}
 	if e.selectionMove != nil || len(e.pendingChanges) != 0 {
 		return fmt.Errorf("refresh collaboration snapshot: map has an uncommitted edit")
 	}
@@ -480,6 +488,10 @@ func (e *Editor) syncFromExecutor(execution executor.Executor, apply bool, activ
 	snapshot, err := execution.Snapshot(context.Background())
 	if err != nil {
 		e.reportCollaborationError("Unable to synchronize map", err)
+		return
+	}
+	if e.collaborationErr != nil {
+		e.setAuthoritative(snapshot)
 		return
 	}
 	if apply && e.selectionMove == nil && len(e.pendingChanges) == 0 {

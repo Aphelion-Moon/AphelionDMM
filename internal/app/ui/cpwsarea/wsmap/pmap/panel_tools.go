@@ -124,6 +124,9 @@ func (p *PaneMap) showToolsPanel() {
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	p.showPastePlacementControls()
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LOCAL EDIT RECOVERY
+	p.showLocalRecoveryControls()
+	// APHELION EDIT ADDITION END
 	w.Layout{
 		p.panelToolsLayoutTools(),
 		w.SameLine(),

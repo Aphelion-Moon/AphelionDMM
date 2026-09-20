@@ -122,6 +122,14 @@ project/application close require explicit draft resolution or discard. Export
 does not resubmit or resolve an operation; see the
 [draft recovery evidence](../verification/2026-09-20-draft-inspection-and-export.md).
 
+Local capture faults and unsubmitted journals have a separate recovery view in
+the map tools panel. Its immutable raw JSON reference preserves damaged display
+entries without assigning identities. Inspection/export retains the Save guard;
+explicit discard revalidates editor lifetime and contents before installing the
+executor snapshot. It preserves accepted history and pending callback ownership.
+Ordinary projection/refresh does not overwrite a faulted display. See the
+[local recovery evidence](../verification/2026-09-20-local-edit-recovery.md).
+
 Engine branches share private immutable snapshot and accepted-operation payloads.
 Each branch owns its mutable history maps; validation copies the tile table before
 replacing or appending states. Public inputs, outputs and changed tile states are

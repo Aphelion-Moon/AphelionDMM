@@ -190,10 +190,12 @@ fences are separate checks.
    Cancellation leaves unrelated edits pending; a preview refuses destinations
    already owned by another pending edit. Controlled network acceptance and
    validated recovery with actual Save pass through the hidden workspace.
-   A damaged-display recovery UI still needs an explicit retain/export/discard
-   design for real unsent intent. Capture cleanup alone does not clear a fault
-   or authorize replacing pending work. Use these ownership boundaries when
-   designing the placement preview.
+   The [local recovery UI](../../verification/2026-09-20-local-edit-recovery.md)
+   now inspects and exports retained display/capture data without mutation, and
+   requires explicit, revalidated discard to restore executor authority. Capture
+   cleanup alone still does not authorize replacing pending work. Accepted undo,
+   native failed-Move recovery and actual Save pass; human/file-picker and
+   representative large-map qualification remain open.
    The [ordering/Save pass](../../verification/2026-09-06-history-ordering-and-save.md)
    now repairs accepted-edit insertion during pending undo/redo and saved-depth
    replacement detection. Four real-workspace acceptance/rejection cases restore
