@@ -23,6 +23,9 @@ type Canvas struct {
 
 	frameBuffer uint32
 	texture     uint32
+	// APHELION EDIT ADDITION START - CANVAS LIFETIME
+	disposeQueued bool
+	// APHELION EDIT ADDITION END
 
 	ClearColor Color
 }
@@ -36,6 +39,11 @@ func (c *Canvas) Render() *render.Render {
 }
 
 func (c *Canvas) ReadPixels() []byte {
+	// APHELION EDIT ADDITION START - CANVAS LIFETIME
+	if c.texture == 0 {
+		return nil
+	}
+	// APHELION EDIT ADDITION END
 	var pixels = make([]byte, int(c.width*c.height*4))
 	gl.BindTexture(gl.TEXTURE_2D, c.Texture())
 	gl.GetTexImage(gl.TEXTURE_2D, 0, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(pixels))
@@ -44,12 +52,27 @@ func (c *Canvas) ReadPixels() []byte {
 }
 
 func (c *Canvas) Dispose() {
+	// APHELION EDIT ADDITION START - CANVAS LIFETIME
+	// UI-thread ownership, like Process. Keep handles readable for screenshot
+	// capture and already-built draw commands until the next frame drains them.
+	if c.disposeQueued {
+		return
+	}
+	c.disposeQueued = true
+	frameBuffer, texture := c.frameBuffer, c.texture
+	// APHELION EDIT ADDITION END
 	// Run later, so it will be cleared in the next frame.
 	// Otherwise, we will see graphics artifacts.
 	window.RunLater(func() {
 		log.Print("disposing...")
-		gl.DeleteFramebuffers(1, &c.frameBuffer)
-		gl.DeleteTextures(1, &c.texture)
+		// APHELION EDIT CHANGE - CANVAS LIFETIME - ORIGINAL: gl.DeleteFramebuffers(1, &c.frameBuffer)
+		gl.DeleteFramebuffers(1, &frameBuffer)
+		// APHELION EDIT CHANGE - CANVAS LIFETIME - ORIGINAL: gl.DeleteTextures(1, &c.texture)
+		gl.DeleteTextures(1, &texture)
+		// APHELION EDIT ADDITION START - CANVAS LIFETIME
+		c.frameBuffer, c.texture = 0, 0
+		c.width, c.height = 0, 0
+		// APHELION EDIT ADDITION END
 		log.Print("disposed")
 	})
 }
@@ -61,6 +84,11 @@ func New() *Canvas {
 }
 
 func (c *Canvas) Process(size imgui.Vec2) {
+	// APHELION EDIT ADDITION START - CANVAS LIFETIME
+	if c.disposeQueued {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	defer uistage.Begin(uistage.CanvasDraw).End()
 	// APHELION EDIT ADDITION END

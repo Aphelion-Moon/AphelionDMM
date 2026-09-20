@@ -84,6 +84,10 @@ for the precise measurement boundaries and remaining campaign gates.
   The [closed-map tool ownership repair](../../verification/2026-09-20-closed-map-tool-ownership.md)
   removes a reproduced global editor/canvas/selection retention path on disposal.
   This is functional ownership evidence; the resource campaign remains open.
+  The [canvas disposal lifetime repair](../../verification/2026-09-20-canvas-disposal-lifetime.md)
+  additionally verifies 32 native create/dispose cycles through the real deferred
+  queue, including idempotence and screenshot readback before deletion. Driver
+  memory totals and the full-editor endurance workload remain unmeasured.
 
 **Gate:** fixed manifests, correct counts/hashes, independent warmup, at least five
 trials, retained raw results, explicit failure/timeout counts and no hidden
