@@ -1,5 +1,9 @@
 # ADMM performance follow-up workplan
 
+September 20 follow-up: [bounded slow-consumer recovery](../../verification/2026-09-20-slow-consumer-recovery.md)
+now passes through real session clients and server queue overflow with memory
+and SQLite stores. This is correctness evidence, not a load-campaign result.
+
 Latest continuation: [delivery limits and interrupted drafts](../../verification/2026-09-20-delivery-limits-and-interrupted-drafts.md)
 qualifies the server tile/wire boundaries and recoverable queued intent. It does
 not close large desktop action UX or establish performance improvements.
@@ -53,6 +57,9 @@ for the precise measurement boundaries and remaining campaign gates.
   converge or be explicitly disconnected and recovered, with every offered
   operation accounted for. The current controlled stall test establishes a
   failed result; it does not establish successful reconnect or recovery.
+  The bounded two-client socket-backpressure case now verifies actual queue
+  overflow, rotated-credential reconnect, complete replay, new edit/inverse and
+  exact store accounting. Independently scheduled load recovery remains open.
 - [ ] Inventory approved local DME/DMM/TGM fixtures with hashes, cell/level/type,
   prefab and variable counts. Add typical and large maps to the current synthetic
   100/1,000/10,000-cell matrix. Keep fixtures outside published artifacts when
