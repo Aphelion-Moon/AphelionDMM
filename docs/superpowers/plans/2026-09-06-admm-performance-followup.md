@@ -99,6 +99,10 @@ for the precise measurement boundaries and remaining campaign gates.
   and repairs a reproduced shortcut callback retention path. It covers map
   content lifetimes; full application, reconnect and resource qualification
   remain open.
+  The [workspace area close repair](../../verification/2026-09-20-workspace-close-lifetime.md)
+  separately verifies release of the enclosing tab list and active/focus
+  references through guarded close paths, without claiming native tab interaction
+  or full application endurance coverage.
 
 **Gate:** fixed manifests, correct counts/hashes, independent warmup, at least five
 trials, retained raw results, explicit failure/timeout counts and no hidden

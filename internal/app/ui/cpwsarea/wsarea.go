@@ -2,6 +2,9 @@ package cpwsarea
 
 import (
 	"fmt"
+	// APHELION EDIT ADDITION START - WORKSPACE LIFETIME
+	"slices"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/ui/component"
@@ -358,10 +361,25 @@ func (w *WsArea) closeWorkspace(ws *workspace.Workspace) {
 
 func (w *WsArea) closeWorkspaceByIdx(idx int) {
 	ws := w.workspaces[idx]
-	w.workspaces = append(w.workspaces[:idx], w.workspaces[idx+1:]...)
+	// APHELION EDIT CHANGE - WORKSPACE LIFETIME - ORIGINAL: w.workspaces = append(w.workspaces[:idx], w.workspaces[idx+1:]...)
+	w.workspaces = slices.Delete(w.workspaces, idx, idx+1)
 	ws.Dispose()
 	log.Printf("workspace closed in idx [%d]: %s", idx, ws.Name())
 	w.app.CommandStorage().DisposeStack(ws.CommandStackId())
+	// APHELION EDIT ADDITION START - WORKSPACE LIFETIME
+	// Dispose first: deactivating a live tool here could commit a gesture after
+	// the user chose to discard it. Clear the frame candidate as well so the
+	// end-of-frame focus update cannot reactivate disposed content.
+	if tmpFocusedWs == ws {
+		tmpFocusedWs = nil
+	}
+	if w.focusedWs == ws {
+		w.switchFocusedWorkspace(nil)
+	}
+	if w.activeWs == ws {
+		w.switchActiveWorkspace(nil)
+	}
+	// APHELION EDIT ADDITION END
 }
 
 func (w *WsArea) AddEmptyWorkspace() {
