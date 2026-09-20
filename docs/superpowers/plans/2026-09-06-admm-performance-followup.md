@@ -91,6 +91,9 @@ for the precise measurement boundaries and remaining campaign gates.
   additionally verifies 32 native create/dispose cycles through the real deferred
   queue, including idempotence and screenshot readback before deletion. Driver
   memory totals and the full-editor endurance workload remain unmeasured.
+  The [closed dialog retention repair](../../verification/2026-09-20-dialog-retention.md)
+  verifies collection of callback payloads after direct close and in-frame
+  dismissal, without replacing the full-editor resource measurements.
 
 **Gate:** fixed manifests, correct counts/hashes, independent warmup, at least five
 trials, retained raw results, explicit failure/timeout counts and no hidden

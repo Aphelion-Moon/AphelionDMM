@@ -1,6 +1,9 @@
 package dialog
 
 import (
+	// APHELION EDIT ADDITION START - DIALOG LIFETIME
+	"slices"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
 	"sdmm/internal/app/ui/shortcut"
 	// APHELION EDIT ADDITION END
@@ -63,7 +66,9 @@ func Close(dialog Type) {
 	for idx, t := range opened {
 		if dialog.Name() == t.Name() {
 			log.Print("dialog closed:", dialog.Name())
-			opened = append(opened[:idx], opened[idx+1:]...)
+			// Clear the removed interface so closed records and callbacks can be collected.
+			// APHELION EDIT CHANGE - DIALOG LIFETIME - ORIGINAL: opened = append(opened[:idx], opened[idx+1:]...)
+			opened = slices.Delete(opened, idx, idx+1)
 			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
 			shortcut.SetModalOpen(len(opened) != 0)
 			// APHELION EDIT ADDITION END
