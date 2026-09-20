@@ -3,7 +3,7 @@
 **Status:** Approved planning baseline  
 **Date:** 2026-08-24  
 **Reviewed source:** AphelionDMM local revision `5241698a`  
-**Audience:** AphelionDMM, Meridian-Rift, Meridian-MCP, and aphelion-content-tools maintainers
+**Audience:** AphelionDMM and Meridian-MCP maintainers
 
 ## Summary
 
@@ -11,7 +11,7 @@ AphelionDMM will add multiplayer through a central authoritative collaboration s
 
 The server validates, orders, durably records, and broadcasts map operations. Clients may render speculative changes for responsiveness but reconcile to server-accepted revisions. Presence never enters the durable log. Undo is an actor-scoped inverse operation with preconditions, not a shared history rewind.
 
-New Aphelion code is isolated under `internal/aphelion/`, `cmd/apheliondmm-*`, and `api/collaboration/`. Inherited StrongDMM edits remain narrow and marked. The design preserves a later direct integration path to Meridian-MCP, aphelion-content-tools, and Meridian-Rift without making any of them the multiplayer transport.
+New Aphelion code is isolated under `internal/aphelion/`, `cmd/apheliondmm-*`, and `api/collaboration/`. Inherited StrongDMM edits remain narrow and marked. The integration boundary supports Meridian-MCP inspection of immutable staged maps. Aphelion Content Tools and Rift build tooling were removed from scope by the September 20 user decision.
 
 ## Goals
 
@@ -32,7 +32,7 @@ New Aphelion code is isolated under `internal/aphelion/`, `cmd/apheliondmm-*`, a
 - Collaborative editing of DM source code, lore, art, sound, or repository configuration.
 - Arbitrary remote execution of DreamMaker, Git, shells, MCP servers, or build scripts.
 - A branding, logo, executable-name, or module-path migration.
-- Replacement of Meridian-MCP parsing or Meridian-Rift acceptance gates.
+- Replacement of Meridian-MCP parsing.
 - Compatibility with clients that cannot preserve the loaded map's unknown content.
 
 ## Audit baseline
@@ -138,8 +138,7 @@ Integration boundary
   OpenAPI control contract
   AsyncAPI stream contract
   Meridian adapter
-  content-tools adapter
-  staged map acceptance coordinator
+  staged map inspection coordinator
 ```
 
 ### Process forms
@@ -482,24 +481,18 @@ Meridian-MCP remains a separately configured trusted diagnostic process. The ada
 
 The collaboration server never becomes an unrestricted MCP proxy.
 
-### aphelion-content-tools
+### Map repository inspection
 
-Content Tools consumes OpenAPI for session/checkpoint lifecycle and AsyncAPI for read-only progress or narrowly authorized domain operations. Browser code receives short-lived scoped tokens, never repository or service credentials. Integration includes repository identity, source revision, content manifest hash, environment hash, and output artifact hash.
+AphelionDMM produces an immutable staged map artifact and manifest. The coordinator:
 
-Content authoring and map collaboration remain separate domains. A content-tools action becomes a typed operation only through an approved adapter with deterministic map effects.
+1. confirms the configured repository identity, revision, environment and target containment;
+2. writes staged output without replacing the source map;
+3. runs Meridian-MCP parsing, map inspection and diagnostic reporting;
+4. records repository revision, hashes, MCP version and diagnostic totals.
 
-### Meridian-Rift
-
-Meridian-Rift owns the final `.dme` environment, DMM output destination, DreamMaker compilation, and game acceptance. AphelionDMM produces a staged map artifact and manifest. The integration coordinator then:
-
-1. confirms the configured Meridian-Rift identity and target containment;
-2. writes staged output without altering unrelated files;
-3. runs Meridian-MCP parse and diagnostics;
-4. invokes the human-authoritative PowerShell acceptance entry point only through trusted local configuration;
-5. records command, revision, hashes, exit status, and artifact paths;
-6. applies or hands off the validated artifact according to explicit user approval.
-
-Direct edits to Meridian-Rift CI, bootstrap, release, or deployment files remain separately protected.
+Inspection results do not claim compilation or runtime acceptance. Content Tools
+adapters, repository build scripts and Rift build dependencies are unsupported.
+Applying a staged map to a game repository remains a separately authorized action.
 
 ## Recommended support libraries and standards
 
@@ -525,7 +518,7 @@ Avoid a heavy WebSocket framework, a Redis requirement, or a CRDT library in the
 4. Add an in-memory loopback collaboration service and two-client conformance tests.
 5. Add desktop collaboration UX, speculation, reconciliation, presence, reconnect, and actor undo.
 6. Add durable SQLite storage, security controls, telemetry, recovery, and updater hardening.
-7. Add versioned Meridian-MCP, Content Tools, and Meridian-Rift adapters.
+7. Add versioned Meridian-MCP inspection and immutable map staging.
 8. Add PostgreSQL, OIDC, deployment, backups, load/fault gates, and hosted rollout.
 
 Each phase has an implementation plan under `docs/superpowers/plans/`. A later phase may begin only when the prior phase's acceptance gates pass or the user explicitly accepts the recorded exception.
@@ -542,7 +535,7 @@ The multiplayer design is implemented only when:
 - viewer/editor/owner authorization and WebSocket abuse tests pass;
 - embedded mode works without hosted services;
 - hosted mode passes backup/restore, fault, load, and OIDC acceptance;
-- the produced map passes Meridian-MCP diagnostics and Meridian-Rift's authoritative acceptance gates;
+- the produced map completes Meridian-MCP parsing and inspection with diagnostic totals recorded;
 - shipped entry points are exercised on supported platforms;
 - documentation and protocol compatibility fixtures match the shipped behavior.
 

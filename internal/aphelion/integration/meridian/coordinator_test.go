@@ -45,7 +45,7 @@ func TestCoordinatorLoadsStagesAndVerifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.ExitClassification != ExitAccepted || result.ManifestSHA256 != artifact.ManifestSHA256 || result.ArtifactSHA256 != manifest.OutputMapSHA256 || result.VerifierVersion != AcceptanceVerifierVersion {
+	if result.ExitClassification != ExitInspected || result.ManifestSHA256 != artifact.ManifestSHA256 || result.ArtifactSHA256 != manifest.OutputMapSHA256 || result.VerifierVersion != MCPVerifierVersion {
 		t.Fatalf("Run() = %+v", result)
 	}
 }

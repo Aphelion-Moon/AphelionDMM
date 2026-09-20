@@ -1,13 +1,9 @@
 package meridian
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -16,36 +12,12 @@ import (
 	integrationmanifest "sdmm/internal/aphelion/integration/manifest"
 )
 
-const (
-	defaultAcceptanceTimeout = 10 * time.Minute
-	defaultAcceptanceBytes   = int64(4 << 20)
-)
-
-// Verifier accepts a staged map only through bounded diagnostics and a fixed acceptance gate.
+// Verifier inspects a staged map through bounded Meridian-MCP diagnostics.
 type Verifier interface {
 	Verify(ctx context.Context, manifest integrationmanifest.Manifest, artifact StagedArtifact) (Evidence, error)
 }
 
-// AcceptanceRunner invokes one trusted repository-owned PowerShell acceptance entry point.
-type AcceptanceRunner interface {
-	Run(ctx context.Context, request AcceptanceRequest) (AcceptanceResult, error)
-}
-
-// AcceptanceRequest contains only paths and identifiers resolved from trusted local configuration.
-type AcceptanceRequest struct {
-	RepositoryRoot string
-	StagedMap      string
-	MapTargetID    string
-}
-
-// AcceptanceResult records the configured entry point result without interpreting its text.
-type AcceptanceResult struct {
-	EntryPoint string
-	ExitCode   int
-	Output     string
-}
-
-// Evidence is the durable successful verification result for one immutable stage.
+// Evidence is the successful inspection result for one immutable stage.
 type Evidence struct {
 	RepositoryIdentity       string            `json:"repository_identity"`
 	RepositoryRevision       string            `json:"repository_revision"`
@@ -60,41 +32,33 @@ type Evidence struct {
 	DiagnosticsReturned      uint64            `json:"diagnostics_returned"`
 	DiagnosticsTruncated     bool              `json:"diagnostics_truncated"`
 	DiagnosticSeverityCounts map[string]uint64 `json:"diagnostic_severity_counts,omitempty"`
-	BuildEntryPoint          string            `json:"build_entry_point"`
-	BuildExitCode            int               `json:"build_exit_code"`
 	Duration                 time.Duration     `json:"duration"`
 }
 
-// VerifierConfig freezes the local paths and adapters used by acceptance.
+// VerifierConfig freezes the local paths and adapters used by inspection.
 type VerifierConfig struct {
 	Repository        Repository
-	AcceptanceRoot    string
 	StageRoot         string
 	EnvironmentSHA256 string
 	MCP               Client
-	Runner            AcceptanceRunner
-	Timeout           time.Duration
 }
 
-// AcceptanceVerifier coordinates fixed MCP diagnostics and PowerShell acceptance.
-type AcceptanceVerifier struct {
+// MCPVerifier coordinates fixed MCP parsing, map inspection and diagnostics.
+type MCPVerifier struct {
 	repository        Repository
-	acceptanceRoot    string
 	stageRoot         string
 	environmentSHA256 string
 	mcp               Client
-	runner            AcceptanceRunner
-	timeout           time.Duration
 }
 
-// NewAcceptanceVerifier validates and freezes the verification boundary.
-func NewAcceptanceVerifier(config VerifierConfig) (*AcceptanceVerifier, error) {
+// NewMCPVerifier validates and freezes the verification boundary.
+func NewMCPVerifier(config VerifierConfig) (*MCPVerifier, error) {
 	repository, err := normalizeRepository(config.Repository)
 	if err != nil {
 		return nil, err
 	}
-	if config.MCP == nil || config.Runner == nil {
-		return nil, fmt.Errorf("MCP client and acceptance runner are required")
+	if config.MCP == nil {
+		return nil, fmt.Errorf("MCP client is required")
 	}
 	if !validSHA256(config.EnvironmentSHA256) {
 		return nil, fmt.Errorf("trusted environment hash is invalid")
@@ -103,26 +67,14 @@ func NewAcceptanceVerifier(config VerifierConfig) (*AcceptanceVerifier, error) {
 	if err != nil {
 		return nil, err
 	}
-	acceptanceRoot := config.AcceptanceRoot
-	if acceptanceRoot == "" {
-		acceptanceRoot = repository.Root
-	}
-	acceptanceRoot, err = canonicalExistingDirectory(acceptanceRoot, "acceptance root")
-	if err != nil {
-		return nil, err
-	}
-	timeout := config.Timeout
-	if timeout <= 0 {
-		timeout = defaultAcceptanceTimeout
-	}
-	return &AcceptanceVerifier{
-		repository: repository, acceptanceRoot: acceptanceRoot, stageRoot: stageRoot, environmentSHA256: config.EnvironmentSHA256,
-		mcp: config.MCP, runner: config.Runner, timeout: timeout,
+	return &MCPVerifier{
+		repository: repository, stageRoot: stageRoot, environmentSHA256: config.EnvironmentSHA256,
+		mcp: config.MCP,
 	}, nil
 }
 
-// Verify validates the immutable stage, parses first, then runs map, diagnostic, and build gates.
-func (verifier *AcceptanceVerifier) Verify(ctx context.Context, manifest integrationmanifest.Manifest, artifact StagedArtifact) (Evidence, error) {
+// Verify validates the immutable stage, parses first, then runs map inspection and diagnostics.
+func (verifier *MCPVerifier) Verify(ctx context.Context, manifest integrationmanifest.Manifest, artifact StagedArtifact) (Evidence, error) {
 	started := time.Now()
 	if err := manifest.Validate(); err != nil {
 		return Evidence{}, fmt.Errorf("invalid stage manifest: %w", err)
@@ -207,124 +159,17 @@ func (verifier *AcceptanceVerifier) Verify(ctx context.Context, manifest integra
 		return Evidence{}, fmt.Errorf("Meridian-MCP version changed during verification")
 	}
 
-	buildCtx, cancel := context.WithTimeout(ctx, verifier.timeout)
-	defer cancel()
-	result, err := verifier.runner.Run(buildCtx, AcceptanceRequest{
-		RepositoryRoot: verifier.acceptanceRoot, StagedMap: canonicalStage, MapTargetID: manifest.MapTargetID,
-	})
-	if buildCtx.Err() != nil {
-		return Evidence{}, fmt.Errorf("PowerShell acceptance timed out")
-	}
-	if err != nil {
-		return Evidence{}, fmt.Errorf("run PowerShell acceptance: %w", err)
-	}
-	if result.ExitCode != 0 {
-		return Evidence{}, fmt.Errorf("PowerShell acceptance failed with exit code %d", result.ExitCode)
-	}
 	return Evidence{
 		RepositoryIdentity: manifest.RepositoryIdentity, RepositoryRevision: manifest.RepositoryRevision,
 		MapTargetID: manifest.MapTargetID, OutputMapSHA256: manifest.OutputMapSHA256,
 		MCPVersion: parse.MCPVersion, StateGeneration: parse.StateGeneration,
 		MapWidth: mapResult.Width, MapHeight: mapResult.Height, MapLevels: mapResult.Levels,
-		Diagnostics: diagnostics.Count, BuildEntryPoint: result.EntryPoint, BuildExitCode: result.ExitCode,
+		Diagnostics:         diagnostics.Count,
 		DiagnosticsReturned: diagnostics.ReturnedCount, DiagnosticsTruncated: diagnostics.Truncated,
 		DiagnosticSeverityCounts: diagnostics.SeverityCounts,
 		Duration:                 time.Since(started),
 	}, nil
 }
-
-// PowerShellRunnerConfig names one trusted script and bounds its execution and output.
-type PowerShellRunnerConfig struct {
-	Executable string
-	Script     string
-	MaxBytes   int64
-}
-
-// PowerShellAcceptanceRunner runs a fixed script without a shell command string.
-type PowerShellAcceptanceRunner struct {
-	executable string
-	script     string
-	maxBytes   int64
-}
-
-// NewPowerShellAcceptanceRunner freezes the executable and script paths.
-func NewPowerShellAcceptanceRunner(config PowerShellRunnerConfig) (*PowerShellAcceptanceRunner, error) {
-	if config.Executable == "" {
-		config.Executable = "powershell.exe"
-	}
-	script, err := filepath.Abs(config.Script)
-	if err != nil || config.Script == "" {
-		return nil, fmt.Errorf("resolve PowerShell acceptance script")
-	}
-	script, err = filepath.EvalSymlinks(script)
-	if err != nil {
-		return nil, fmt.Errorf("resolve PowerShell acceptance script: %w", err)
-	}
-	maxBytes := config.MaxBytes
-	if maxBytes <= 0 {
-		maxBytes = defaultAcceptanceBytes
-	}
-	return &PowerShellAcceptanceRunner{executable: config.Executable, script: filepath.Clean(script), maxBytes: maxBytes}, nil
-}
-
-// Run invokes the configured script with a fixed named-argument contract.
-func (runner *PowerShellAcceptanceRunner) Run(ctx context.Context, request AcceptanceRequest) (AcceptanceResult, error) {
-	command := exec.Command(runner.executable,
-		"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", runner.script,
-		"-RepositoryRoot", request.RepositoryRoot, "-StagedMap", request.StagedMap, "-MapTargetID", request.MapTargetID,
-	)
-	output := &boundedBuffer{remaining: runner.maxBytes}
-	command.Stdout = output
-	command.Stderr = output
-	if err := command.Start(); err != nil {
-		return AcceptanceResult{}, err
-	}
-	done := make(chan error, 1)
-	go func() {
-		done <- command.Wait()
-	}()
-	var err error
-	select {
-	case err = <-done:
-	case <-ctx.Done():
-		terminateCommand(command)
-		<-done
-		return AcceptanceResult{}, ctx.Err()
-	}
-	result := AcceptanceResult{EntryPoint: runner.script, ExitCode: command.ProcessState.ExitCode(), Output: output.String()}
-	if err != nil {
-		var exitError *exec.ExitError
-		if !errors.As(err, &exitError) {
-			return AcceptanceResult{}, err
-		}
-	}
-	if output.exceeded {
-		return AcceptanceResult{}, fmt.Errorf("PowerShell acceptance output limit exceeded")
-	}
-	return result, nil
-}
-
-type boundedBuffer struct {
-	buffer    bytes.Buffer
-	remaining int64
-	exceeded  bool
-}
-
-func (buffer *boundedBuffer) Write(value []byte) (int, error) {
-	original := len(value)
-	if int64(len(value)) > buffer.remaining {
-		value = value[:max(buffer.remaining, 0)]
-		buffer.exceeded = true
-	}
-	written, err := buffer.buffer.Write(value)
-	buffer.remaining -= int64(written)
-	if err != nil {
-		return written, err
-	}
-	return original, nil
-}
-
-func (buffer *boundedBuffer) String() string { return buffer.buffer.String() }
 
 func canonicalContainedFile(root, path string) (string, error) {
 	canonical, err := filepath.Abs(path)
@@ -359,17 +204,4 @@ func samePath(left, right string) bool {
 		return strings.EqualFold(filepath.Clean(left), filepath.Clean(right))
 	}
 	return filepath.Clean(left) == filepath.Clean(right)
-}
-
-func terminateCommand(command *exec.Cmd) {
-	if command == nil || command.Process == nil {
-		return
-	}
-	if runtime.GOOS == "windows" {
-		killer := exec.Command("taskkill.exe", "/PID", fmt.Sprint(command.Process.Pid), "/T", "/F")
-		killer.Stdout = io.Discard
-		killer.Stderr = io.Discard
-		_ = killer.Run()
-	}
-	_ = command.Process.Kill()
 }

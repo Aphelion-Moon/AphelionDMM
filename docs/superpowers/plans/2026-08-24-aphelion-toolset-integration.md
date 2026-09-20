@@ -1,5 +1,7 @@
 # Aphelion Toolset Integration Implementation Plan
 
+> **Scope update (2026-09-20):** The user removed Aphelion Content Tools support and Rift build tooling. Historical implementation and acceptance steps for those integrations below are superseded, not remaining work. Meridian-MCP parsing, map inspection and diagnostics remain supported. See [current integration scope](../../integration/meridian-stack.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Integrate AphelionDMM with Meridian-MCP, aphelion-content-tools, and Meridian-Rift through versioned, contained contracts and staged acceptance without turning collaboration into an arbitrary process or filesystem gateway.

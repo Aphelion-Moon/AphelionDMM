@@ -9,16 +9,16 @@ import (
 )
 
 const (
-	// AcceptanceVerifierVersion identifies the evidence contract implemented by this verifier.
-	AcceptanceVerifierVersion = "1"
-	maxCandidateBytes         = int64(256 << 20)
+	// MCPVerifierVersion identifies the evidence contract implemented by this verifier.
+	MCPVerifierVersion = "2"
+	maxCandidateBytes  = int64(256 << 20)
 )
 
 // ExitClassification identifies the stage of the shipped verification flow that completed or failed.
 type ExitClassification string
 
 const (
-	ExitAccepted           ExitClassification = "accepted"
+	ExitInspected          ExitClassification = "inspected"
 	ExitStageFailed        ExitClassification = "stage_failed"
 	ExitVerificationFailed ExitClassification = "verification_failed"
 )
@@ -38,7 +38,7 @@ type CoordinationResult struct {
 	Evidence           Evidence           `json:"evidence,omitempty"`
 }
 
-// Coordinator composes strict manifest loading, immutable staging, and acceptance verification.
+// Coordinator composes strict manifest loading, immutable staging, and MCP inspection.
 type Coordinator struct {
 	stager          Staging
 	verifierFactory VerifierFactory
@@ -67,7 +67,7 @@ func NewCoordinatorWithVerifierFactory(stager Staging, factory VerifierFactory) 
 
 // Run strictly loads one manifest and bounded candidate before staging and verification.
 func (coordinator *Coordinator) Run(ctx context.Context, manifestReader io.Reader, candidateReader io.Reader) (CoordinationResult, error) {
-	result := CoordinationResult{VerifierVersion: AcceptanceVerifierVersion, ExitClassification: ExitStageFailed}
+	result := CoordinationResult{VerifierVersion: MCPVerifierVersion, ExitClassification: ExitStageFailed}
 	manifest, err := integrationmanifest.Decode(manifestReader)
 	if err != nil {
 		return result, err
@@ -97,7 +97,7 @@ func (coordinator *Coordinator) Run(ctx context.Context, manifestReader io.Reade
 		return result, fmt.Errorf("close staged artifact verifier: %w", closeErr)
 	}
 	result.Evidence = evidence
-	result.ExitClassification = ExitAccepted
+	result.ExitClassification = ExitInspected
 	return result, nil
 }
 

@@ -16,8 +16,7 @@ import (
 )
 
 const (
-	defaultMCPTimeout        = 5 * time.Minute
-	defaultAcceptanceTimeout = 10 * time.Minute
+	defaultMCPTimeout = 5 * time.Minute
 )
 
 type repeatedStrings []string
@@ -41,7 +40,7 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("apheliondmm-meridian-verify", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	var mcpArguments repeatedStrings
-	repositoryRoot := flags.String("repository-root", "", "trusted Meridian-Rift checkout root")
+	repositoryRoot := flags.String("repository-root", "", "trusted map repository checkout root")
 	repositoryIdentity := flags.String("repository-identity", "", "trusted logical repository identity")
 	dmeIdentifier := flags.String("dme", "", "trusted logical DME identifier")
 	mapTargetID := flags.String("map-target-id", "", "trusted logical map target identifier")
@@ -51,9 +50,6 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 	candidatePath := flags.String("candidate", "", "candidate DMM path")
 	mcpExecutable := flags.String("mcp-executable", "", "Meridian-MCP executable")
 	flags.Var(&mcpArguments, "mcp-arg", "fixed Meridian-MCP argument; may be repeated")
-	acceptanceExecutable := flags.String("acceptance-executable", "powershell.exe", "PowerShell executable")
-	acceptanceScript := flags.String("acceptance-script", "", "trusted repository-owned acceptance script")
-	acceptanceRoot := flags.String("acceptance-root", "", "trusted clean acceptance checkout root")
 	allowDirty := flags.Bool("allow-dirty", false, "permit staging from a dirty source checkout")
 	if err := flags.Parse(arguments); err != nil {
 		return 2
@@ -66,7 +62,6 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 		"repository-root": *repositoryRoot, "repository-identity": *repositoryIdentity, "dme": *dmeIdentifier,
 		"map-target-id": *mapTargetID, "map-target": *mapTarget, "stage-root": *stageRoot,
 		"manifest": *manifestPath, "candidate": *candidatePath, "mcp-executable": *mcpExecutable,
-		"acceptance-script": *acceptanceScript,
 	}
 	for name, value := range required {
 		if strings.TrimSpace(value) == "" {
@@ -115,16 +110,6 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return writeFailure(stdout, meridian.ExitStageFailed, err)
 	}
-	runner, err := meridian.NewPowerShellAcceptanceRunner(meridian.PowerShellRunnerConfig{
-		Executable: *acceptanceExecutable, Script: *acceptanceScript,
-	})
-	if err != nil {
-		return writeFailure(stdout, meridian.ExitVerificationFailed, err)
-	}
-	resolvedAcceptanceRoot := *acceptanceRoot
-	if resolvedAcceptanceRoot == "" {
-		resolvedAcceptanceRoot = *repositoryRoot
-	}
 	coordinator, err := meridian.NewCoordinatorWithVerifierFactory(stager, func(factoryCtx context.Context, artifact meridian.StagedArtifact) (meridian.Verifier, func(context.Context) error, error) {
 		artifactRelative, relErr := filepath.Rel(commonRoot, artifact.MapFile)
 		if relErr != nil {
@@ -145,9 +130,9 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 		if openErr != nil {
 			return nil, nil, openErr
 		}
-		verifier, verifierErr := meridian.NewAcceptanceVerifier(meridian.VerifierConfig{
-			Repository: repository, AcceptanceRoot: resolvedAcceptanceRoot, StageRoot: *stageRoot,
-			EnvironmentSHA256: manifest.EnvironmentSHA256, MCP: mcpClient, Runner: runner, Timeout: defaultAcceptanceTimeout,
+		verifier, verifierErr := meridian.NewMCPVerifier(meridian.VerifierConfig{
+			Repository: repository, StageRoot: *stageRoot,
+			EnvironmentSHA256: manifest.EnvironmentSHA256, MCP: mcpClient,
 		})
 		if verifierErr != nil {
 			closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -188,7 +173,7 @@ func run(arguments []string, stdout, stderr io.Writer) int {
 
 func writeFailure(writer io.Writer, classification meridian.ExitClassification, err error) int {
 	return writeCoordinationFailure(writer, meridian.CoordinationResult{
-		VerifierVersion: meridian.AcceptanceVerifierVersion, ExitClassification: classification,
+		VerifierVersion: meridian.MCPVerifierVersion, ExitClassification: classification,
 	}, err)
 }
 

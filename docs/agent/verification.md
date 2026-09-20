@@ -9,7 +9,11 @@ Report the exact level reached:
 3. Repository test: all Go and Rust tests passed with pinned toolchains.
 4. Cross-stack build: the actual Task build completed for the target platform.
 5. Entry-point exercise: the produced desktop or collaboration executable completed its real smoke path.
-6. Integration acceptance: Meridian-MCP and Meridian-Rift gates passed against staged output.
+6. Integration inspection: Meridian-MCP parsing, map inspection and diagnostic reporting completed against staged output.
+
+Aphelion Content Tools and Rift build tooling were removed from scope on September
+20. Neither is a required acceptance gate. MCP inspection does not establish game
+compilation, zero diagnostics or runtime compatibility.
 
 Never present a lower level as a higher one. A successful focused test does not establish repository, runtime, or integration completion.
 

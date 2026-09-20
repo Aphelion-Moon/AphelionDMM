@@ -23,6 +23,17 @@ func TestRunRejectsTrailingArguments(t *testing.T) {
 	}
 }
 
+func TestRunRejectsRemovedBuildOptions(t *testing.T) {
+	for _, option := range []string{"acceptance-executable", "acceptance-script", "acceptance-root"} {
+		t.Run(option, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			if code := run([]string{"--" + option, "unused"}, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), "flag provided but not defined") {
+				t.Fatalf("removed option returned %d: %s", code, stderr.String())
+			}
+		})
+	}
+}
+
 func TestRunStagesAndVerifiesWithFakeMCP(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("PowerShell MCP fixture is Windows-only")
@@ -30,10 +41,6 @@ func TestRunStagesAndVerifiesWithFakeMCP(t *testing.T) {
 	pwsh, err := exec.LookPath("pwsh.exe")
 	if err != nil {
 		t.Skip("pwsh.exe is unavailable")
-	}
-	powershell, err := exec.LookPath("powershell.exe")
-	if err != nil {
-		t.Skip("powershell.exe is unavailable")
 	}
 	root := t.TempDir()
 	dme := []byte("#include \"fixture.dm\"\n")
@@ -69,10 +76,6 @@ func TestRunStagesAndVerifiesWithFakeMCP(t *testing.T) {
 	if err := os.WriteFile(manifestPath, encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	acceptanceScript := filepath.Join(t.TempDir(), "accept.ps1")
-	if err := os.WriteFile(acceptanceScript, []byte("param([string]$RepositoryRoot,[string]$StagedMap,[string]$MapTargetID)\nif (-not (Test-Path -LiteralPath $StagedMap)) { exit 9 }\nexit 0\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	fixture, err := filepath.Abs(filepath.Join("..", "..", "internal", "aphelion", "integration", "meridian", "testdata", "fake_mcp.ps1"))
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +86,6 @@ func TestRunStagesAndVerifiesWithFakeMCP(t *testing.T) {
 		"--map-target-id", "main-map", "--map-target", filepath.Join("maps", "main.dmm"), "--stage-root", stageRoot,
 		"--manifest", manifestPath, "--candidate", mapPath, "--mcp-executable", pwsh,
 		"--mcp-arg=-NoLogo", "--mcp-arg=-NoProfile", "--mcp-arg=-NonInteractive", "--mcp-arg=-File", "--mcp-arg=" + fixture,
-		"--acceptance-executable", powershell, "--acceptance-script", acceptanceScript,
 	}
 	var stdout, stderr bytes.Buffer
 	if code := run(args, &stdout, &stderr); code != 0 {
@@ -93,8 +95,15 @@ func TestRunStagesAndVerifiesWithFakeMCP(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatalf("decode result: %v\n%s", err, stdout.String())
 	}
-	if result.ExitClassification != meridian.ExitAccepted || result.ArtifactSHA256 != manifest.OutputMapSHA256 {
+	if result.ExitClassification != meridian.ExitInspected || result.VerifierVersion != "2" || result.ArtifactSHA256 != manifest.OutputMapSHA256 {
 		t.Fatalf("result = %+v", result)
+	}
+	if strings.Contains(stdout.String(), "build_entry_point") || strings.Contains(stdout.String(), "build_exit_code") {
+		t.Fatal("inspection evidence still claims a build result")
+	}
+	unchanged, err := os.ReadFile(mapPath)
+	if err != nil || !bytes.Equal(unchanged, mapBytes) {
+		t.Fatalf("inspection changed the source map: %v", err)
 	}
 }
 

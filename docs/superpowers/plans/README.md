@@ -1,5 +1,7 @@
 # Multiplayer implementation roadmap
 
+> **Scope update (2026-09-20):** The user removed Aphelion Content Tools support and Rift build tooling. Historical implementation and acceptance steps for those integrations below are superseded, not remaining work. Meridian-MCP parsing, map inspection and diagnostics remain supported. See [current integration scope](../../integration/meridian-stack.md).
+
 > **Current status (2026-08-25):** Automated implementation and local verification are complete through the pre-human-test boundary, excluding Aphelion Content Tools by explicit direction. The authoritative status and remaining gates are in `2026-08-25-multiplayer-human-test-readiness.md`. The original phase checklists below are retained as implementation history; an unchecked historical red-test or conditional commit step is not automatically current backlog.
 
 Execute these plans in order. Each phase is independently reviewable and has an explicit acceptance boundary.

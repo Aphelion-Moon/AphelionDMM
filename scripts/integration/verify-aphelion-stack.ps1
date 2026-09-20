@@ -3,13 +3,10 @@ param(
 	[Parameter(Mandatory = $true)]
 	[string] $AphelionRoot,
 	[string] $MeridianMcpRoot,
-	[string] $ContentToolsRoot,
 	[string] $MeridianRiftRoot,
 	[string] $InstalledMcp,
 	[string] $EvidencePath,
 	[int] $TimeoutMinutes = 30,
-	[switch] $AllowNetwork,
-	[switch] $SkipLauncher,
 	[switch] $PlanOnly
 )
 
@@ -60,76 +57,6 @@ function Add-GateResult {
 		stderr_log = $stderrLog
 		detail = $Detail
 	})
-}
-
-function Invoke-LauncherGate {
-	param([string] $RepositoryRoot, [int] $TimeoutSeconds = 45)
-	$name = "Content Tools real launcher"
-	$gateRoot = Join-Path $script:EvidenceRoot "logs"
-	New-Item -ItemType Directory -Force -Path $gateRoot | Out-Null
-	$stdout = Join-Path $gateRoot "content-tools-real-launcher.stdout.log"
-	$stderr = Join-Path $gateRoot "content-tools-real-launcher.stderr.log"
-	$started = [DateTimeOffset]::UtcNow
-	$process = $null
-	try {
-		Set-Content -LiteralPath $stdout -Value "" -Encoding UTF8
-		Set-Content -LiteralPath $stderr -Value "" -Encoding UTF8
-		$startInfo = [System.Diagnostics.ProcessStartInfo]::new()
-		$startInfo.FileName = "cmd.exe"
-		$startInfo.Arguments = '/d /c "Launch Aphelion Content Tools.cmd"'
-		$startInfo.WorkingDirectory = $RepositoryRoot
-		$startInfo.UseShellExecute = $false
-		$startInfo.CreateNoWindow = $true
-		$startInfo.RedirectStandardOutput = $true
-		$startInfo.RedirectStandardError = $true
-		if (-not [string]::IsNullOrWhiteSpace($script:WindowsPowerShellModulePath)) {
-			$startInfo.EnvironmentVariables["PSModulePath"] = $script:WindowsPowerShellModulePath
-		}
-		$process = [System.Diagnostics.Process]::new()
-		$process.StartInfo = $startInfo
-		[void]$process.Start()
-		$outputTask = $process.StandardOutput.ReadLineAsync()
-		$deadline = [DateTimeOffset]::UtcNow.AddSeconds($TimeoutSeconds)
-		$url = $null
-		while ([DateTimeOffset]::UtcNow -lt $deadline) {
-			$process.Refresh()
-			if ($outputTask.IsCompleted) {
-				$line = $outputTask.Result
-				if ($null -ne $line) {
-					Add-Content -LiteralPath $stdout -Value $line -Encoding UTF8
-					if ($line -match 'Aphelion Content Tools is running at (https?://\S+)\. Close') {
-						$url = $Matches[1]
-					}
-					$outputTask = $process.StandardOutput.ReadLineAsync()
-				}
-				if ($url) {
-					break
-				}
-			}
-			if ($process.HasExited) { break }
-			Start-Sleep -Milliseconds 200
-		}
-		if (-not $url) {
-			$status = if ($process.HasExited) { "failed" } else { "timeout" }
-			Add-GateResult $name "aphelion-content-tools" $status $(if ($process.HasExited) { $process.ExitCode } else { -1 }) (([DateTimeOffset]::UtcNow - $started).TotalSeconds) $stdout "Launcher did not emit its readiness marker."
-			return $false
-		}
-		$response = Invoke-WebRequest -UseBasicParsing -Uri ($url.TrimEnd('/') + "/api/health") -TimeoutSec 10
-		if ($response.StatusCode -ne 200) { throw "Launcher health endpoint returned HTTP $($response.StatusCode)." }
-		Add-GateResult $name "aphelion-content-tools" "passed" 0 (([DateTimeOffset]::UtcNow - $started).TotalSeconds) $stdout "Readiness marker and /api/health returned successfully; launcher process tree was then stopped."
-		return $true
-	}
-	catch {
-		Add-GateResult $name "aphelion-content-tools" "failed" -1 (([DateTimeOffset]::UtcNow - $started).TotalSeconds) $stdout $_.Exception.Message
-		return $false
-	}
-	finally {
-		Stop-ProcessTree $process
-		if ($process -and $process.HasExited) {
-			$errorText = $process.StandardError.ReadToEnd()
-			if (-not [string]::IsNullOrWhiteSpace($errorText)) { Add-Content -LiteralPath $stderr -Value $errorText -Encoding UTF8 }
-		}
-	}
 }
 
 function Invoke-Gate {
@@ -190,50 +117,14 @@ function Add-UnavailableGate {
 	Add-GateResult $Name $Repository "unavailable" -1 0 "" $Reason
 }
 
-function Prepare-MeridianOfflineDependencies {
-	param([string] $SourceRoot, [string] $AcceptanceRoot)
-	$name = "Meridian offline dependency staging"
-	$started = [DateTimeOffset]::UtcNow
-	try {
-		$bootstrapCache = Join-Path $SourceRoot "tools\bootstrap\.cache"
-		$cutterCache = Join-Path $SourceRoot "tools\icon_cutter\cache"
-		$dependencyText = Get-Content -LiteralPath (Join-Path $SourceRoot "dependencies.sh") -Raw
-		$pins = @{}
-		foreach ($pinName in @("BUN_VERSION", "PYTHON_VERSION", "CUTTER_VERSION")) {
-			if ($dependencyText -notmatch "(?m)^export $pinName=([A-Za-z0-9._-]+)$") { throw "Could not read $pinName from dependencies.sh." }
-			$pins[$pinName] = $Matches[1]
-		}
-		$cutterName = "hypnagogic$($pins.CUTTER_VERSION.Replace('.', '-')).exe"
-		foreach ($required in @(
-			(Join-Path $bootstrapCache "bun-v$($pins.BUN_VERSION)-x64\bun.exe"),
-			(Join-Path $bootstrapCache "python-$($pins.PYTHON_VERSION)\python.exe"),
-			(Join-Path $bootstrapCache "python-$($pins.PYTHON_VERSION)\Scripts\pip.exe"),
-			(Join-Path $bootstrapCache "python-$($pins.PYTHON_VERSION)\requirements.txt"),
-			(Join-Path $cutterCache $cutterName)
-		)) {
-			if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Missing local offline prerequisite: $required" }
-		}
-		$destination = Join-Path $AcceptanceRoot "tools\icon_cutter\cache"
-		New-Item -ItemType Directory -Force -Path $destination | Out-Null
-		Copy-Item -LiteralPath (Join-Path $cutterCache $cutterName) -Destination $destination -Force
-		Add-GateResult $name "Meridian-Rift" "passed" 0 (([DateTimeOffset]::UtcNow - $started).TotalSeconds) "" "Reused the source checkout's ignored bootstrap cache read-only and copied the pinned icon cutter into the disposable worktree."
-		return $bootstrapCache
-	}
-	catch {
-		Add-GateResult $name "Meridian-Rift" "failed" -1 (([DateTimeOffset]::UtcNow - $started).TotalSeconds) "" $_.Exception.Message
-		return $null
-	}
-}
-
 function Write-Evidence {
 	$passed = @($script:GateResults | Where-Object { $_.status -eq "passed" }).Count
 	$complete = $script:GateResults.Count -gt 0 -and $passed -eq $script:GateResults.Count
 	$evidence = [ordered]@{
-		schema_version = 1
+		schema_version = 2
 		started_at = $script:RunStarted.ToString("o")
 		completed_at = [DateTimeOffset]::UtcNow.ToString("o")
-		network_policy = if ($AllowNetwork) { "allowed" } else { "offline" }
-		stack_accepted = $complete
+		integration_verified = $complete
 		gates = $script:GateResults
 	}
 	$parent = Split-Path -Parent $EvidencePath
@@ -256,9 +147,7 @@ if ($PlanOnly) {
 	Add-GateResult "Aphelion integration contracts" "AphelionDMM" "planned" 0 0 "" "Available in this checkout."
 	foreach ($candidate in @(
 		@("Installed Meridian-MCP conformance", "Meridian-MCP", $InstalledMcp),
-		@("Content Tools repository gates", "aphelion-content-tools", $ContentToolsRoot),
-		@("Staged Meridian inspection", "Meridian-Rift", $MeridianRiftRoot),
-		@("Authoritative Meridian build", "Meridian-Rift", $MeridianRiftRoot)
+		@("Staged Meridian inspection", "map repository", $MeridianRiftRoot)
 	)) {
 		if ([string]::IsNullOrWhiteSpace($candidate[2]) -or -not (Test-Path -LiteralPath $candidate[2])) {
 			Add-UnavailableGate $candidate[0] $candidate[1] "Dependency is intentionally unavailable in the single-repository CI checkout."
@@ -272,7 +161,6 @@ if ($PlanOnly) {
 }
 
 $MeridianMcpRoot = Resolve-RequiredRoot $MeridianMcpRoot "MeridianMcpRoot"
-$ContentToolsRoot = Resolve-RequiredRoot $ContentToolsRoot "ContentToolsRoot"
 $MeridianRiftRoot = Resolve-RequiredRoot $MeridianRiftRoot "MeridianRiftRoot"
 if (-not (Test-Path -LiteralPath $InstalledMcp -PathType Leaf)) { throw "InstalledMcp does not exist: $InstalledMcp" }
 $InstalledMcp = (Resolve-Path -LiteralPath $InstalledMcp).Path
@@ -280,10 +168,6 @@ $InstalledMcp = (Resolve-Path -LiteralPath $InstalledMcp).Path
 $toolchainText = Get-Content -LiteralPath (Join-Path $MeridianMcpRoot "rust-toolchain.toml") -Raw
 if ($toolchainText -notmatch 'channel\s*=\s*"([^"]+)"') { throw "Meridian-MCP rust-toolchain.toml has no channel." }
 $meridianToolchain = $Matches[1]
-$python = Join-Path $ContentToolsRoot ".venv\Scripts\python.exe"
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) { $python = (Get-Command python.exe -ErrorAction Stop).Source }
-$script:WindowsPowerShellModulePath = (& powershell.exe -NoProfile -Command '[Environment]::GetEnvironmentVariable("PSModulePath", "Process")').Trim()
-if ([string]::IsNullOrWhiteSpace($script:WindowsPowerShellModulePath)) { throw "Windows PowerShell returned an empty PSModulePath." }
 $goBin = (& go.exe env GOBIN).Trim()
 if ([string]::IsNullOrWhiteSpace($goBin)) {
 	$goPath = (& go.exe env GOPATH).Trim().Split([System.IO.Path]::PathSeparator)[0]
@@ -298,27 +182,6 @@ $goToolEnvironment.RUST_TARGET = $rustTarget
 [void](Invoke-Gate "Aphelion cross-stack build" "AphelionDMM" "task.exe" @("build") $AphelionRoot $goToolEnvironment)
 
 [void](Invoke-Gate "Meridian-MCP pinned tests" "Meridian-MCP" "rustup.exe" @("run", $meridianToolchain, "cargo", "test", "--locked", "--all-targets") $MeridianMcpRoot)
-
-[void](Invoke-Gate "Content Tools Ruff" "aphelion-content-tools" $python @("-m", "ruff", "check", ".") $ContentToolsRoot)
-[void](Invoke-Gate "Content Tools Pyright" "aphelion-content-tools" $python @("-m", "pyright") $ContentToolsRoot)
-$pythonSuiteOutput = Join-Path $script:EvidenceRoot "content-tools-python-suites"
-$pythonSuiteEnvironment = @{ PATH = (Split-Path -Parent $python) + [System.IO.Path]::PathSeparator + $env:PATH }
-[void](Invoke-Gate "Content Tools bounded Python suites" "aphelion-content-tools" "powershell.exe" @(
-	"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
-	(Join-Path $ContentToolsRoot "tools\testing\run-python-suites.ps1"),
-	"-RepositoryRoot", $ContentToolsRoot,
-	"-OutputRoot", $pythonSuiteOutput
-) $ContentToolsRoot $pythonSuiteEnvironment)
-[void](Invoke-Gate "Content Tools API contract" "aphelion-content-tools" "npm.cmd" @("--prefix", "webapp/frontend", "run", "gen:api") $ContentToolsRoot)
-[void](Invoke-Gate "Content Tools frontend tests" "aphelion-content-tools" "npm.cmd" @("--prefix", "webapp/frontend", "test", "--", "--run") $ContentToolsRoot)
-[void](Invoke-Gate "Content Tools frontend types" "aphelion-content-tools" "npm.cmd" @("--prefix", "webapp/frontend", "run", "typecheck") $ContentToolsRoot)
-[void](Invoke-Gate "Content Tools production SPA" "aphelion-content-tools" "npm.cmd" @("--prefix", "webapp/frontend", "run", "build") $ContentToolsRoot)
-if ($SkipLauncher) {
-	Add-UnavailableGate "Content Tools real launcher" "aphelion-content-tools" "Skipped explicitly; prior launcher evidence does not make this run complete."
-}
-else {
-	[void](Invoke-LauncherGate $ContentToolsRoot)
-}
 
 $stageRoot = Join-Path $script:EvidenceRoot ("stages\" + $script:RunID)
 $targetID = "virtual-domains/test-only"
@@ -344,66 +207,24 @@ $manifest = [ordered]@{
 $manifestJSON = $manifest | ConvertTo-Json -Depth 4
 [System.IO.File]::WriteAllText($manifestPath, $manifestJSON, [System.Text.UTF8Encoding]::new($false))
 
-$acceptanceRoot = Join-Path $script:EvidenceRoot "meridian-acceptance"
-$resolvedEvidenceRoot = [System.IO.Path]::GetFullPath($script:EvidenceRoot)
-$resolvedAcceptanceRoot = [System.IO.Path]::GetFullPath($acceptanceRoot)
-if (-not $resolvedAcceptanceRoot.StartsWith($resolvedEvidenceRoot + [System.IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
-	throw "Acceptance worktree escaped the evidence root."
-}
-$worktreeAdded = $false
-try {
-	$worktreeAdded = Invoke-Gate "Meridian clean acceptance checkout" "Meridian-Rift" "git.exe" @("-C", $MeridianRiftRoot, "worktree", "add", "--detach", $acceptanceRoot, $repositoryRevision) $AphelionRoot
-	if (-not $worktreeAdded) {
-		Add-UnavailableGate "Shipped Meridian stage and acceptance" "AphelionDMM + Meridian-MCP + Meridian-Rift" "The clean detached acceptance checkout could not be created."
-	}
-	else {
-		$bootstrapCache = Prepare-MeridianOfflineDependencies $MeridianRiftRoot $acceptanceRoot
-		if (-not $bootstrapCache) {
-			Add-UnavailableGate "Shipped Meridian stage and acceptance" "AphelionDMM + Meridian-MCP + Meridian-Rift" "Local offline prerequisites were unavailable."
-		}
-		else {
-			$acceptanceScript = Join-Path $script:EvidenceRoot "accept-meridian-stage.ps1"
-			@'
-param([string] $RepositoryRoot, [string] $StagedMap, [string] $MapTargetID)
-$ErrorActionPreference = "Stop"
-if ($MapTargetID -ne "virtual-domains/test-only") { throw "Unexpected map target identifier." }
-$target = Join-Path $RepositoryRoot "_maps\virtual_domains\test_only.dmm"
-Copy-Item -LiteralPath $StagedMap -Destination $target -Force
-& cmd.exe /d /c RIFT_BUILD.cmd
-exit $LASTEXITCODE
-'@ | Set-Content -LiteralPath $acceptanceScript -Encoding UTF8
-			$network = if ($AllowNetwork) { "allow" } else { "offline" }
-			$stageEnvironment = @{
-				MERIDIAN_RIFT_BUILD_NETWORK = $network
-				TG_BOOTSTRAP_CACHE = $bootstrapCache
-				PSModulePath = $script:WindowsPowerShellModulePath
-			}
-			$stagePassed = Invoke-Gate "Shipped Meridian stage and acceptance" "AphelionDMM + Meridian-MCP + Meridian-Rift" "go.exe" @(
-				"run", "./cmd/apheliondmm-meridian-verify",
-				"--repository-root", $MeridianRiftRoot,
-				"--repository-identity", "meridian-rift",
-				"--dme", "tgstation.dme",
-				"--map-target-id", $targetID,
-				"--map-target", $targetRelative,
-				"--stage-root", $stageRoot,
-				"--manifest", $manifestPath,
-				"--candidate", $sourceTarget,
-				"--mcp-executable", $InstalledMcp,
-				"--acceptance-script", $acceptanceScript,
-				"--acceptance-root", $acceptanceRoot,
-				"--allow-dirty"
-			) $AphelionRoot $stageEnvironment ($TimeoutMinutes * 60)
-			$stageLog = Join-Path $script:EvidenceRoot "logs\shipped-meridian-stage-and-acceptance.stdout.log"
-			if ($stagePassed) {
-				$stage = Get-Content -LiteralPath $stageLog -Raw | ConvertFrom-Json
-				if ($stage.exit_classification -ne "accepted") { throw "Shipped Meridian verifier did not return accepted evidence." }
-			}
-		}
-	}
-}
-finally {
-	if ($worktreeAdded) {
-		[void](Invoke-Gate "Meridian acceptance cleanup" "Meridian-Rift" "git.exe" @("-C", $MeridianRiftRoot, "worktree", "remove", "--force", $acceptanceRoot) $AphelionRoot @{} 120)
+$stagePassed = Invoke-Gate "Shipped Meridian stage inspection" "AphelionDMM + Meridian-MCP" "go.exe" @(
+	"run", "./cmd/apheliondmm-meridian-verify",
+	"--repository-root", $MeridianRiftRoot,
+	"--repository-identity", "meridian-rift",
+	"--dme", "tgstation.dme",
+	"--map-target-id", $targetID,
+	"--map-target", $targetRelative,
+	"--stage-root", $stageRoot,
+	"--manifest", $manifestPath,
+	"--candidate", $sourceTarget,
+	"--mcp-executable", $InstalledMcp,
+	"--allow-dirty"
+) $AphelionRoot @{} ($TimeoutMinutes * 60)
+$stageLog = Join-Path $script:EvidenceRoot "logs\shipped-meridian-stage-inspection.stdout.log"
+if ($stagePassed) {
+	$stage = Get-Content -LiteralPath $stageLog -Raw | ConvertFrom-Json
+	if ($stage.verifier_version -ne "2" -or $stage.exit_classification -ne "inspected") {
+		throw "Shipped Meridian verifier did not return version 2 inspection evidence."
 	}
 }
 

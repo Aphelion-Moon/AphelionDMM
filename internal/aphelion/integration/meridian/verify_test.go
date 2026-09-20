@@ -5,11 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	integrationmanifest "sdmm/internal/aphelion/integration/manifest"
 )
@@ -52,7 +50,7 @@ func TestVerifierPreservesDiagnosticTotalAndPageEvidence(t *testing.T) {
 		StateGeneration: 9, MCPVersion: "1.2.3", Count: 1045, ReturnedCount: 50, Truncated: true,
 		SeverityCounts: map[string]uint64{"error": 127, "warning": 2, "hint": 916},
 	}}
-	verifier, manifest, staged := newVerifyFixture(t, client, fakeAcceptanceRunner{})
+	verifier, manifest, staged := newVerifyFixture(t, client)
 	evidence, err := verifier.Verify(context.Background(), manifest, staged)
 	if err != nil {
 		t.Fatal(err)
@@ -64,22 +62,8 @@ func TestVerifierPreservesDiagnosticTotalAndPageEvidence(t *testing.T) {
 
 func (*fakeVerificationClient) Close(context.Context) error { return nil }
 
-type fakeAcceptanceRunner struct {
-	result AcceptanceResult
-	err    error
-	wait   bool
-}
-
-func (runner fakeAcceptanceRunner) Run(ctx context.Context, _ AcceptanceRequest) (AcceptanceResult, error) {
-	if runner.wait {
-		<-ctx.Done()
-		return AcceptanceResult{}, ctx.Err()
-	}
-	return runner.result, runner.err
-}
-
 func TestVerifierRejectsInvalidStageManifest(t *testing.T) {
-	verifier, manifest, staged := newVerifyFixture(t, &fakeVerificationClient{}, fakeAcceptanceRunner{})
+	verifier, manifest, staged := newVerifyFixture(t, &fakeVerificationClient{})
 	manifest.OutputMapSHA256 = strings.Repeat("f", 64)
 
 	_, err := verifier.Verify(context.Background(), manifest, staged)
@@ -90,7 +74,7 @@ func TestVerifierRejectsInvalidStageManifest(t *testing.T) {
 
 func TestVerifierReportsMCPFailure(t *testing.T) {
 	client := &fakeVerificationClient{failAt: "map"}
-	verifier, manifest, staged := newVerifyFixture(t, client, fakeAcceptanceRunner{})
+	verifier, manifest, staged := newVerifyFixture(t, client)
 
 	_, err := verifier.Verify(context.Background(), manifest, staged)
 	if err == nil || !strings.Contains(err.Error(), "inspect staged map") {
@@ -101,30 +85,9 @@ func TestVerifierReportsMCPFailure(t *testing.T) {
 	}
 }
 
-func TestVerifierEnforcesPowerShellTimeout(t *testing.T) {
-	verifier, manifest, staged := newVerifyFixture(t, &fakeVerificationClient{}, fakeAcceptanceRunner{wait: true})
-	verifier.timeout = 20 * time.Millisecond
-
-	_, err := verifier.Verify(context.Background(), manifest, staged)
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("Verify() error = %v, want timeout", err)
-	}
-}
-
-func TestVerifierReportsBuildFailure(t *testing.T) {
-	runner := fakeAcceptanceRunner{result: AcceptanceResult{ExitCode: 1, Output: "compile failed"}}
-	verifier, manifest, staged := newVerifyFixture(t, &fakeVerificationClient{}, runner)
-
-	_, err := verifier.Verify(context.Background(), manifest, staged)
-	if err == nil || !strings.Contains(err.Error(), "exit code 1") {
-		t.Fatalf("Verify() error = %v, want build failure", err)
-	}
-}
-
 func TestVerifierReturnsSuccessfulEvidence(t *testing.T) {
 	client := &fakeVerificationClient{}
-	runner := fakeAcceptanceRunner{result: AcceptanceResult{ExitCode: 0, Output: "0 errors", EntryPoint: "RIFT_BUILD.cmd"}}
-	verifier, manifest, staged := newVerifyFixture(t, client, runner)
+	verifier, manifest, staged := newVerifyFixture(t, client)
 
 	evidence, err := verifier.Verify(context.Background(), manifest, staged)
 	if err != nil {
@@ -133,7 +96,7 @@ func TestVerifierReturnsSuccessfulEvidence(t *testing.T) {
 	if evidence.RepositoryRevision != manifest.RepositoryRevision || evidence.OutputMapSHA256 != manifest.OutputMapSHA256 {
 		t.Fatalf("evidence identity = %+v", evidence)
 	}
-	if evidence.MCPVersion != "1.2.3" || evidence.StateGeneration != 9 || evidence.Diagnostics != 0 || evidence.BuildExitCode != 0 {
+	if evidence.MCPVersion != "1.2.3" || evidence.StateGeneration != 9 || evidence.Diagnostics != 0 {
 		t.Fatalf("evidence result = %+v", evidence)
 	}
 	if strings.Join(client.calls, ",") != "parse,map,diagnostics" {
@@ -141,10 +104,10 @@ func TestVerifierReturnsSuccessfulEvidence(t *testing.T) {
 	}
 }
 
-func TestAcceptanceVerifierUsesImmutableStagedArtifact(t *testing.T) {
+func TestMCPVerifierUsesImmutableStagedArtifact(t *testing.T) {
 	t.Run("legitimate stage", func(t *testing.T) {
 		client := &fakeVerificationClient{}
-		verifier, manifest, staged := newVerifyFixture(t, client, fakeAcceptanceRunner{result: AcceptanceResult{ExitCode: 0}})
+		verifier, manifest, staged := newVerifyFixture(t, client)
 
 		if _, err := verifier.Verify(context.Background(), manifest, staged); err != nil {
 			t.Fatalf("Verify() error = %v", err)
@@ -156,7 +119,7 @@ func TestAcceptanceVerifierUsesImmutableStagedArtifact(t *testing.T) {
 
 	t.Run("outside stage root", func(t *testing.T) {
 		client := &fakeVerificationClient{}
-		verifier, manifest, staged := newVerifyFixture(t, client, fakeAcceptanceRunner{})
+		verifier, manifest, staged := newVerifyFixture(t, client)
 		outside := t.TempDir()
 		staged.Directory = outside
 		staged.MapFile = filepath.Join(outside, "map.dmm")
@@ -173,7 +136,7 @@ func TestAcceptanceVerifierUsesImmutableStagedArtifact(t *testing.T) {
 
 	t.Run("changed map", func(t *testing.T) {
 		client := &fakeVerificationClient{}
-		verifier, manifest, staged := newVerifyFixture(t, client, fakeAcceptanceRunner{})
+		verifier, manifest, staged := newVerifyFixture(t, client)
 		if err := os.WriteFile(staged.MapFile, []byte("changed"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -189,7 +152,7 @@ func TestAcceptanceVerifierUsesImmutableStagedArtifact(t *testing.T) {
 
 	t.Run("mismatched manifest", func(t *testing.T) {
 		client := &fakeVerificationClient{}
-		verifier, manifest, staged := newVerifyFixture(t, client, fakeAcceptanceRunner{})
+		verifier, manifest, staged := newVerifyFixture(t, client)
 		other := manifest
 		other.AcceptedRevision++
 		encoded, err := json.Marshal(other)
@@ -210,40 +173,7 @@ func TestAcceptanceVerifierUsesImmutableStagedArtifact(t *testing.T) {
 	})
 }
 
-func TestPowerShellAcceptanceRunnerUsesFixedContract(t *testing.T) {
-	powerShell, err := exec.LookPath("powershell.exe")
-	if err != nil {
-		t.Skip("Windows PowerShell is unavailable")
-	}
-	directory := t.TempDir()
-	script := filepath.Join(directory, "accept.ps1")
-	contents := []byte(`param([string]$RepositoryRoot, [string]$StagedMap, [string]$MapTargetID)
-if ($RepositoryRoot -ne $env:EXPECTED_ROOT -or $StagedMap -ne $env:EXPECTED_MAP -or $MapTargetID -ne 'test-map') { exit 7 }
-Write-Output 'accepted'
-`)
-	if err := os.WriteFile(script, contents, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	staged := filepath.Join(directory, "map.dmm")
-	if err := os.WriteFile(staged, []byte("map"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("EXPECTED_ROOT", directory)
-	t.Setenv("EXPECTED_MAP", staged)
-	runner, err := NewPowerShellAcceptanceRunner(PowerShellRunnerConfig{Executable: powerShell, Script: script})
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := runner.Run(context.Background(), AcceptanceRequest{RepositoryRoot: directory, StagedMap: staged, MapTargetID: "test-map"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.ExitCode != 0 || !strings.Contains(result.Output, "accepted") {
-		t.Fatalf("Run() = %+v", result)
-	}
-}
-
-func newVerifyFixture(t *testing.T, client Client, runner AcceptanceRunner) (*AcceptanceVerifier, integrationmanifest.Manifest, StagedArtifact) {
+func newVerifyFixture(t *testing.T, client Client) (*MCPVerifier, integrationmanifest.Manifest, StagedArtifact) {
 	t.Helper()
 	root := t.TempDir()
 	stageRoot := filepath.Join(root, ".aphelion-stages")
@@ -287,9 +217,9 @@ func newVerifyFixture(t *testing.T, client Client, runner AcceptanceRunner) (*Ac
 	if err := os.WriteFile(staged.ManifestFile, append(encoded, '\n'), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	verifier, err := NewAcceptanceVerifier(VerifierConfig{
+	verifier, err := NewMCPVerifier(VerifierConfig{
 		Repository: Repository{Identity: "Meridian-Rift", Root: root, DME: "tgstation.dme", Targets: map[string]string{"test-map": filepath.Join("_maps", "test.dmm")}},
-		StageRoot:  stageRoot, EnvironmentSHA256: manifest.EnvironmentSHA256, MCP: client, Runner: runner, Timeout: time.Second,
+		StageRoot:  stageRoot, EnvironmentSHA256: manifest.EnvironmentSHA256, MCP: client,
 	})
 	if err != nil {
 		t.Fatal(err)
