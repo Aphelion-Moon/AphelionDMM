@@ -1,5 +1,11 @@
 # ADMM performance follow-up workplan
 
+September 20: [exact-state SQLite recovery reuse](../../verification/2026-09-20-sqlite-recovery-reuse.md)
+passes five interleaved 160-rate trials at 4.35–4.54 ms acknowledgement p95;
+frozen controls remain above 600 ms. Full transactional record comparison and
+cold recovery remain intact. Larger histories, resource retention and independent
+load recovery are still open; this is a bounded SQLite improvement.
+
 September 20: the [concurrent SQLite rate sweep](../../verification/2026-09-20-concurrent-rate-sweep.md)
 completed separate warmups and five measured trials at each offered rate.
 All 40/80-operation-per-second trials passed; all 160-rate trials failed,
@@ -219,8 +225,9 @@ spans in `internal/app/ui/cpwsarea/wsmap/pmap/editor/collaboration.go`.
 
 ## 4. Avoid replaying all retained history for each durable append
 
-**Priority:** allocation evidence and a strong source hypothesis; elapsed-time
-benefit is not established. At 100 cells, compacted history of 100 operations
+**Current result:** the bounded exact-state SQLite cache above establishes an
+elapsed-time benefit for the recorded 320-intent workload. Earlier component
+evidence at 100 cells showed that compacted history of 100 operations
 raised measured append allocation from about 0.40 MB / 2,049 allocations to
 1.56 MB / 14,400 allocations. Short SQLite timing ranges overlap substantially.
 
@@ -233,6 +240,9 @@ raised measured append allocation from about 0.40 MB / 2,049 allocations to
   invalidation, or a private persisted recovery checkpoint retaining required
   hashes/inverse targets. No cache may assume exclusive ownership across store
   instances or trust a partially committed append.
+  SQLite now reuses one eligible validated document only after complete state
+  comparison inside the current transaction; mismatch takes full recovery.
+  PostgreSQL, cache-ineligible histories and resource qualification remain open.
 - [ ] Preserve historical valid bases, actor-scoped inverses, already-inverted
   status, duplicate identity and unknown content. Do not truncate history or
   weaken recovery verification as a performance change without a retention and

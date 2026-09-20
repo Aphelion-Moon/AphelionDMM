@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"reflect"
@@ -314,10 +315,13 @@ func TestAppendFailureRollsBackTransaction(t *testing.T) {
 	if err := value.Create(context.Background(), fixture.Initial); err != nil {
 		t.Fatal(err)
 	}
+	if err := value.Append(context.Background(), fixture.First); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := value.database.Exec(`CREATE TRIGGER fail_operation BEFORE INSERT ON operations BEGIN SELECT RAISE(ABORT, 'injected append failure'); END`); err != nil {
 		t.Fatal(err)
 	}
-	if err := value.Append(context.Background(), fixture.First); err == nil {
+	if err := value.Append(context.Background(), fixture.Second); err == nil {
 		t.Fatal("Append() error = nil with failure trigger")
 	}
 	if _, err := value.database.Exec("DROP TRIGGER fail_operation"); err != nil {
@@ -327,10 +331,141 @@ func TestAppendFailureRollsBackTransaction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(replay) != 0 {
-		t.Fatalf("replay after failed append = %#v, want empty", replay)
+	if len(replay) != 1 || !reflect.DeepEqual(replay[0], fixture.First) {
+		t.Fatalf("replay after failed append = %#v, want first operation only", replay)
 	}
-	if err := value.Append(context.Background(), fixture.First); err != nil {
+	// A different ID must still apply to the pre-failure state. Retrying only
+	// the same ID could hide an uncommitted operation left in a mutable cache.
+	retry := model.CloneAcceptedOperation(fixture.Second)
+	retry.OperationID, err = model.NewOperationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := value.Append(context.Background(), retry); err != nil {
 		t.Fatalf("Append() after rollback: %v", err)
+	}
+}
+
+func TestAppendRechecksChangedDurableHistory(t *testing.T) {
+	for _, mutation := range []string{"operation", "hash", "snapshot", "missing operation"} {
+		t.Run(mutation, func(t *testing.T) {
+			ctx := context.Background()
+			fixture, err := collabstore.NewConformanceFixture()
+			if err != nil {
+				t.Fatal(err)
+			}
+			value, err := Open(filepath.Join(t.TempDir(), "history.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = value.Close() })
+			if err := value.Create(ctx, fixture.Initial); err != nil {
+				t.Fatal(err)
+			}
+			if err := value.Append(ctx, fixture.First); err != nil {
+				t.Fatal(err)
+			}
+			switch mutation {
+			case "operation":
+				corrupt := model.CloneAcceptedOperation(fixture.First)
+				corrupt.BaseMapHash = strings.Repeat("f", 64)
+				encoded, err := json.Marshal(corrupt)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = value.database.Exec("UPDATE operations SET accepted = ? WHERE document_id = ?", encoded, fixture.Initial.DocumentID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			case "hash":
+				_, err = value.database.Exec("UPDATE revision_hashes SET map_hash = ? WHERE revision = 0", strings.Repeat("f", 64))
+			case "snapshot":
+				_, err = value.database.Exec("UPDATE documents SET snapshot_hash = ?", strings.Repeat("f", 64))
+			case "missing operation":
+				_, err = value.database.Exec("DELETE FROM operations")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := value.Append(ctx, fixture.Second); err == nil {
+				t.Fatal("append accepted changed corrupt history after an earlier successful append")
+			}
+			if _, found, err := value.LookupOperation(ctx, fixture.Initial.DocumentID, fixture.Second.OperationID); err != nil || found {
+				t.Fatalf("failed append was persisted: found=%t err=%v", found, err)
+			}
+		})
+	}
+}
+
+func TestAppendObservesOtherStoreAndSnapshot(t *testing.T) {
+	ctx := context.Background()
+	fixture, err := collabstore.NewConformanceFixture()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "shared.db")
+	value, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = value.Close() }()
+	other, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Close() }()
+	if err := value.Create(ctx, fixture.Initial); err != nil {
+		t.Fatal(err)
+	}
+	if err := value.Append(ctx, fixture.First); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.SaveSnapshot(ctx, fixture.FirstSnapshot); err != nil {
+		t.Fatal(err)
+	}
+	if err := other.Append(ctx, fixture.Second); err != nil {
+		t.Fatal(err)
+	}
+	state, err := other.LoadRecovery(ctx, fixture.Initial.DocumentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := state.Restore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := model.NewOperationID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inverse, err := document.BuildInverse(fixture.First.ActorID, fixture.First.OperationID, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := document.Apply(inverse, time.Unix(3, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := value.Append(ctx, accepted); err != nil {
+		t.Fatal(err)
+	}
+	if err := value.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reopened.Close() }()
+	state, err = reopened.LoadRecovery(ctx, fixture.Initial.DocumentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := state.Restore()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(restored.Snapshot(), document.Snapshot()) {
+		t.Fatal("reopen lost external append, snapshot, or actor-scoped inverse")
 	}
 }

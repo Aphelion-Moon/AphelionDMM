@@ -34,6 +34,10 @@ func (store *Store) LoadRecovery(ctx context.Context, documentID model.DocumentI
 }
 
 func loadRecovery(ctx context.Context, database queryer, documentID model.DocumentID) (engine.RecoveryState, error) {
+	return readRecovery(ctx, database, documentID, nil)
+}
+
+func readRecovery(ctx context.Context, database queryer, documentID model.DocumentID, encodedBytes *int) (engine.RecoveryState, error) {
 	var state engine.RecoveryState
 	var data []byte
 	var revision model.Revision
@@ -50,6 +54,9 @@ func loadRecovery(ctx context.Context, database queryer, documentID model.Docume
 	if state.Snapshot.DocumentID != documentID || state.Snapshot.Revision != revision {
 		return state, fmt.Errorf("stored snapshot identity/revision differs from row")
 	}
+	if encodedBytes != nil {
+		*encodedBytes = len(data) + len(state.SnapshotHash) + 8
+	}
 	state.Hashes = make(map[model.Revision]string)
 	rows, err := database.QueryContext(ctx, "SELECT revision, map_hash FROM revision_hashes WHERE document_id = ? ORDER BY revision", documentID)
 	if err != nil {
@@ -63,6 +70,9 @@ func loadRecovery(ctx context.Context, database queryer, documentID model.Docume
 		}
 		state.Hashes[revision] = hash
 		state.HeadRevision, state.HeadHash = revision, hash
+		if encodedBytes != nil {
+			*encodedBytes += len(hash) + 8
+		}
 	}
 	err = rows.Err()
 	_ = rows.Close()
@@ -88,6 +98,9 @@ func loadRecovery(ctx context.Context, database queryer, documentID model.Docume
 			return state, fmt.Errorf("stored operation identity/revision/hash differs from row/ledger")
 		}
 		state.Operations = append(state.Operations, accepted)
+		if encodedBytes != nil {
+			*encodedBytes += len(data) + len(operationID) + len(hash) + 8
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return state, err

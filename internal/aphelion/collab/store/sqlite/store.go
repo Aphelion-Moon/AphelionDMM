@@ -28,6 +28,7 @@ type Store struct {
 	database *sql.DB
 	version  string
 	closed   bool
+	recovery recoveryCache
 }
 
 func Open(path string) (*Store, error) {
@@ -151,11 +152,12 @@ func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation
 	if !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("lookup duplicate operation: %w", err)
 	}
-	state, err := loadRecovery(ctx, transaction, accepted.DocumentID)
+	var encodedBytes int
+	state, err := readRecovery(ctx, transaction, accepted.DocumentID, &encodedBytes)
 	if err != nil {
 		return err
 	}
-	document, err := state.Restore()
+	document, err := store.recovery.restore(state)
 	if err != nil {
 		return err
 	}
@@ -183,6 +185,11 @@ func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit append: %w", err)
 	}
+	state.Operations = append(state.Operations, model.CloneAcceptedOperation(accepted))
+	state.Hashes[accepted.Revision] = mapHash
+	state.HeadRevision, state.HeadHash = accepted.Revision, mapHash
+	encodedBytes += len(encoded) + len(accepted.OperationID) + 2*len(mapHash) + 16
+	store.recovery.retain(state, document, encodedBytes)
 	return nil
 }
 
@@ -502,6 +509,7 @@ func (store *Store) Close() error {
 		return nil
 	}
 	store.closed = true
+	store.recovery.clear()
 	return store.database.Close()
 }
 
