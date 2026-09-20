@@ -1,5 +1,10 @@
 # Native UI stage tracing
 
+Follow-up: [queued native frames](2026-09-20-queued-native-frame-tracing.md) now
+exercise the real frame queue and map-pane rendering with balanced task counts
+and canvas pixel checks. The direct-render measurements below remain historical
+component evidence and are not comparable timing controls for that new fixture.
+
 Baseline: `154e9b0e`. This adds an owned Go execution-trace wrapper and a
 small native correctness/timing workload. It does not claim a speedup or close
 the representative desktop performance campaign.

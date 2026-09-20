@@ -32,7 +32,9 @@ func TestMain(m *testing.M) {
 	glfw.WindowHint(glfw.ContextVersionMajor, 3)
 	glfw.WindowHint(glfw.ContextVersionMinor, 3)
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
-	win, err := glfw.CreateWindow(64, 64, "Canvas lifecycle verification", nil, nil)
+	// Set the frame-probe size on the creating thread; resizing this shared
+	// native window from a test goroutine can block Windows message delivery.
+	win, err := glfw.CreateWindow(640, 480, "Canvas lifecycle verification", nil, nil)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		glfw.Terminate()
