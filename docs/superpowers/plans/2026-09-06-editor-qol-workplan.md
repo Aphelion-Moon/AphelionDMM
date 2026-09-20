@@ -4,8 +4,9 @@ Baseline: commit `052e1acb02b790641d63466de40c91d56028383b`.
 
 September 20: [single-instance Move identity](../../verification/2026-09-20-instance-move-identity.md)
 now survives tile hops through identical prefabs, including exact undo/redo.
-Focused native race checks pass; the broader frame-renderer pointer-check gap
-and human acceptance remain open.
+Focused native race checks pass. The subsequent
+[renderer offset repair](../../verification/2026-09-20-renderer-buffer-offsets.md)
+also restores the full window-package race gate; human acceptance remains open.
 
 September 20: [popup and dialog shortcut ownership](../../verification/2026-09-20-shortcut-popup-focus.md)
 now blocks background edits, including queued modals and popup-dismissal frames,

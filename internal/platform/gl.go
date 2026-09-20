@@ -1,7 +1,7 @@
 package platform
 
 import (
-	"unsafe"
+	// APHELION EDIT REMOVAL - BUFFER OFFSETS - ORIGINAL: "unsafe"
 
 	"github.com/SpaiR/imgui-go"
 	"github.com/go-gl/gl/v3.3-core/gl"
@@ -109,10 +109,8 @@ func Render(drawData imgui.DrawData) {
 			} else if clipRectX < fbWidth && clipRectY < fbHeight && clipRectZ > 0 && clipRectW > 0 {
 				gl.Scissor(int32(clipRectX), int32(fbHeight-clipRectW), int32(clipRectZ-clipRectX), int32(clipRectW-clipRectY))
 				gl.BindTexture(gl.TEXTURE_2D, uint32(cmd.TextureID()))
-				// APHELION EDIT ADDITION START - STATIC_ANALYSIS
-				//nolint:govet // OpenGL interprets this pointer value as an element-buffer byte offset, not Go memory.
-				gl.DrawElements(gl.TRIANGLES, int32(cmd.ElementCount()), uint32(gl.UNSIGNED_SHORT), unsafe.Pointer(indexBufferOffset))
-				// APHELION EDIT ADDITION END
+				// APHELION EDIT CHANGE - BUFFER OFFSETS - ORIGINAL: gl.DrawElements(gl.TRIANGLES, int32(cmd.ElementCount()), uint32(gl.UNSIGNED_SHORT), unsafe.Pointer(indexBufferOffset))
+				gl.DrawElementsWithOffset(gl.TRIANGLES, int32(cmd.ElementCount()), uint32(gl.UNSIGNED_SHORT), indexBufferOffset)
 			}
 
 			indexBufferOffset += uintptr(cmd.ElementCount() * indexSize)
@@ -288,14 +286,16 @@ func bind(displayPos, displaySize *imgui.Vec2, fbWidth, fbHeight int32) {
 	gl.EnableVertexAttribArray(uint32(gAttributeLocationVtxColor))
 
 	vertexSize, vertexOffsetPos, vertexOffsetUv, vertexOffsetCol := imgui.VertexBufferLayout()
-	// APHELION EDIT ADDITION START - STATIC_ANALYSIS
-	//nolint:govet // OpenGL interprets these pointer values as vertex-buffer byte offsets, not Go memory.
-	gl.VertexAttribPointer(uint32(gAttributeLocationVtxPos), 2, gl.FLOAT, false, int32(vertexSize), unsafe.Pointer(uintptr(vertexOffsetPos)))
-	//nolint:govet // OpenGL interprets these pointer values as vertex-buffer byte offsets, not Go memory.
-	gl.VertexAttribPointer(uint32(gAttributeLocationVtxUV), 2, gl.FLOAT, false, int32(vertexSize), unsafe.Pointer(uintptr(vertexOffsetUv)))
-	//nolint:govet // OpenGL interprets these pointer values as vertex-buffer byte offsets, not Go memory.
-	gl.VertexAttribPointer(uint32(gAttributeLocationVtxColor), 4, gl.UNSIGNED_BYTE, true, int32(vertexSize), unsafe.Pointer(uintptr(vertexOffsetCol)))
+	// APHELION EDIT ADDITION START - BUFFER OFFSETS
+	// These are GPU buffer offsets, not Go pointers. Pass integers across the
+	// native boundary using the binding's offset-specific entry points.
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - BUFFER OFFSETS - ORIGINAL: gl.VertexAttribPointer(uint32(gAttributeLocationVtxPos), 2, gl.FLOAT, false, int32(vertexSize), unsafe.Pointer(uintptr(vertexOffsetPos)))
+	gl.VertexAttribPointerWithOffset(uint32(gAttributeLocationVtxPos), 2, gl.FLOAT, false, int32(vertexSize), uintptr(vertexOffsetPos))
+	// APHELION EDIT CHANGE - BUFFER OFFSETS - ORIGINAL: gl.VertexAttribPointer(uint32(gAttributeLocationVtxUV), 2, gl.FLOAT, false, int32(vertexSize), unsafe.Pointer(uintptr(vertexOffsetUv)))
+	gl.VertexAttribPointerWithOffset(uint32(gAttributeLocationVtxUV), 2, gl.FLOAT, false, int32(vertexSize), uintptr(vertexOffsetUv))
+	// APHELION EDIT CHANGE - BUFFER OFFSETS - ORIGINAL: gl.VertexAttribPointer(uint32(gAttributeLocationVtxColor), 4, gl.UNSIGNED_BYTE, true, int32(vertexSize), unsafe.Pointer(uintptr(vertexOffsetCol)))
+	gl.VertexAttribPointerWithOffset(uint32(gAttributeLocationVtxColor), 4, gl.UNSIGNED_BYTE, true, int32(vertexSize), uintptr(vertexOffsetCol))
 }
 
 func unbind() {

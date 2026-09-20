@@ -5,6 +5,9 @@ created a replacement on each tile hop. That discarded its stable identity;
 looking up the replacement by prefab ID could also select an identical resident
 and move that different object on the next hop.
 
+Subsequent verification: the renderer pointer-check failure below is now
+[repaired and covered by native pixel/race checks](2026-09-20-renderer-buffer-offsets.md).
+
 The tool now transfers the original instance between tiles, preserving its
 local ID, stable ID and editor references. A narrow coordinate mutator supports
 the transfer. Both vacated and destination coordinates request a render refresh.

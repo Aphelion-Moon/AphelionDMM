@@ -24,7 +24,11 @@ Recorded baseline:
 | `govet` | 4 | Four line-local exclusions document OpenGL buffer-offset arguments that are intentionally represented as pointer values. |
 | `staticcheck` | 7 | Embedded selectors, boolean logic, and parser branches were simplified without changing behavior. |
 
-The OpenGL exclusions are confined to `internal/platform/gl.go`. `gl.DrawElements` and `gl.VertexAttribPointer` interpret the pointer parameter as a byte offset into the currently bound GPU buffer. These values are not Go pointers and must not be converted or dereferenced as Go memory.
+The original OpenGL exclusions were confined to `internal/platform/gl.go`.
+September 20 follow-up: [native renderer buffer offsets](2026-09-20-renderer-buffer-offsets.md)
+replaces all four conversions with the pinned binding's integer-offset entry
+points and removes those exclusions. Native pixel readback and window-package
+race checks pass without manufacturing Go pointers from GPU buffer offsets.
 
 Final gate:
 
