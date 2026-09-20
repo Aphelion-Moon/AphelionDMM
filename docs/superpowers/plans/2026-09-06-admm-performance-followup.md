@@ -1,5 +1,12 @@
 # ADMM performance follow-up workplan
 
+September 20 deployment handoff: the user explicitly stopped further testing
+after the [IceBox native-frame run](../../verification/2026-09-20-icebox-native-frames.md)
+and directed deployment and local configuration next. That final run passed five
+edit/history cycles in one process with exact map and pixel restoration. The
+remaining unchecked campaigns below are unverified, not permission to resume
+testing without a new user instruction.
+
 September 20: [exact-state SQLite recovery reuse](../../verification/2026-09-20-sqlite-recovery-reuse.md)
 passes five interleaved 160-rate trials at 4.35–4.54 ms acknowledgement p95;
 frozen controls remain above 600 ms. Full transactional record comparison and

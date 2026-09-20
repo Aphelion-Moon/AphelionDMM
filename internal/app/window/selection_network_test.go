@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -28,6 +29,7 @@ import (
 	"sdmm/internal/app/window"
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmenv"
+	"sdmm/internal/dmapi/dmicon"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
@@ -68,6 +70,13 @@ func (a *mouseNetworkApp) ReportCollaborationError(_ string, err error) {
 
 func newMouseNetworkWorkspace(t *testing.T) (*wsmap.WsMap, *mouseNetworkApp) {
 	t.Helper()
+	return newNativeMapWorkspace(t, "", "")
+}
+
+// Explicit fixture paths keep representative audits opt-in without changing
+// the synthetic fixtures used by normal native regression tests.
+func newNativeMapWorkspace(t *testing.T, sourcePath, dmePath string) (*wsmap.WsMap, *mouseNetworkApp) {
+	t.Helper()
 	if lifecycleWindow == nil {
 		t.Skip("set APHELIONDMM_GL_TEST=1 for native mouse/network checks")
 	}
@@ -96,6 +105,22 @@ func newMouseNetworkWorkspace(t *testing.T) (*wsmap.WsMap, *mouseNetworkApp) {
 		objects[p] = &dmenv.Object{Path: p, Vars: vars.ToImmutable()}
 	}
 	environment := &dmenv.Dme{RootDir: dir, Objects: objects}
+	if sourcePath != "" {
+		input, err := os.ReadFile(sourcePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, input, 0600); err != nil {
+			t.Fatal(err)
+		}
+		environment, err = dmenv.New(dmePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dmicon.Cache.Free()
+		dmicon.Cache.SetRootDirPath(environment.RootDir)
+		t.Cleanup(dmicon.Cache.Free)
+	}
 	dmmap.PrefabStorage.Free()
 	t.Cleanup(dmmap.PrefabStorage.Free)
 	dmmap.Init(environment)
@@ -105,6 +130,15 @@ func newMouseNetworkWorkspace(t *testing.T) (*wsmap.WsMap, *mouseNetworkApp) {
 		t.Fatal(err)
 	}
 	m, _ := dmmap.New(environment, data, path)
+	if sourcePath != "" {
+		serial := 0
+		for _, tile := range m.Tiles {
+			for _, instance := range tile.Instances() {
+				serial++
+				instance.SetStableID(fmt.Sprintf("01890f3e-7b5c-7abc-8def-%012x", serial))
+			}
+		}
+	}
 	a := &mouseNetworkApp{environment: environment, commands: command.NewStorage(), queued: make(chan struct{}, 8)}
 	a.commands.SetStack(path)
 	ws := wsmap.New(a, m)
