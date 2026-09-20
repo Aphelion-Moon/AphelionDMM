@@ -143,3 +143,36 @@ func TestSelectionWorkspaceRetainsFastCameraPan(t *testing.T) {
 		t.Fatal("camera pan moved selection")
 	}
 }
+
+func TestSelectionConfiguredGridStepWorkspaceUndoRedo(t *testing.T) {
+	ws, app := newSelectionWorkspace(t)
+	app.selectionStep = 2
+	grab := activateSelectionWorkspace(t, ws)
+	e := ws.Map().Editor()
+	before := resizeSnapshot(t, e)
+	initialHash := resizeHash(t, before)
+	id := e.Dmm().Tiles[0].Instances()[2].StableID()
+	pressSelectionShortcut(glfw.KeyLeftAlt, glfw.KeyRight)
+	if grab.Bounds() != (util.Bounds{X1: 3, Y1: 1, X2: 3, Y2: 1}) || resizeSnapshot(t, e).Revision != before.Revision+1 {
+		t.Fatal("configured step did not move as one operation")
+	}
+	movedHash := resizeHash(t, resizeSnapshot(t, e))
+	pressSelectionShortcut(glfw.KeyRightAlt, glfw.KeyRight)
+	if resizeHash(t, resizeSnapshot(t, e)) != movedHash {
+		t.Fatal("out-of-bounds configured step changed authority")
+	}
+	path := e.Dmm().Path.Absolute
+	app.commands.UndoV(path)
+	if resizeHash(t, resizeSnapshot(t, e)) != initialHash || grab.Bounds() != (util.Bounds{X1: 1, Y1: 1, X2: 1, Y2: 1}) {
+		t.Fatal("one undo did not restore exact map and selection")
+	}
+	app.commands.RedoV(path)
+	if resizeHash(t, resizeSnapshot(t, e)) != movedHash || e.Dmm().GetTile(util.Point{X: 3, Y: 1, Z: 1}).Instances()[2].StableID() != id {
+		t.Fatal("redo lost contents or identity")
+	}
+	app.selectionStep = 1
+	pressSelectionShortcut(glfw.KeyRightAlt, glfw.KeyRight)
+	if grab.Bounds() != (util.Bounds{X1: 4, Y1: 1, X2: 4, Y2: 1}) {
+		t.Fatal("live preference change did not reach shortcut dispatch")
+	}
+}

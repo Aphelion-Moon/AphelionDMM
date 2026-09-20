@@ -2,6 +2,10 @@
 
 Baseline: commit `052e1acb02b790641d63466de40c91d56028383b`.
 
+September 20: [configurable selection grid steps](../../verification/2026-09-20-selection-grid-step.md)
+now share a saved preference across Alt+Arrow and toolbar movement. Tool and
+preference regressions pass; real workspace and human acceptance remain open.
+
 Latest continuation: [draft inspection and export](../../verification/2026-09-20-draft-inspection-and-export.md)
 records terminal-error retention, complete local draft export and guarded desktop
 close, following the [delivery/recovery work](../../verification/2026-09-20-delivery-limits-and-interrupted-drafts.md).
@@ -160,8 +164,9 @@ fences are separate checks.
    The [preview-copy pass](../../verification/2026-09-06-preview-copy-performance.md)
    reduces allocation in both floating transforms and ordinary Grab movement,
    with matched display hashes and explicit mixed timing results.
-   Extend attachment/later-acknowledgement interaction qualification and add
-   configurable grid steps. Test rectangular and sparse selections, overlapping
+   Extend attachment/later-acknowledgement interaction qualification. Configurable
+   grid steps are implemented; native workspace qualification remains open.
+   Test rectangular and sparse selections, overlapping
    destinations, hidden types, map edges, all Z levels, instance ordering,
    stable IDs, failed submission, and exact undo/redo. A custom direction/type
    mapping registry needs project-specific fixtures and reviewable rules.

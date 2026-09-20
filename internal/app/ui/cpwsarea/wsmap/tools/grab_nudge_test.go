@@ -28,6 +28,44 @@ func TestGrabNudgeUsesCurrentContentsAndKeepsSelection(t *testing.T) {
 	}
 }
 
+func TestGrabNudgeMultipleTilesIsOneMove(t *testing.T) {
+	for _, vertical := range []bool{false, true} {
+		t.Run(map[bool]string{false: "horizontal", true: "vertical"}[vertical], func(t *testing.T) {
+			g, e := lifecycleFixture(t)
+			shift := util.Point{X: 2}
+			if vertical {
+				e.m.MaxX, e.m.MaxY = 1, 4
+				for _, tile := range e.m.Tiles {
+					tile.Coord.X, tile.Coord.Y = tile.Coord.Y, tile.Coord.X
+				}
+				shift = util.Point{Y: 2}
+			}
+			id := e.m.Tiles[0].Instances()[0].StableID()
+			passed := e.m.Tiles[1].Copy()
+			if err := g.Nudge(shift); err != nil {
+				t.Fatal(err)
+			}
+			if e.commits != 1 || e.m.Tiles[2].Instances()[0].StableID() != id || !reflect.DeepEqual(*e.m.Tiles[1], passed) {
+				t.Fatal("multi-tile nudge changed passed-over contents, identity or operation count")
+			}
+			before := e.m.Copy()
+			area := g.Bounds()
+			err := g.Nudge(shift)
+			// Dmm.Copy normalizes empty instance slices; compare two copies.
+			after := e.m.Copy()
+			if err == nil || !reflect.DeepEqual(after, before) || g.Bounds() != area || e.commits != 1 {
+				t.Fatal("out-of-map grid step was clipped or changed map/history")
+			}
+			if err := g.Nudge(util.Point{X: -shift.X, Y: -shift.Y}); err != nil {
+				t.Fatal(err)
+			}
+			if e.commits != 2 || e.m.Tiles[0].Instances()[0].StableID() != id || g.Bounds() != (util.Bounds{X1: 1, Y1: 1, X2: 1, Y2: 1}) {
+				t.Fatal("negative grid step failed to restore the selection position")
+			}
+		})
+	}
+}
+
 func TestGrabNudgeRejectsInvalidMovesWithoutMutation(t *testing.T) {
 	g, e := lifecycleFixture(t)
 	before := e.m.Copy()

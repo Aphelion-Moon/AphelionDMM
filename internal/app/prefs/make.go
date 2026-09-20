@@ -2,6 +2,9 @@ package prefs
 
 import (
 	"math"
+	// APHELION EDIT ADDITION START - SELECTION GRID STEP
+	"sdmm/internal/aphelion/editing"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/ui/cpwsarea/wsprefs"
 	"sdmm/internal/app/window"
@@ -45,6 +48,15 @@ func Make(app App, prefs *Prefs) wsprefs.Prefs {
 				value:   &prefs.Editor.NudgeMode,
 				options: SaveNudgeModes,
 			},
+			// APHELION EDIT ADDITION START - SELECTION GRID STEP
+			intPrefPrefab{
+				name:  "Selection Move Step",
+				desc:  "Number of tiles moved by Alt+Arrow and the Grab selection move buttons. A move that would leave the map is refused. Set to 1 to restore the default.",
+				label: "##selection_move_step",
+				min:   1, max: editing.MaxSelectionMoveStep,
+				value: &prefs.Editor.SelectionMoveStep,
+			},
+			// APHELION EDIT ADDITION END
 		},
 
 		wsprefs.GPControls: {

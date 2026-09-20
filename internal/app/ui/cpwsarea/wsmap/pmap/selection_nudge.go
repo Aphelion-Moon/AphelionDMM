@@ -2,6 +2,8 @@
 package pmap
 
 import (
+	"fmt"
+	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/app/ui/shortcut"
 	w "sdmm/internal/imguiext/widget"
@@ -46,6 +48,7 @@ func (p *PaneMap) canNudgeSelection(shift util.Point) bool {
 	if !p.canRotateSelection() {
 		return false
 	}
+	shift = p.selectionNudgeShift(shift)
 	area := tools.Selected().(*tools.ToolGrab).Bounds().Plus(float32(shift.X), float32(shift.Y))
 	return area.X1 >= 1 && area.Y1 >= 1 && area.X2 <= float32(p.dmm.MaxX) && area.Y2 <= float32(p.dmm.MaxY)
 }
@@ -54,18 +57,24 @@ func (p *PaneMap) nudgeSelection(shift util.Point) {
 	if !p.canNudgeSelection(shift) {
 		return
 	}
-	if err := tools.Selected().(*tools.ToolGrab).Nudge(shift); err != nil {
+	if err := tools.Selected().(*tools.ToolGrab).Nudge(p.selectionNudgeShift(shift)); err != nil {
 		util.ShowErrorDialog("Unable to move selection: " + err.Error())
 	}
 }
 
 func (p *PaneMap) showSelectionNudgeButtons() {
-	w.Text("Move one tile:").Build()
+	step := editing.NormalizeSelectionMoveStep(p.app.Prefs().Editor.SelectionMoveStep)
+	w.Text(fmt.Sprintf("Move %d tile(s):", step)).Build()
 	for _, direction := range selectionNudges {
 		w.SameLine().Build()
 		w.Disabled(!p.canNudgeSelection(direction.shift),
-			w.Button(direction.name, func() { p.nudgeSelection(direction.shift) }).Tooltip("Alt+"+direction.name+": move visible selection contents one tile")).Build()
+			w.Button(direction.name, func() { p.nudgeSelection(direction.shift) }).Tooltip(fmt.Sprintf("Alt+%s: move visible selection contents %d tile(s). Configure Selection Move Step in Editor preferences.", direction.name, step))).Build()
 	}
+}
+
+func (p *PaneMap) selectionNudgeShift(direction util.Point) util.Point {
+	step := editing.NormalizeSelectionMoveStep(p.app.Prefs().Editor.SelectionMoveStep)
+	return util.Point{X: direction.X * step, Y: direction.Y * step}
 }
 
 // APHELION EDIT ADDITION END

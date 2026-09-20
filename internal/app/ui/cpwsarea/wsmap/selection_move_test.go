@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"sdmm/internal/app/command"
+	"sdmm/internal/app/prefs"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
@@ -22,8 +23,15 @@ import (
 
 type selectionTestApp struct {
 	*saveTestApp
-	errors    []error
-	clipboard *dmmclip.Clipboard
+	errors        []error
+	clipboard     *dmmclip.Clipboard
+	selectionStep int
+}
+
+func (app *selectionTestApp) Prefs() prefs.Prefs {
+	value := app.saveTestApp.Prefs()
+	value.Editor.SelectionMoveStep = app.selectionStep
+	return value
 }
 
 func (app *selectionTestApp) Clipboard() *dmmclip.Clipboard { return app.clipboard }

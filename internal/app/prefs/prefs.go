@@ -23,6 +23,9 @@ type Editor struct {
 	CodeEditor        string
 	NudgeMode         string
 	SanitizeVariables bool
+	// APHELION EDIT ADDITION START - SELECTION GRID STEP
+	SelectionMoveStep int
+	// APHELION EDIT ADDITION END
 }
 
 type Application struct {

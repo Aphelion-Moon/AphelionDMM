@@ -2,6 +2,9 @@ package app
 
 import (
 	"os/exec"
+	// APHELION EDIT ADDITION START - SELECTION GRID STEP
+	"sdmm/internal/aphelion/editing"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/window"
 
@@ -81,6 +84,9 @@ func (a *app) loadPreferencesConfig() {
 	}
 
 	a.ConfigRegister(cfg)
+	// APHELION EDIT ADDITION START - SELECTION GRID STEP
+	cfg.Editor.SelectionMoveStep = editing.NormalizeSelectionMoveStep(cfg.Editor.SelectionMoveStep)
+	// APHELION EDIT ADDITION END
 	a.validateCodeEditor(cfg)
 
 	// APHELION EDIT CHANGE - STATIC_ANALYSIS - ORIGINAL: window.SetFps(cfg.Prefs.Interface.Fps)
