@@ -1,5 +1,9 @@
 # Meridian toolset acceptance
 
+The [September 20 real MCP/staging gate](../verification/2026-09-20-meridian-staging-gate.md)
+records a successful staged-map inspection, a dirty source checkout and 50 reported
+diagnostics. It is not full stack or authoritative game-build acceptance.
+
 AphelionDMM owns the integration coordinator. Meridian-MCP remains a read-only diagnostic sidecar,
 aphelion-content-tools reaches collaboration only through its backend adapter, and Meridian-Rift keeps
 authority over DreamMaker compilation and runtime acceptance.
