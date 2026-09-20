@@ -2,6 +2,9 @@ package cpsearch
 
 import (
 	"strconv"
+	// APHELION EDIT ADDITION START - SEARCH LEVEL FILTER
+	mapsearch "sdmm/internal/aphelion/search"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/ui/component"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/editor"
@@ -34,6 +37,9 @@ type Search struct {
 
 	filterActive bool
 	filterBound  util.Bounds
+	// APHELION EDIT ADDITION START - SEARCH LEVEL FILTER
+	filterLevels mapsearch.LevelRange
+	// APHELION EDIT ADDITION END
 
 	resultsAll      []*dmminstance.Instance
 	resultsFiltered []*dmminstance.Instance
@@ -75,7 +81,8 @@ func (s *Search) Free() {
 }
 
 func (s *Search) Sync() {
-	s.doSearch()
+	// APHELION EDIT CHANGE - SEARCH LEVEL FILTER - ORIGINAL: s.doSearch()
+	s.ensureCurrent()
 }
 
 func (s *Search) Search(prefabId uint64) {
@@ -89,7 +96,8 @@ func (s *Search) SearchByPath(path string) {
 }
 
 func (s *Search) results() []*dmminstance.Instance {
-	if !s.filterBound.IsEmpty() {
+	// APHELION EDIT CHANGE - SEARCH LEVEL FILTER - ORIGINAL: if !s.filterBound.IsEmpty() {
+	if !s.filterBound.IsEmpty() || !s.filterLevels.IsAll() {
 		return s.resultsFiltered
 	}
 	return s.resultsAll

@@ -203,8 +203,11 @@ fences are separate checks.
    during gestures, retains same-map filter bounds and refuses stale row actions.
    Search mutations capture all current targets before changing the display;
    failed preflight leaves no partial edit. Oversized bulk actions, replacement
-   validation and broader interaction acceptance remain open. Design explicit
-   Z-level filtering with multi-level fixtures. Evaluate
+   validation and broader interaction acceptance remain open. Explicit
+   [Z-level filtering](../../verification/2026-09-20-search-level-filter.md) now
+   combines inclusive level ranges with X/Y bounds and preserves filters across
+   same-map refreshes. Three-level mutation/undo and ImGui controls pass; human
+   interaction acceptance remains open. Evaluate
    select-same-type,
    connected selection, camera bookmarks, and selection isolation against
    actual mapping workflows. Preserve hidden state and per-document ownership.

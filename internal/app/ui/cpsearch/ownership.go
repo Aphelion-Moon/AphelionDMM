@@ -31,10 +31,10 @@ func (s *Search) ensureCurrent() bool {
 	if s.resultEditor == ed && s.resultReady && s.resultVersion == version {
 		return true
 	}
-	sameEditor, bounds := s.resultEditor == ed, s.filterBound
+	sameEditor, bounds, levels := s.resultEditor == ed, s.filterBound, s.filterLevels
 	s.searchCurrentMap()
-	if sameEditor && !bounds.IsEmpty() {
-		s.filterBound = bounds
+	if sameEditor && (!bounds.IsEmpty() || !levels.IsAll()) {
+		s.filterBound, s.filterLevels = bounds, levels
 		s.updateFilteredResults()
 	}
 	return s.resultReady

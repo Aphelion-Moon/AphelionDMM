@@ -92,6 +92,10 @@ func (*searchOperationMap) PushAreaHover(util.Bounds, util.Color, util.Color) {}
 func (*searchOperationMap) OnMapSizeChange()                                  {}
 
 func searchOperationFixture(t *testing.T) (*Search, *searchOperationApp) {
+	return searchOperationFixtureLevels(t, 1)
+}
+
+func searchOperationFixtureLevels(t *testing.T, levels int) (*Search, *searchOperationApp) {
 	t.Helper()
 	s := searchFixture(t, 3, 1)
 	objects := make(map[string]*dmenv.Object)
@@ -107,6 +111,14 @@ func searchOperationFixture(t *testing.T) (*Search, *searchOperationApp) {
 	dmmap.Init(a.environment)
 	t.Cleanup(dmmap.Free)
 	m := a.current.Dmm()
+	for z := 2; z <= levels; z++ {
+		for x := 1; x <= m.MaxX; x++ {
+			tile := &dmmap.Tile{Coord: util.Point{X: x, Y: 1, Z: z}}
+			tile.InstancesSet(m.Tiles[x-1].Instances().Prefabs())
+			m.Tiles = append(m.Tiles, tile)
+		}
+	}
+	m.MaxZ = levels
 	m.Path.Absolute = "search-operation"
 	a.commands.SetStack(m.Path.Absolute)
 	for _, tile := range m.Tiles {
