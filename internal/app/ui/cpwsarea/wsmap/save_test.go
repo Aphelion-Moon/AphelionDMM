@@ -211,6 +211,7 @@ func (app *saveTestApp) PathsFilter() *dm.PathsFilter            { return dm.New
 func (app *saveTestApp) RunLater(job func())                     { app.jobs <- job }
 func (*saveTestApp) ConfigRegister(config.Config)                {}
 func (*saveTestApp) AddMouseChangeCallback(func(uint, uint)) int { return 0 }
+func (*saveTestApp) RemoveMouseChangeCallback(int)               {}
 func (*saveTestApp) SyncPrefabs()                                {}
 func (*saveTestApp) SyncVarEditor()                              {}
 

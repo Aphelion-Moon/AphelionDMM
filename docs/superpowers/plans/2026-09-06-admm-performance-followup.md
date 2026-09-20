@@ -81,6 +81,9 @@ for the precise measurement boundaries and remaining campaign gates.
   and compare post-GC Go heap, native process memory, goroutines, handles and GPU
   resource counts at stable checkpoints. Capture long-history restart, crash,
   database loss and slow-consumer scenarios without disabling durability.
+  The [closed-map tool ownership repair](../../verification/2026-09-20-closed-map-tool-ownership.md)
+  removes a reproduced global editor/canvas/selection retention path on disposal.
+  This is functional ownership evidence; the resource campaign remains open.
 
 **Gate:** fixed manifests, correct counts/hashes, independent warmup, at least five
 trials, retained raw results, explicit failure/timeout counts and no hidden

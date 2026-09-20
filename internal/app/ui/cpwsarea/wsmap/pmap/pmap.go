@@ -250,6 +250,9 @@ func (p *PaneMap) Process() {
 }
 
 func (p *PaneMap) Dispose() {
+	// APHELION EDIT ADDITION START - CLOSED MAP TOOL OWNERSHIP
+	tools.ReleaseEditor(p.editor)
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COLLABORATION
 	p.editor.Close()
 	// APHELION EDIT ADDITION END

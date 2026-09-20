@@ -119,6 +119,28 @@ func SetEditor(editor editor) {
 	ed = editor
 }
 
+// APHELION EDIT ADDITION START - CLOSED MAP TOOL OWNERSHIP
+// ReleaseEditor runs on the UI thread before the owning pane is disposed.
+// Closing an inactive pane must not reset tools attached to a different editor.
+func ReleaseEditor(owner editor) {
+	if ed != owner || ed == nil {
+		return
+	}
+	// Cancel Grab/placement while its editor is still usable. Other tool state
+	// is discarded without onStop: disposal must not submit another operation.
+	tools[TNGrab].OnDeselect()
+	*tools[TNAdd].(*ToolAdd) = *newAdd()
+	*tools[TNFill].(*ToolFill) = *newFill()
+	*tools[TNMove].(*ToolMove) = *newMove()
+	*tools[TNPick].(*ToolPick) = *newPick()
+	*tools[TNDelete].(*ToolDelete) = *newDelete()
+	*tools[TNReplace].(*ToolReplace) = *newReplace()
+	ed, cc, cs = nil, nil, nil
+	active, startedTool, oldCoord = false, nil, util.Point{}
+}
+
+// APHELION EDIT ADDITION END
+
 func SetCanvasControl(canvasControl canvasControl) {
 	cc = canvasControl
 }
@@ -136,6 +158,11 @@ func Tools() map[string]Tool {
 }
 
 func process(altBehaviour bool) {
+	// APHELION EDIT ADDITION START - CLOSED MAP TOOL OWNERSHIP
+	if ed == nil {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	// Escape must remain available while the canvas owns an active mouse item.
 	cancelGrabOnEscape()
@@ -164,6 +191,11 @@ func SelectedTiles() []util.Point {
 			return tiles
 		}
 	}
+	// APHELION EDIT ADDITION START - CLOSED MAP TOOL OWNERSHIP
+	if cs == nil {
+		return nil
+	}
+	// APHELION EDIT ADDITION END
 	return []util.Point{cs.LastHoveredTile()}
 }
 
