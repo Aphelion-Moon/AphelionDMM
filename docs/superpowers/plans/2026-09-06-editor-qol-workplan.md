@@ -251,8 +251,12 @@ fences are separate checks.
    now exposes F4 and a toolbar action for current-selection rotation, mirroring
    and recorded grid moves, plus floating paste orientation. Accepted-operation
    ownership, rejection, undo/redo, custom bindings and input guards pass native
-   workspace checks. Named stamps, human acceptance and large-selection
-   qualification remain open.
+   workspace checks. The [named stamp prototype](../../verification/2026-09-20-selection-stamps.md)
+   now captures, reviews, atomically saves and reloads mechanical selections as
+   stamp files, then reuses paste preview/confirmation with fresh IDs per use.
+   Hidden-state, clipboard independence, native history and network outcomes
+   pass focused checks. Human acceptance and large-selection qualification
+   remain open; there is no indexed library or slot manager.
 
 The comparison sources are the official
 [Tiled tile-editing manual](https://doc.mapeditor.org/en/stable/manual/editing-tile-layers/)

@@ -3,6 +3,9 @@ package pmap
 import (
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
+	// APHELION EDIT ADDITION START - SELECTION STAMPS
+	"sdmm/internal/aphelion/editing/stamps"
+	// APHELION EDIT ADDITION END
 	collabui "sdmm/internal/aphelion/collab/ui"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/prefs"
@@ -96,6 +99,9 @@ type PaneMap struct {
 	pSettings  *psettings.Panel
 
 	showSettings bool
+	// APHELION EDIT ADDITION START - SELECTION STAMPS
+	stamp *stamps.Stamp
+	// APHELION EDIT ADDITION END
 
 	canvas        *canvas.Canvas
 	canvasState   *canvas.State
@@ -250,6 +256,9 @@ func (p *PaneMap) Process() {
 }
 
 func (p *PaneMap) Dispose() {
+	// APHELION EDIT ADDITION START - SELECTION STAMPS
+	p.stamp = nil
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - CLOSED MAP TOOL OWNERSHIP
 	tools.ReleaseEditor(p.editor)
 	// APHELION EDIT ADDITION END

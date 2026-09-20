@@ -135,6 +135,9 @@ func (p *PaneMap) showToolsPanel() {
 			p.panelToolsLayoutSettings(),
 		},
 	}.Build()
+	// APHELION EDIT ADDITION START - SELECTION STAMPS
+	p.showStampControls()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION ROTATION
 	if tools.IsSelected(tools.TNGrab) && p.canTransformSelection() {
 		w.Layout{

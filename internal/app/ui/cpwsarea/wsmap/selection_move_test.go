@@ -8,6 +8,7 @@ import (
 
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/prefs"
+	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
@@ -23,6 +24,7 @@ type selectionTestApp struct {
 	errors        []error
 	clipboard     *dmmclip.Clipboard
 	selectionStep int
+	paths         *dm.PathsFilter
 }
 
 func (app *selectionTestApp) Prefs() prefs.Prefs {
@@ -32,6 +34,13 @@ func (app *selectionTestApp) Prefs() prefs.Prefs {
 }
 
 func (app *selectionTestApp) Clipboard() *dmmclip.Clipboard { return app.clipboard }
+
+func (app *selectionTestApp) PathsFilter() *dm.PathsFilter {
+	if app.paths == nil {
+		app.paths = dm.NewPathsFilterEmpty()
+	}
+	return app.paths
+}
 
 func (app *selectionTestApp) ReportCollaborationError(_ string, err error) {
 	app.errors = append(app.errors, err)

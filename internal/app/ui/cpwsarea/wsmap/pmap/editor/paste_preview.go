@@ -8,6 +8,7 @@ import (
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/dmapi/dmmap"
+	"sdmm/internal/dmapi/dmmclip"
 	"sdmm/internal/util"
 )
 
@@ -23,9 +24,15 @@ func (e *Editor) startPastePlacement() {
 	if len(data.Buffer) == 0 {
 		return
 	}
-	if e.executor == nil || e.collaborationErr != nil || len(e.pendingChanges) != 0 || e.selectionMove != nil {
-		e.reportCollaborationError("Unable to paste", fmt.Errorf("finish or cancel the current edit before pasting"))
-		return
+	if err := e.startPlacement(data); err != nil {
+		e.reportCollaborationError("Unable to paste", err)
+	}
+}
+
+// startPlacement shares preview ownership between clipboard paste and stamps.
+func (e *Editor) startPlacement(data dmmclip.PasteData) error {
+	if !e.CanStartMapEdit() {
+		return fmt.Errorf("finish or cancel the current edit before pasting")
 	}
 	filter := data.Filter.Copy()
 	p, err := editing.NewPlacement(e.dmm, data.Buffer, e.pMap.ActiveLevel(), filter.IsVisiblePath,
@@ -38,8 +45,7 @@ func (e *Editor) startPastePlacement() {
 		}, func(tile *dmmap.Tile) { tile.InstancesRegenerate() },
 		func(c util.Point) { delete(e.pendingChanges, model.Coord{X: c.X, Y: c.Y, Z: c.Z}) })
 	if err != nil {
-		e.reportCollaborationError("Unable to paste", err)
-		return
+		return err
 	}
 	g := tools.SetSelected(tools.TNGrab).(*tools.ToolGrab)
 	g.Reset()
@@ -47,6 +53,7 @@ func (e *Editor) startPastePlacement() {
 	coord := e.pMap.CanvasState().LastHoveredTile()
 	coord.Z = e.pMap.ActiveLevel()
 	g.StartPlacement(e, p, coord)
+	return nil
 }
 
 // APHELION EDIT ADDITION END

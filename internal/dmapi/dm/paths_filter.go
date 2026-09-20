@@ -1,10 +1,26 @@
 package dm
 
 import (
+	// APHELION EDIT ADDITION START - SELECTION STAMPS
+	"sort"
+	// APHELION EDIT ADDITION END
 	"strings"
 
 	"github.com/rs/zerolog/log"
 )
+
+// APHELION EDIT ADDITION START - SELECTION STAMPS
+// HiddenPaths returns independent data suitable for a saved selection's filter.
+func (p *PathsFilter) HiddenPaths() []string {
+	paths := make([]string, 0, len(p.filteredPaths))
+	for path := range p.filteredPaths {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// APHELION EDIT ADDITION END
 
 type PathsFilter struct {
 	findDirectChildren func(string) []string
