@@ -176,8 +176,7 @@ func BenchmarkSQLiteRecoveryHistory(b *testing.B) {
 	}
 }
 
-func seedRecoveryHistory(tb testing.TB, path string, history int, compacted bool, padding int) (*Store, *engine.Document) {
-	tb.Helper()
+func recoveryHistorySnapshot(padding int) model.Snapshot {
 	snapshot := model.Snapshot{ProtocolVersion: model.ProtocolVersion, SchemaVersion: model.SchemaVersion,
 		DocumentID: "01890f3e-7b5c-7abc-8def-0123456789ab", EnvironmentHash: strings.Repeat("a", 64), MaxX: 2, MaxY: 1, MaxZ: 1}
 	for x := 1; x <= 2; x++ {
@@ -186,6 +185,12 @@ func seedRecoveryHistory(tb testing.TB, path string, history int, compacted bool
 		}}}})
 	}
 	snapshot.Tiles[1].State.Prefabs[0].Vars["opaque"] = strings.Repeat("x", padding)
+	return snapshot
+}
+
+func seedRecoveryHistory(tb testing.TB, path string, history int, compacted bool, padding int) (*Store, *engine.Document) {
+	tb.Helper()
+	snapshot := recoveryHistorySnapshot(padding)
 	document, err := engine.NewDocument(snapshot)
 	if err != nil {
 		tb.Fatal(err)

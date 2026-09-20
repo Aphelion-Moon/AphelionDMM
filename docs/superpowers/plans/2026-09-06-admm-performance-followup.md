@@ -98,6 +98,13 @@ for the precise measurement boundaries and remaining campaign gates.
   prefab and variable counts. Add typical and large maps to the current synthetic
   100/1,000/10,000-cell matrix. Keep fixtures outside published artifacts when
   they contain private content; record repository-relative identifiers.
+  The user selected Meridian-Rift's `tgstation.dme` and an IceBox map on
+  September 20. `_maps/icebox.json` identifies
+  `_maps/map_files/IceBoxStation/IceBoxStation.dmm` (3,212,240 bytes, SHA-256
+  `f9e3a4ac79e06e22910adca4d6828528e55bd59d5d3ddd4c3b409d6cb76c1d8c`).
+  The DME is 644,567 bytes, SHA-256
+  `0a0f65cc07db67423a4a63021ee026ca98baa256b787548abfaac0a325c296e2`.
+  Counts, round-trip checks and representative performance remain to be measured.
 - [ ] Add UI-thread stage timings around gesture capture, operation dispatch,
   projection application, `refreshCollaborationView`, bucket rebuild and next
   displayed frame. Instrument native parser transfer, icon decoding and upload
@@ -280,6 +287,12 @@ raised measured append allocation from about 0.40 MB / 2,049 allocations to
   compatibility design. A schema/migration proposal needs independent review.
 - [ ] Re-run concurrent store, cancellation, connection termination, committed-
   then-error, snapshot race, corruption, restart and logical backup/restore gates.
+  The [SQLite abrupt-process check](../../verification/2026-09-20-sqlite-process-crash.md)
+  now writes 10,000 sequential edits through real append, then verifies five
+  successive process-kill/reopen cycles through revision 10,010, with complete
+  history, duplicate identity, inverse ownership/status and historical bases.
+  This covers termination after commit, not during commit or power loss; the
+  broader database and application campaign remains open.
 - [ ] Measure at fixed 0/100/1,000/10,000 history lengths using repeated longer
   trials on recorded storage, including full durability. Compare recovery and
   append costs; moving unbounded work from one to the other is not sufficient.
