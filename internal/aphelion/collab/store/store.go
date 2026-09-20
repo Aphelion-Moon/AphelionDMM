@@ -31,6 +31,13 @@ type SessionStore interface {
 	Close() error
 }
 
+// ReplayStore optionally loads a validated reconnect snapshot, its replay suffix,
+// and revision hashes in one consistent read. Returned data belongs to the caller.
+// Stores without this interface use Load and individual RevisionHash reads.
+type ReplayStore interface {
+	LoadReplay(context.Context, model.DocumentID) (model.Snapshot, []model.AcceptedOperation, map[model.Revision]string, error)
+}
+
 func SameCheckpointRequest(left, right model.ExportCheckpoint) bool {
 	return left.IdempotencyKey == right.IdempotencyKey &&
 		left.DocumentID == right.DocumentID &&

@@ -390,6 +390,9 @@ func TestAppendRechecksChangedDurableHistory(t *testing.T) {
 			if _, _, err := value.Load(ctx, fixture.Initial.DocumentID); err == nil {
 				t.Fatal("load accepted changed corrupt history after an earlier successful append")
 			}
+			if _, _, _, err := value.LoadReplay(ctx, fixture.Initial.DocumentID); err == nil {
+				t.Fatal("replay accepted changed corrupt history")
+			}
 			if err := value.Append(ctx, fixture.Second); err == nil {
 				t.Fatal("append accepted changed corrupt history after an earlier successful append")
 			}
@@ -418,10 +421,15 @@ func TestLoadDoesNotExposeValidatedHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		snapshot, replay, err := value.Load(ctx, fixture.Initial.DocumentID)
+		snapshot, replay, hashes, err := value.LoadReplay(ctx, fixture.Initial.DocumentID)
 		if err != nil || !reflect.DeepEqual(snapshot, model.CloneSnapshot(fixture.Initial)) || len(replay) != 1 || !reflect.DeepEqual(replay[0], fixture.First) {
 			t.Fatalf("load differs from durable history: %v", err)
 		}
+		wantHash, found, err := value.RevisionHash(ctx, fixture.Initial.DocumentID, fixture.First.Revision)
+		if err != nil || !found || hashes[fixture.First.Revision] != wantHash {
+			t.Fatalf("replay hash differs from durable history: %v", err)
+		}
+		hashes[fixture.First.Revision] = strings.Repeat("a", 64)
 		replay[0].BaseMapHash = strings.Repeat("f", 64)
 		snapshot.EnvironmentHash = strings.Repeat("e", 64)
 	}

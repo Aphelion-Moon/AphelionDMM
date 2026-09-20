@@ -194,12 +194,17 @@ func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation
 }
 
 func (store *Store) Load(ctx context.Context, documentID model.DocumentID) (model.Snapshot, []model.AcceptedOperation, error) {
+	snapshot, replay, _, err := store.LoadReplay(ctx, documentID)
+	return snapshot, replay, err
+}
+
+func (store *Store) LoadReplay(ctx context.Context, documentID model.DocumentID) (model.Snapshot, []model.AcceptedOperation, map[model.Revision]string, error) {
 	state, err := store.LoadRecovery(ctx, documentID)
 	if err != nil {
-		return model.Snapshot{}, nil, err
+		return model.Snapshot{}, nil, nil, err
 	}
 	if err := store.recovery.validate(state); err != nil {
-		return model.Snapshot{}, nil, err
+		return model.Snapshot{}, nil, nil, err
 	}
 	replay := make([]model.AcceptedOperation, 0)
 	for _, accepted := range state.Operations {
@@ -207,7 +212,7 @@ func (store *Store) Load(ctx context.Context, documentID model.DocumentID) (mode
 			replay = append(replay, accepted)
 		}
 	}
-	return model.CloneSnapshot(state.Snapshot), replay, nil
+	return model.CloneSnapshot(state.Snapshot), replay, state.Hashes, nil
 }
 
 func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) error {

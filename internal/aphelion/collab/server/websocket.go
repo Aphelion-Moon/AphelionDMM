@@ -15,6 +15,7 @@ import (
 	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
+	collabstore "sdmm/internal/aphelion/collab/store"
 	collabtelemetry "sdmm/internal/aphelion/collab/telemetry"
 )
 
@@ -172,7 +173,15 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 	if service.telemetry != nil {
 		loadContext, finishLoad = service.telemetry.Store(parent, collabtelemetry.StoreLoad)
 	}
-	retainedSnapshot, replay, err := service.store.Load(loadContext, snapshot.DocumentID)
+	var retainedSnapshot model.Snapshot
+	var replay []model.AcceptedOperation
+	var replayHashes map[model.Revision]string
+	batchedReplay, hasBatchedReplay := service.store.(collabstore.ReplayStore)
+	if hasBatchedReplay {
+		retainedSnapshot, replay, replayHashes, err = batchedReplay.LoadReplay(loadContext, snapshot.DocumentID)
+	} else {
+		retainedSnapshot, replay, err = service.store.Load(loadContext, snapshot.DocumentID)
+	}
 	finishLoad(err)
 	if err != nil {
 		return fmt.Errorf("load reconnect replay: %w", err)
@@ -199,7 +208,11 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		if accepted.Revision <= join.AcknowledgedRevision || accepted.Revision > snapshot.Revision {
 			continue
 		}
-		acceptedHash, found, hashErr := service.store.RevisionHash(replayContext, snapshot.DocumentID, accepted.Revision)
+		acceptedHash, found := replayHashes[accepted.Revision]
+		var hashErr error
+		if !hasBatchedReplay {
+			acceptedHash, found, hashErr = service.store.RevisionHash(replayContext, snapshot.DocumentID, accepted.Revision)
+		}
 		if hashErr != nil {
 			finishReplay(hashErr)
 			return fmt.Errorf("load replay hash at revision %d: %w", accepted.Revision, hashErr)
