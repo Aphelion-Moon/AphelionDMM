@@ -57,7 +57,8 @@ func (ws *WsChangelog) showContent() {
 		w.SameLine(),
 		w.Group{
 			w.Custom(func() {
-				markdown.ShowHeader("StrongDMM Changelog", window.FontH3)
+				// APHELION EDIT CHANGE - BRANDING - ORIGINAL: markdown.ShowHeader("StrongDMM Changelog", window.FontH3)
+				markdown.ShowHeader("AphelionDMM Changelog", window.FontH3)
 			}),
 			w.Separator(),
 			w.TextWrapped(rsc.ChangelogHeaderTxt),
@@ -67,7 +68,8 @@ func (ws *WsChangelog) showContent() {
 			w.SameLine(),
 			w.Dummy(imgui.Vec2{}),
 			w.SameLine(),
-			w.Button("Support the Project", ws.app.DoOpenSupport).
+			// APHELION EDIT CHANGE - BRANDING - ORIGINAL: w.Button("Support the Project", ws.app.DoOpenSupport).
+			w.Button("Support StrongDMM", ws.app.DoOpenSupport).
 				Style(style.ButtonFireCoral{}).
 				Tooltip(rsc.SupportTxt).
 				Icon(icon.KoFi),

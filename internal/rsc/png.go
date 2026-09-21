@@ -28,8 +28,9 @@ func EditorTextureAtlas() TextureAtlas {
 
 func EditorIcon() TextureAtlas {
 	return TextureAtlas{
-		Width:  1000,
-		Height: 1000,
+		// APHELION EDIT CHANGE - BRANDING - ORIGINAL: Width: 1000, Height: 1000,
+		Width:  330,
+		Height: 330,
 		data:   editorIcon,
 	}
 }

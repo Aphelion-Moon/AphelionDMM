@@ -54,7 +54,7 @@ task task_win:gen_syso
 task build
 ```
 
-Check `$LASTEXITCODE` after every native command. The intended desktop smoke target remains `dst/StrongDMM.exe` until a human-approved branding migration changes it.
+Check `$LASTEXITCODE` after every native command. The desktop smoke target is `dst/AphelionDMM.exe` following the human-approved September 21 branding migration.
 
 The real workspace Save gate needs a working OpenGL context:
 

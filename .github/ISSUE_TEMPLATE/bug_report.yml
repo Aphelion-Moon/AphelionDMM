@@ -6,7 +6,7 @@ body:
   - type: input
     attributes:
       label: Version
-      description: What version of StrongDMM did you use?
+      description: What version of AphelionDMM did you use?
     validations:
       required: true
   - type: textarea
@@ -22,7 +22,7 @@ body:
       label: Reproduction
       description: How did you manage to make the error happen?
       placeholder: How did you do it?
-      value: 1. Run StrongDMM
+      value: 1. Run AphelionDMM
     validations:
       required: true
   - type: textarea

@@ -347,7 +347,8 @@ func (m *Menu) Process() {
 			w.MenuItem("About", m.app.DoOpenAbout).
 				IconEmpty(),
 			w.Separator(),
-			w.Button("Support", m.app.DoOpenSupport).
+			// APHELION EDIT CHANGE - BRANDING - ORIGINAL: w.Button("Support", m.app.DoOpenSupport).
+			w.Button("Support StrongDMM", m.app.DoOpenSupport).
 				Size(imgui.Vec2{X: -1}).
 				Style(style.ButtonFireCoral{}).
 				Tooltip(rsc.SupportTxt).

@@ -1,3 +1,14 @@
+# v.a.1 — AphelionDMM alpha
+
+* Apply AphelionDMM branding and the approved dog astronaut icon; credit and link the original StrongDMM project prominently.
+* Default hosted collaboration to mapcollab.a13.info, with configurable hosted sign-in.
+* Improve SQLite recovery and reconnect behavior, including retained uncertain edits and snapshot fallback.
+* Add selection stamps, repeat transforms, guarded edit capture, and workspace lifetime fixes.
+* Remove Aphelion Content Tools, Rift build tooling, and MCP integration support.
+* Update dependencies and restore passing Windows, Linux, macOS, hosted, and collaboration CI gates.
+
+The settings directory retains its historical StrongDMM name for compatibility. This alpha is distributed through GitHub Releases; signed automatic updates are not configured.
+
 # v2.17.0.alpha
 
 * Bumped sdmmparser dependencies. Updates the BYOND parser and related libraries to pick up parser fixes and compatibility improvements. @Absolucy

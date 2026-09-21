@@ -1,200 +1,85 @@
-# Strong Dream Map Maker &middot; [![GitHub release](https://img.shields.io/github/release/SpaiR/StrongDMM.svg?label=StrongDMM)](https://github.com/SpaiR/StrongDMM/releases/latest) [![Github All Releases](https://img.shields.io/github/downloads/SpaiR/StrongDMM/total.svg?logo=github)](https://github.com/SpaiR/StrongDMM/releases) ![CI](https://github.com/SpaiR/StrongDMM/workflows/CI/badge.svg)
+## Support the original StrongDMM project
 
-<p align="center"><b>Download StrongDMM</b></p>
-<p align="center">
-  <a href="https://bit.ly/sdmm-windows">
-    <img src="https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows download link"/>
-  </a>
-  <a href="https://bit.ly/sdmm-linux">
-    <img src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Linux download link"/>
-  </a>
-  <a href="https://bit.ly/sdmm-macos">
-    <img src="https://img.shields.io/badge/mac%20os-000000?style=for-the-badge&logo=apple&logoColor=white" alt="macOS download ink"/>
-  </a>
-</p>
+AphelionDMM builds on **[StrongDMM](https://github.com/SpaiR/StrongDMM)**, created by SpaiR and its contributors. Please visit the original project, give it a star, and consider **[supporting SpaiR on Ko-fi](https://ko-fi.com/spair)**. Their work made this editor possible. The support links in AphelionDMM also go to StrongDMM's creator.
 
----
-
-<img align="right" width="150" src="https://raw.githubusercontent.com/SpaiR/StrongDMM/master/docs/sdmm-logo.png" alt="StrongDMM Logo">
-
-StrongDMM is an alternative yet robust map editor for BYOND.
-
-It was built with the idea of creating a more flexible, fast, and extensible tool than the BYOND built-in map editor.
-The editor has the same features as DM, but provides much more and improves the general map editing experience.
-
-## Features
-
-The editor offers a range of new features:
-
-* TGM support with built-in map merger (no need to use external scripts and pre-commit hooks);
-* Almost instant environment open;
-* Custom layers filter;
-* Built-in screenshot tool;
-* Smooth zoom-in/zoom-out;
-* Robust "Search";
-* Improved shortcuts;
-* Robust variables editor and variables preview;
-* Optional sanitization of variables;
-* Open with CLI.
-
-...and a lot more...
+# AphelionDMM
 
 <p align="center">
-  <img width="450" src="https://raw.githubusercontent.com/SpaiR/StrongDMM/master/docs/sdmm-example.png" alt="StrongDMM Example">
+  <img src="internal/rsc/png/editor_icon.png" width="220" alt="AphelionDMM: a dog astronaut surrounded by a rainbow orbit">
 </p>
 
-## How to Use
+[![CI](https://github.com/Aphelion-Moon/AphelionDMM/actions/workflows/ci.yml/badge.svg)](https://github.com/Aphelion-Moon/AphelionDMM/actions/workflows/ci.yml)
+[![Releases](https://img.shields.io/github/v/release/Aphelion-Moon/AphelionDMM?include_prereleases)](https://github.com/Aphelion-Moon/AphelionDMM/releases)
 
-StrongDMM is a single executable, which doesn't require any installation.
-You can download it from any of the provided links and start it right away.
+A BYOND map editor with local editing and authoritative multiplayer collaboration, built on StrongDMM's desktop editor and the SpacemanDMM parser.
 
-**Download Links:**
+## Download and run
 
-* [Windows](https://bit.ly/sdmm-windows)
-* [Linux](https://bit.ly/sdmm-linux)
-* [macOS](https://bit.ly/sdmm-macos)
+Get the Windows, Linux, or Intel macOS package from **[GitHub Releases](https://github.com/Aphelion-Moon/AphelionDMM/releases)**. Extract the archive and launch `AphelionDMM.exe` on Windows or `AphelionDMM` on Linux/macOS. Use the checksums attached to the release to verify your download. An installer is not required.
 
-[Release](https://github.com/SpaiR/StrongDMM/releases/latest) page contains all distributed files. It also has `sha256` hashes info for every executable for validation purposes.
+The `v.a.1` release is an alpha. Keep backups of maps you edit and read its release notes for current limitations. The in-app signed updater requires release-signing configuration; download this release manually.
 
-### CLI Usage
+## Editing
 
-StrongDMM do support CLI to quickly open maps. Provide `.dme` or `.dmm` files as program arguments:
+- Open DME environments and DMM/TGM maps, with native parser and round-trip validation.
+- Browse types, search maps, edit variables, filter layers, and capture screenshots.
+- Rotate and mirror selections, repeat transforms, and save reusable selection stamps.
+- Use the hotkey reference and configurable shortcuts.
+- Save through a staged, validated replacement of the target map.
 
-###### With DME
+Pan with the middle mouse button, space-drag, or arrow keys. Zoom with the scroll wheel or `+`/`-`. Choose the map save format under **File → Preferences**.
+
+You can also open environments and maps from the command line:
+
+```text
+AphelionDMM.exe path/to/environment.dme path/to/map.dmm
+AphelionDMM.exe path/to/map.dmm
 ```
-strongdmm.exe path/to/environment.dme ./map1.dmm ../path/map2.dmm
+
+On Linux/macOS, use `./AphelionDMM`. When only maps are supplied, the editor attempts to find a matching environment.
+
+## Collaboration
+
+AphelionDMM supports an embedded local session and hosted collaboration. The server orders durable edits; clients reconcile accepted changes and keep uncertain edits available for explicit recovery. Presence is separate from map history. Reconnect uses verified replay or an authenticated snapshot, and undo submits an actor-scoped inverse operation.
+
+The default hosted address is **[mapcollab.a13.info](https://mapcollab.a13.info)**. Access depends on the host's sign-in and membership configuration. Self-hosting uses the separate collaboration server; configuration and deployment guidance is in [the hosting handoff](docs/hosting/game-server-deployment-agent-handoff.md).
+
+Aphelion Content Tools, Rift build tooling, and MCP integration are no longer supported. Game repositories are used directly as DME and map inputs.
+
+## Settings and troubleshooting
+
+This release retains the existing settings directories so upgrading from the previous package preserves preferences:
+
+- Windows: `%USERPROFILE%\AppData\Roaming\StrongDMM`
+- Linux/macOS: `~/.strongdmm`
+
+Open logs from **Help → Open Logs Folder**. Report problems in [AphelionDMM Issues](https://github.com/Aphelion-Moon/AphelionDMM/issues), including the version, operating system, reproduction steps, and relevant logs with credentials removed.
+
+## Build from source
+
+Use the versions selected by the repository: **Go 1.25.13**, **Rust 1.82.0**, and **Task 3.x**. CGO requires a C/C++ toolchain. Windows builds use MinGW-w64 with the GNU Rust target. Linux builds require X11/OpenGL and GTK development libraries; on Ubuntu, install `xorg-dev libgtk-3-dev`.
+
+The supported build compiles the pinned Rust parser and links it into the Go editor:
+
+```text
+task build
 ```
 
-###### Without DME
+For Windows PowerShell, set the GNU Rust toolchain and generate executable resources first:
+
+```powershell
+$env:RUST_TARGET = '1.82.0-x86_64-pc-windows-gnu'
+task task_win:gen_syso
+task build
 ```
-strongdmm.exe ./map1.dmm ../path/map2.dmm
-```
 
-When providing `.dmm` files without `.dme`, a proper environment file will be found automatically.
+The executable is written to `dst/`. See [CI](.github/workflows/ci.yml) for the platform build commands and [verification guidance](docs/agent/verification.md) for the checks and their limits.
 
-## Support
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/P5P5BF17Q)
+## Credits and license
 
-StrongDMM was developed without any monetization in mind. The main motivation is the enthusiasm for creating cool stuff.\
-Your support can demonstrate your appreciation and will motivate further development of the project.
+- [StrongDMM](https://github.com/SpaiR/StrongDMM), by SpaiR and contributors, supplies the inherited editor foundation.
+- [SpacemanDMM](https://github.com/SpaceManiac/SpacemanDMM), by SpaceManiac and contributors, supplies the underlying DM parser.
+- The AphelionDMM icon was created by **Vinylspiders** for [Meridian](https://meridian.a13.info) and its [wiki](https://meridian-wiki.a13.info/wiki/Main_Page). See [artwork provenance and permitted use](docs/branding/README.md).
+- The historical StrongDMM application icon was designed by [Clément “Topy”](https://github.com/clement-or). It is retained in project history; the current icon is the user-approved AphelionDMM artwork.
 
-Additionally, if you have specific features in mind that you'd like implemented in the editor, we can focus on your needs.\
-Feel free to reach out to me through my public contact to discuss details: [E-Mail](mailto:despsolver@gmail.com)
-
-## FAQ
-
-**Q.** My antivirus software detects something suspicious in the editor binaries. Is it ok?\
-**A.** Yes, it's a false positive reaction to the way Golang, the development language, creates binaries. Read more: [Golang FAQ](https://go.dev/doc/faq#virus)
-
-**Q.** How do I verify my executables?\
-**A.** Verify them using `sha256` hashes, available on the [releases page](https://github.com/SpaiR/StrongDMM/releases/latest).
-
-**Q.** But how can I trust executables on the release page?\
-**A.** Executables are built with the [CI pipeline](https://github.com/SpaiR/StrongDMM/actions/workflows/ci.yml). You can verify the process yourself or build the executables manually from the source code.
-
-**Q.** How to uninstall the editor?\
-**A.** StrongDMM doesn't require installation, so no specific uninstallation process is needed. Simply delete the executable and, if desired, its directory on your OS to remove editor data.
-
-**Q.** Where do I find editor data?\
-**A.** For Windows: `C:\Users\USER\AppData\Roaming\StrongDMM`, for Linux/macOS: `~/.strongdmm`.
-
-**Q.** How to move the map?\
-**A.** Drag the map using the **middle mouse button**, or by holding the **space key**. Alternatively, you can use the **arrow keys**.
-
-**Q.** How to zoom?\
-**A.** Zoom using your mouse scroll wheel or the **+/- keys** on the keyboard.
-
-**Q.** How to change the save format?\
-**A.** Go to `File -> Preferences...` in the menu bar and select the desired format.
-
-**Q.** The editor crashed. Where can I find logs?\
-**A.** Access logs via the menu: `Help -> Open Logs Folder`.
-
-## How to Build
-
-Building the application involves two steps:
-
-1. Build the **sdmmparser** library;
-2. Build the editor.
-
-**sdmmparser** is a Rust library based on the [SpacemanDMM](https://github.com/SpaceManiac/SpacemanDMM) parser and is compiled to a `staticlib`.
-It can be found at `/third_party/sdmmparser/src`.
-
-### Prerequisites
-
-* [Go](https://go.dev/): version **1.23** or higher.
-* [Rust](https://www.rust-lang.org/): version **1.82.0** or higher.
-* [Task](https://taskfile.dev): for running build scripts. (Optional, but recommended)
-
-#### For Windows
-
-* [MinGW-w64](https://www.mingw-w64.org/)
-
-##### How to install
-
-MinGW can be installed through package managers like choco (Chocolatey) or downloaded and installed directly from the MinGW website. 
-After installation, make sure the bin directory of MinGW (which contains gcc.exe) is in your system's PATH.
-
-##### Why to use MinGW
-
-MinGW, short for Minimalist GNU for Windows, is a lightweight development environment providing essential tools like a C compiler for Windows. 
-It is required as the application uses `cgo` to integrate C libraries, enabling the build and compilation of `cgo` code and ensuring all dependencies are handled properly. 
-
-Unlike MSVC (Microsoft Visual C++), which uses different conventions and linkers incompatible with `cgo`, 
-MinGW is designed to work seamlessly with Go's build system, making it the preferred choice for compiling `cgo` code on Windows.
-
-Alternatively, you can use WSL (Windows Subsystem for Linux) to provide a Linux-like environment that supports cgo and C compilers compatible with Go.
-In that case look [for linux](#for-linux) dependencies.
-
-#### For Linux
-
-You may need to install dependencies for building GUI apps:
-
-- **`apt` (Debian, Ubuntu):** `sudo apt install xorg-dev libgtk-3-dev`
-- **`yum` (Red Hat, CentOS, Fedora):** `sudo yum install xorg-x11-server-devel gtk3-devel`
-- **`dnf` (Fedora, newer Red Hat and CentOS):** `sudo dnf install xorg-x11-server-devel gtk3-devel`
-- **`pacman` (Arch Linux):** `sudo pacman -S xorg-server-devel gtk3`
-- **`zypper` (openSUSE):** `sudo zypper install xorg-x11-server-devel gtk3-devel`
-- **`dnf` or `yum` (Amazon Linux):** `sudo dnf install xorg-x11-server-devel gtk3-devel`
-- **`apk` (Alpine Linux):** `sudo apk add xorg-server-dev gtk+3.0-dev`
-
-### Steps
-
-#### Using Task (Recommended)
-
-Task is a cross-platform Make alternative with scripts in `Taskfile.yml`.
-
-With Task installed:
-
-* `task build`: Builds sdmmparser and the editor (output in `dst` directory).
-* `task run`: Runs the editor (compiles first if needed).
-
-#### Manually
-
-1. Build the **sdmmparser** library:
-    1. Navigate to `third_party/sdmmparser/src`
-    2. Run command:
-        * **Windows:** `set RUSTUP_TOOLCHAIN=stable-x86_64-pc-windows-gnu && cargo build --release`
-        * **Linux / macOS:** `cargo build --release`
-2. In the root directory:
-    * `go build .`: Builds the editor (executable named `sdmm.exe`/`sdmm` in the root).
-    * `go run .`: Runs the editor.
-
-Step #1 is required only when the **sdmmparser** is modified.
-
-##### Why Use a Custom RUSTUP_TOOLCHAIN
-
-The **sdmmparser** library is compiled into a `staticlib` that is linked into the final Go binary.\
-The MSVC toolchain is not compatible with Go, as Go relies on the GNU toolchain for CGO (the mechanism that compiles C code natively within Go).
-Using a custom `RUSTUP_TOOLCHAIN` ensures that the Rust library is compiled in a way that aligns with Go's requirements, 
-avoiding compatibility issues and ensuring smooth integration.
-
-## Credits
-
-StrongDMM uses [SpacemanDMM](https://github.com/SpaceManiac/SpacemanDMM) parser made
-by [SpaceManiac](https://github.com/SpaceManiac). \
-The application icon is designed by [Clément "Topy"](https://github.com/clement-or).
-
-## License
-
-See the LICENSE file for license rights and limitations (GPL-3.0).
+See [LICENSE](LICENSE) for GPL-3.0 source-code terms and [the artwork notes](docs/branding/README.md) for the icon. Existing upstream attribution and source history are retained.

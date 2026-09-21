@@ -11,8 +11,10 @@ import (
 const logoSize = 250
 
 var (
-	logoColor        = imgui.Packed(color.RGBA{R: 200, G: 200, B: 200, A: 75})
-	logoColorHovered = imgui.Packed(color.RGBA{R: 200, G: 200, B: 200, A: 125})
+	// APHELION EDIT CHANGE - BRANDING - ORIGINAL: logoColor = imgui.Packed(color.RGBA{R: 200, G: 200, B: 200, A: 75})
+	logoColor = imgui.Packed(color.RGBA{R: 255, G: 255, B: 255, A: 230})
+	// APHELION EDIT CHANGE - BRANDING - ORIGINAL: logoColorHovered = imgui.Packed(color.RGBA{R: 200, G: 200, B: 200, A: 125})
+	logoColorHovered = imgui.Packed(color.RGBA{R: 255, G: 255, B: 255, A: 255})
 )
 
 // Show application logo in the center of the window.

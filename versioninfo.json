@@ -21,14 +21,14 @@
   "StringFileInfo": {
     "Comments": "",
     "CompanyName": "",
-    "FileDescription": "StrongDMM",
+    "FileDescription": "AphelionDMM",
     "FileVersion": "",
-    "InternalName": "",
+    "InternalName": "AphelionDMM",
     "LegalCopyright": "Copyright (C) 2019-2024",
     "LegalTrademarks": "",
-    "OriginalFilename": "",
+    "OriginalFilename": "AphelionDMM.exe",
     "PrivateBuild": "",
-    "ProductName": "StrongDMM",
+    "ProductName": "AphelionDMM",
     "ProductVersion": "v1.0.0.0",
     "SpecialBuild": ""
   },

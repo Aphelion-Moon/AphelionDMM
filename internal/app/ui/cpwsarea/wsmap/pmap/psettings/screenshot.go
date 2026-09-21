@@ -147,7 +147,8 @@ func (p *Panel) saveScreenshot(pixels []byte, w, h int) error {
 		directory = cfg.ScreenshotDir
 	}
 
-	dstFilePath := directory + "/StrongDMM-" + time.Now().Format(util.TimeFormat) + ".png"
+	// APHELION EDIT CHANGE - BRANDING - ORIGINAL: dstFilePath := directory + "/StrongDMM-" + time.Now().Format(util.TimeFormat) + ".png"
+	dstFilePath := directory + "/AphelionDMM-" + time.Now().Format(util.TimeFormat) + ".png"
 
 	if err := saveScreenshotToFile(dstFilePath, pixels, w, h); err != nil {
 		log.Print("unable to save screenshot to file:", err)
