@@ -15,3 +15,12 @@ func (local *Local) CaptureSnapshot(ctx context.Context) (engine.SnapshotCapture
 	}
 	return local.document.CaptureSnapshot(), nil
 }
+
+func (local *Local) CaptureTiles(ctx context.Context) (engine.TileCapture, error) {
+	local.mu.Lock()
+	defer local.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return engine.TileCapture{}, err
+	}
+	return local.document.CaptureTiles(), nil
+}
