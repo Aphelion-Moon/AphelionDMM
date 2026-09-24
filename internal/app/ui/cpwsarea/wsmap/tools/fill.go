@@ -2,6 +2,11 @@ package tools
 
 import (
 	"math"
+	// APHELION EDIT ADDITION START - BOUNDED FILL
+	"context"
+	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/overlay"
 
@@ -72,6 +77,16 @@ func (t *ToolFill) onStop(util.Point) {
 
 	// Fill the area.
 	if prefab, ok := ed.SelectedPrefab(); ok {
+		// APHELION EDIT ADDITION START - BOUNDED FILL
+		if owner, ok := ed.(interface {
+			TryScheduleFill(util.Bounds, int, *dmmprefab.Prefab, bool, bool) bool
+		}); ok && owner.TryScheduleFill(t.fillArea, t.start.Z, prefab, t.AltBehaviour(), imguiext.IsCtrlDown()) {
+			t.start = util.Point{}
+			t.fillArea = util.Bounds{}
+			t.dragging = false
+			return
+		}
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - BRUSH CAPTURE
 		var targets []util.Point
 		// APHELION EDIT ADDITION END
@@ -80,6 +95,7 @@ func (t *ToolFill) onStop(util.Point) {
 			tile := ed.Dmm().GetTile(coord)
 			t.basicPrefabAdd(tile, prefab)
 		}
+		/* APHELION EDIT REMOVAL START - BOUNDED FILL
 		if imguiext.IsCtrlDown() {
 			for x := t.fillArea.X1; x <= t.fillArea.X2; x++ {
 				for y := t.fillArea.Y1; y <= t.fillArea.Y2; y++ {
@@ -99,6 +115,10 @@ func (t *ToolFill) onStop(util.Point) {
 			}
 		}
 
+		APHELION EDIT REMOVAL END */
+		// APHELION EDIT ADDITION START - BOUNDED FILL
+		_ = editing.VisitRectangle(context.Background(), t.fillArea, t.start.Z, imguiext.IsCtrlDown(), func(point util.Point) error { targets = append(targets, point); return nil })
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - BRUSH CAPTURE
 		// Fill is one action: a later invalid tile must not leave a partial fill.
 		if ed.TryBeginTileChange(targets...) {

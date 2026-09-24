@@ -71,11 +71,6 @@ func (t *ToolMove) process() {
 	if t.instance == nil || !imguiext.IsShiftDown() {
 		return
 	}
-	// APHELION EDIT ADDITION START - INSTANCE MOVE CAPTURE
-	if !ed.TryBeginTileChange(t.instance.Coord()) {
-		return
-	}
-	// APHELION EDIT ADDITION END
 	xAxis := "pixel_x"
 	yAxis := "pixel_y"
 	if ed.Prefs().Editor.NudgeMode == prefs.SaveNudgeModeStep {
@@ -89,6 +84,15 @@ func (t *ToolMove) process() {
 	mouseCoords := imgui.MousePos()
 	offsetX := (mouseCoords.X - t.lastMouseCoords.X) / ed.ZoomLevel()
 	offsetY := (t.lastMouseCoords.Y - mouseCoords.Y) / ed.ZoomLevel()
+	// APHELION EDIT ADDITION START - EFFECTIVE OFFSET GUARD
+	newX, newY := t.lastOffsets[0]+int(offsetX), t.lastOffsets[1]+int(offsetY)
+	if origPrefab.Vars().IntV(xAxis, 0) == newX && origPrefab.Vars().IntV(yAxis, 0) == newY {
+		return
+	}
+	if !ed.TryBeginTileChange(t.instance.Coord()) {
+		return
+	}
+	// APHELION EDIT ADDITION END
 
 	newVars := dmvars.Set(origPrefab.Vars(), xAxis, strconv.Itoa(t.lastOffsets[0]+int(offsetX)))
 	newVars = dmvars.Set(newVars, yAxis, strconv.Itoa(t.lastOffsets[1]+int(offsetY)))

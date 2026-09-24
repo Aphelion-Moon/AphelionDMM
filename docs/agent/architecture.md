@@ -163,7 +163,8 @@ time with a frame budget that includes geometry refresh. Save, queries, recovery
 and conflicting mutations wait until publication finishes. The displayed revision
 advances only after all tiles are installed. Area boundaries and chunk layer
 membership update from touched tiles instead of rescanning the map. A single
-chunk can exceed the time budget; generic legacy target enumeration/capture and
+chunk can exceed the time budget. Large local Fill also enumerates/prepares on
+the worker; remaining legacy target enumeration/capture and
 network snapshot installation still require separate scheduling work.
 
 Clipboard and stamp placement retain ToolGrab's lifecycle but use an isolated
