@@ -121,6 +121,9 @@ type PaneMap struct {
 	panelRightTopSize    imgui.Vec2
 	panelRightBottomSize imgui.Vec2
 	panelBottomSize      imgui.Vec2
+	// APHELION EDIT ADDITION START - EDIT STATUS
+	editBubble editBubbleState
+	// APHELION EDIT ADDITION END
 
 	// The value of the Z-level with which the user is currently working.
 	activeLevel int
@@ -254,6 +257,9 @@ func (p *PaneMap) Process() {
 		p.pQuickEdit.Process,
 	)
 	p.showPanel("canvasStat_"+p.dmm.Name, pPosBottom, p.showStatusPanel)
+	// APHELION EDIT ADDITION START - EDIT STATUS
+	p.showEditStatus()
+	// APHELION EDIT ADDITION END
 }
 
 func (p *PaneMap) Dispose() {

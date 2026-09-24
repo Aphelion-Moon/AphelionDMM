@@ -1,6 +1,9 @@
 package pmap
 
 import (
+	// APHELION EDIT ADDITION START - STABLE TOOLBAR
+	"github.com/SpaiR/imgui-go"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/imguiext/icon"
 	"sdmm/internal/imguiext/style"
@@ -121,12 +124,7 @@ var (
 )
 
 func (p *PaneMap) showToolsPanel() {
-	// APHELION EDIT ADDITION START - PASTE PLACEMENT
-	p.showPastePlacementControls()
-	// APHELION EDIT ADDITION END
-	// APHELION EDIT ADDITION START - LOCAL EDIT RECOVERY
-	p.showLocalRecoveryControls()
-	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - STABLE TOOLBAR
 	w.Layout{
 		p.panelToolsLayoutTools(),
 		w.SameLine(),
@@ -135,6 +133,21 @@ func (p *PaneMap) showToolsPanel() {
 			p.panelToolsLayoutSettings(),
 		},
 	}.Build()
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - STABLE TOOLBAR
+	settings := p.panelToolsLayoutSettings()
+	if imgui.BeginTableV("tool-row", 2, imgui.TableFlagsSizingStretchProp|imgui.TableFlagsNoPadOuterX, imgui.Vec2{}, 0) {
+		imgui.TableSetupColumnV("tools", imgui.TableColumnFlagsWidthStretch, 1, 0)
+		imgui.TableSetupColumnV("settings", imgui.TableColumnFlagsWidthFixed, settings.CalcSize().X, 0)
+		imgui.TableNextColumn()
+		p.panelToolsLayoutTools().Build()
+		imgui.TableNextColumn()
+		settings.Build()
+		imgui.EndTable()
+	}
+	// Paste controls follow the stable first row; progress belongs to the bubble.
+	p.showPastePlacementControls()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION STAMPS
 	p.showStampControls()
 	// APHELION EDIT ADDITION END
@@ -155,15 +168,19 @@ func (p *PaneMap) showToolsPanel() {
 }
 
 func (p *PaneMap) panelToolsLayoutTools() (layout w.Layout) {
-	for idx, toolName := range toolsOrder {
+	// APHELION EDIT ADDITION START - STABLE TOOLBAR
+	used, available := float32(0), imgui.ContentRegionAvail().X
+	spacing := imgui.CurrentStyle().ItemSpacing().X
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - STABLE TOOLBAR - ORIGINAL: for idx, toolName := range toolsOrder {
+	for _, toolName := range toolsOrder {
 		var toolName = toolName // Closure (hello, js)
 
-		if idx > 0 || idx < len(toolsOrder)-1 {
-			layout = append(layout, w.SameLine())
-		}
+		// APHELION EDIT REMOVAL - STABLE TOOLBAR - ORIGINAL: if idx > 0 || idx < len(toolsOrder)-1 { layout = append(layout, w.SameLine()) }
 
 		if toolName == tSeparator {
-			layout = append(layout, w.TextDisabled("|"))
+			// APHELION EDIT CHANGE - STABLE TOOLBAR - ORIGINAL: layout = append(layout, w.TextDisabled("|"))
+			// The reserved settings column replaces separator-based spacing.
 			continue
 		}
 
@@ -182,6 +199,16 @@ func (p *PaneMap) panelToolsLayoutTools() (layout w.Layout) {
 			}
 		}
 
+		// APHELION EDIT ADDITION START - STABLE TOOLBAR
+		width := btn.CalcSize().X
+		if used > 0 && used+spacing+width <= available {
+			layout = append(layout, w.SameLine())
+			used += spacing
+		} else {
+			used = 0
+		}
+		used += width
+		// APHELION EDIT ADDITION END
 		layout = append(layout, btn, w.Tooltip(desc.tooltip))
 	}
 	return layout

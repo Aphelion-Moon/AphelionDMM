@@ -125,6 +125,11 @@ func IsSelected(toolName string) bool {
 	return selectedToolName == toolName
 }
 
+// APHELION EDIT ADDITION START - EDIT STATUS
+func OwnsGesture(owner editor) bool { return ed == owner && active }
+
+// APHELION EDIT ADDITION END
+
 func SetEditor(editor editor) {
 	// APHELION EDIT ADDITION START - TOOL GESTURE OWNERSHIP
 	if ed != editor {

@@ -24,8 +24,6 @@ func (p *PaneMap) showPastePlacementControls() {
 	if !ok || !g.Placing() || !p.editor.HasPastePlacement() {
 		return
 	}
-	w.TextWrapped("Paste: move the cursor; [ / ] rotate, H / V mirror. Click or Enter places; Esc cancels.").Build()
-	w.TextWrapped("Unplaced preview is not included in saves.").Build()
 	if policy, available := p.editor.PastePolicy(); available {
 		modes := []string{"Only Overwrite With Data", "Apply Over", "Replace, Including Blanks"}
 		if imgui.BeginCombo("Paste mode", modes[policy.Mode]) {
@@ -51,12 +49,6 @@ func (p *PaneMap) showPastePlacementControls() {
 				p.editor.SetPastePolicy(policy)
 			}
 		}
-	}
-	if progress := p.editor.PastePlacementProgress(); progress != "" {
-		w.TextWrapped(progress).Build()
-	}
-	if err := g.PlacementError(); err != nil {
-		w.TextWrapped(err.Error()).Build()
 	}
 	w.Layout{
 		w.Disabled(!p.canConfirmPaste(), w.Button("Place (Enter)", func() { g.ConfirmPlacement() })),

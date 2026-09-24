@@ -37,8 +37,14 @@ func (p *PaneMap) showPanelV(id string, panelPos panelPos, visible bool, content
 		pos = p.pos.Plus(imgui.Vec2{X: panelPadding, Y: panelPadding})
 		size = imgui.Vec2{X: p.size.X - panelPadding*2}
 	case pPosRightTop:
-		x := imgui.ContentRegionAvail().X - p.panelRightTopSize.X - panelPadding
-		y := p.panelBottomSize.Y + panelPadding*2
+		// APHELION EDIT ADDITION START - STABLE TOOLBAR
+		// A fixed, pane-bounded width avoids a first-frame auto-size/pivot delay.
+		size.X = min(p.size.X-panelPadding*2, 24*imgui.FontSize())
+		// APHELION EDIT ADDITION END
+		// APHELION EDIT CHANGE - STABLE TOOLBAR - ORIGINAL: x := imgui.ContentRegionAvail().X - p.panelRightTopSize.X - panelPadding
+		x := p.size.X - size.X - panelPadding
+		// APHELION EDIT CHANGE - STABLE TOOLBAR - ORIGINAL: y := p.panelBottomSize.Y + panelPadding*2
+		y := p.panelTopSize.Y + panelPadding*2
 		pos = p.pos.Plus(imgui.Vec2{X: x, Y: y})
 	case pPosRightBottom:
 		x := imgui.ContentRegionAvail().X - p.panelRightBottomSize.X - panelPadding
@@ -66,6 +72,11 @@ func (p *PaneMap) showPanelV(id string, panelPos panelPos, visible bool, content
 		switch panelPos {
 		case pPosTop:
 			p.panelTopSize = imgui.WindowSize()
+			// APHELION EDIT ADDITION START - STABLE TOOLBAR
+			// Auto-resize reports last frame's height until layout completes.
+			// Settings need this frame's occupied content, including wrapped tools.
+			p.panelTopSize.Y = imgui.CursorPosY() + imgui.CurrentStyle().WindowPadding().Y
+			// APHELION EDIT ADDITION END
 		case pPosRightTop:
 			p.panelRightTopSize = imgui.WindowSize()
 		case pPosRightBottom:
