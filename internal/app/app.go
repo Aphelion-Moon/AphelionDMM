@@ -115,7 +115,12 @@ type app struct {
 	shortcutsEnabled bool
 
 	loadedEnvironment *dmenv.Dme
-	pathsFilter       *dm.PathsFilter
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	mapOpenQueue           []*mapOpenRequest
+	mapOpenActive          *mapOpenRequest
+	environmentLoadRequest uint64
+	// APHELION EDIT ADDITION END
+	pathsFilter *dm.PathsFilter
 
 	configs map[string]config.Config
 	// APHELION EDIT ADDITION START - CONFIG SNAPSHOTS
@@ -173,6 +178,9 @@ func (a *app) initialize() {
 }
 
 func (a *app) Process() {
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	a.processMapOpen()
+	// APHELION EDIT ADDITION END
 	/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
 	if a.shortcutsEnabled {
 		shortcut.Process()

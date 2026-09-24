@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"sdmm/internal/app/ui/dialog"
 )
@@ -24,7 +25,15 @@ func TestBackupFailureIsAnOpenRequestError(t *testing.T) {
 	// No layout or environment is installed: reaching map installation after
 	// this recoverable failure would panic, rather than preserve the session.
 	a.loadMap(filepath.Join("..", "..", "testdata", "collaboration", "convergence.dmm"), nil)
-	dialog.Close(dialog.TypeInformation{Title: "Unable to back up map"})
+	deadline := time.Now().Add(3 * time.Second)
+	for a.mapOpenActive != nil && time.Now().Before(deadline) {
+		a.processMapOpen()
+		time.Sleep(time.Millisecond)
+	}
+	if a.mapOpenActive != nil {
+		t.Fatal("open failure did not complete")
+	}
+	dialog.Close(dialog.TypeInformation{Title: "Unable to open map"})
 	got, err := os.ReadFile(blocked)
 	if err != nil || string(got) != "keep" {
 		t.Fatalf("backup failure changed existing file: %q, %v", got, err)

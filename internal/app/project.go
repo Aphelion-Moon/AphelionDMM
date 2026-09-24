@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
+	// APHELION EDIT REMOVAL START - OWNED MAP OPEN
+	// "runtime"
+	// APHELION EDIT REMOVAL END
 	"sdmm/third_party/sdmmparser"
 	"sort"
 	"time"
@@ -51,12 +53,17 @@ func (a *app) loadResourceV(path string, ws *workspace.Workspace) {
 		return
 	}
 
+	/* APHELION EDIT REMOVAL START - OWNED MAP OPEN
 	environmentPath, err := findEnvironmentFileFromBase(path)
+	APHELION EDIT REMOVAL END */
 
 	if a.HasLoadedEnvironment() {
 		a.loadMap(path, ws)
 		return
 	}
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	environmentPath, err := findEnvironmentFileFromBase(path)
+	// APHELION EDIT ADDITION END
 
 	if err == nil {
 		a.loadEnvironmentV(environmentPath, func() {
@@ -112,6 +119,12 @@ func (a *app) loadEnvironmentV(path string, callback func()) {
 
 func (a *app) forceLoadEnvironment(path string, callback func()) {
 	log.Printf("opening environment [%s]...", path)
+	// APHELION EDIT ADDITION START - OWNED ENVIRONMENT LOAD
+	a.environmentLoadRequest++
+	request := a.environmentLoadRequest
+	dlg := makeLoadingDialog(path)
+	dialog.Open(dlg)
+	// APHELION EDIT ADDITION END
 
 	afterLoad := func(env *dmenv.Dme) {
 		a.freeEnvironmentResources()
@@ -126,7 +139,9 @@ func (a *app) forceLoadEnvironment(path string, callback func()) {
 		a.layout.WsArea.AddEmptyWorkspaceIfNone()
 		a.UpdateTitle()
 
-		runtime.GC()
+		// APHELION EDIT REMOVAL START - OWNED MAP OPEN
+		// runtime.GC() - let the Go heap budget schedule collection off the UI callback.
+		// APHELION EDIT REMOVAL END
 
 		log.Print("environment opened:", path)
 
@@ -136,40 +151,53 @@ func (a *app) forceLoadEnvironment(path string, callback func()) {
 	}
 
 	go func() {
+		/* APHELION EDIT REMOVAL START - OWNED ENVIRONMENT LOAD
 		dlg := makeLoadingDialog(path)
 		dialog.Open(dlg)
 		defer dialog.Close(dlg)
+		APHELION EDIT REMOVAL END */
 
 		start := time.Now()
 		log.Printf("parsing environment: [%s]...", path)
 
 		env, err := dmenv.New(path)
-
-		if err != nil {
-			log.Print("unable to open environment by path:", path, err)
-
-			if sdmmparser.IsParserError(err) {
-				dialog.Open(dialog.TypeCustom{
-					Title:       "Parser Error!",
-					CloseButton: true,
-					Layout: w.Layout{
-						w.Text("Unable to open environment: " + path),
-						w.Separator(),
-						w.Text(err.Error()),
-					},
-				})
-			} else {
-				dialog.Open(dialog.TypeInformation{
-					Title:       "Error!",
-					Information: "Unable to open environment: " + path,
-				})
-			}
-			return
-		}
-
-		log.Printf("environment [%s] parsed in [%d] ms", path, time.Since(start).Milliseconds())
-
+		// APHELION EDIT ADDITION START - OWNED ENVIRONMENT LOAD
+		elapsed := time.Since(start)
 		window.RunLater(func() {
+			if request != a.environmentLoadRequest || a.closed {
+				return
+			}
+			dialog.Close(dlg)
+			// APHELION EDIT ADDITION END
+
+			if err != nil {
+				log.Print("unable to open environment by path:", path, err)
+
+				if sdmmparser.IsParserError(err) {
+					dialog.Open(dialog.TypeCustom{
+						Title:       "Parser Error!",
+						CloseButton: true,
+						Layout: w.Layout{
+							w.Text("Unable to open environment: " + path),
+							w.Separator(),
+							w.Text(err.Error()),
+						},
+					})
+				} else {
+					dialog.Open(dialog.TypeInformation{
+						Title:       "Error!",
+						Information: "Unable to open environment: " + path,
+					})
+				}
+				return
+			}
+
+			// APHELION EDIT CHANGE - OWNED ENVIRONMENT LOAD - ORIGINAL: log.Printf("environment [%s] parsed in [%d] ms", path, time.Since(start).Milliseconds())
+			log.Printf("environment [%s] parsed in [%d] ms", path, elapsed.Milliseconds())
+
+			// APHELION EDIT REMOVAL START - OWNED ENVIRONMENT LOAD
+			// window.RunLater(func() { moved before all completion UI.
+			// APHELION EDIT REMOVAL END
 			afterLoad(env)
 		})
 	}()
@@ -202,6 +230,13 @@ func newPathsFilter(env *dmenv.Dme) *dm.PathsFilter {
 }
 
 func (a *app) loadMap(path string, workspace *workspace.Workspace) {
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	a.enqueueMapOpen(path, workspace)
+}
+
+func (a *app) installParsedMap(path string, workspace *workspace.Workspace, data *dmmdata.DmmData, backup string) {
+	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - OWNED MAP OPEN
 	log.Printf("opening map [%s]...", path)
 
 	start := time.Now()
@@ -217,6 +252,8 @@ func (a *app) loadMap(path string, workspace *workspace.Workspace) {
 	}
 	elapsed := time.Since(start).Milliseconds()
 	log.Printf("map [%s] parsed in [%d] ms", path, elapsed)
+	APHELION EDIT REMOVAL END */
+	/* APHELION EDIT REMOVAL START - OWNED MAP OPEN
 	// APHELION EDIT ADDITION START - BACKUP FAILURE ISOLATION
 	backup, err := a.backupMap(path)
 	if err != nil {
@@ -236,6 +273,7 @@ func (a *app) loadMap(path string, workspace *workspace.Workspace) {
 		return
 	}
 	// APHELION EDIT ADDITION END
+	APHELION EDIT REMOVAL END */
 
 	// Add map to the recent only if it is a part of the currently opened environment.
 	if slice.StrContains(a.AvailableMaps(), path) {
@@ -272,7 +310,8 @@ func (a *app) loadMap(path string, workspace *workspace.Workspace) {
 				Title: "Unknown Types [WIP]",
 				Information: fmt.Sprintf(
 					"There are unknown types on the map: %s\n"+
-						"Types below will be discarded on save:\n"+
+						// APHELION EDIT CHANGE - UNKNOWN TYPE PRESERVATION - ORIGINAL: "Types below will be discarded on save:\n"+
+						"These types are preserved on save; rendering may be limited:\n"+
 						"%s", dmm.Name, prefabsNames,
 				),
 			})
@@ -280,7 +319,9 @@ func (a *app) loadMap(path string, workspace *workspace.Workspace) {
 	}
 	a.layout.Search.Free()
 
-	runtime.GC()
+	// APHELION EDIT REMOVAL START - OWNED MAP OPEN
+	// runtime.GC() - collection follows the normal heap budget.
+	// APHELION EDIT REMOVAL END
 
 	log.Print("map opened:", path)
 }
@@ -332,6 +373,9 @@ func (a *app) collaborationProjectReplacementGuard() (func() bool, error) {
 
 // Frees all resources connected with opened environment.
 func (a *app) freeEnvironmentResources() {
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	a.cancelMapOpens()
+	// APHELION EDIT ADDITION END
 	log.Print("free environment resources...")
 
 	a.pathsFilter = dm.NewPathsFilterEmpty()

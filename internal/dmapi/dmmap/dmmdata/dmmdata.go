@@ -66,6 +66,14 @@ func (d DmmData) String() string {
 }
 
 func New(path string) (*DmmData, error) {
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	return NewWithSourceCopy(path, nil)
+}
+
+// NewWithSourceCopy copies the exact parsed bytes to an owned backup writer.
+// The same content fingerprint and external-change check still qualify the load.
+func NewWithSourceCopy(path string, copyTo io.Writer) (*DmmData, error) {
+	// APHELION EDIT ADDITION END
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -78,7 +86,14 @@ func New(path string) (*DmmData, error) {
 	/* APHELION EDIT REMOVAL START - DISK_VERSION
 	return parse(file)
 	APHELION EDIT REMOVAL END */
-	reader := diskversion.NewReader(file)
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	var input io.Reader = file
+	if copyTo != nil {
+		input = io.TeeReader(file, copyTo)
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - OWNED MAP OPEN - ORIGINAL: reader := diskversion.NewReader(file)
+	reader := diskversion.NewReader(input)
 	data, err := parse(namedVersionReader{Reader: reader, name: file.Name()})
 	if err != nil {
 		return nil, err
