@@ -105,7 +105,8 @@ func (c *Control) processMouseDrag() {
 	}
 
 	isLmbDown := imgui.IsMouseDown(imgui.MouseButtonLeft)
-	if isLmbDown && !c.dragging {
+	// APHELION EDIT CHANGE - CURRENT FRAME INPUT - ORIGINAL: if isLmbDown && !c.dragging {
+	if isLmbDown && !c.dragging && c.active && imgui.IsMouseClicked(imgui.MouseButtonLeft) {
 		c.dragging = true
 	} else if !isLmbDown && c.dragging {
 		c.dragging = false

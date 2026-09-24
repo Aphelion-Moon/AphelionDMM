@@ -11,7 +11,9 @@ func (p *PaneMap) ProcessUnit(u unit.Unit) bool {
 	if p.app.PathsFilter().IsHiddenPath(u.Instance().Prefab().Path()) {
 		return false
 	}
-	p.locateHoveredInstance(u)
+	// APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
+	// p.locateHoveredInstance(u) is now resolved before tool input and drawing.
+	// APHELION EDIT REMOVAL END
 	return true
 }
 

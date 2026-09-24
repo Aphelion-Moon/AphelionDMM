@@ -8,18 +8,22 @@ import (
 	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
 	"sdmm/internal/app/ui/shortcut"
 	// APHELION EDIT ADDITION END
-	"sdmm/internal/app/window"
+	// APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
+	// "sdmm/internal/app/window"
+	// APHELION EDIT REMOVAL END
 
 	"github.com/SpaiR/imgui-go"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"github.com/rs/zerolog/log"
 )
 
+/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
 func init() {
 	window.RunRepeat(func() {
 		processTempToolsMode()
 	})
 }
+APHELION EDIT REMOVAL END */
 
 /* APHELION EDIT REMOVAL START - HELD TOOL OWNERSHIP
 var (

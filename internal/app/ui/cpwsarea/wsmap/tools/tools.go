@@ -8,7 +8,9 @@ import (
 	"sdmm/internal/aphelion/editing"
 	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/prefs"
-	"sdmm/internal/app/window"
+	// APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
+	// "sdmm/internal/app/window"
+	// APHELION EDIT REMOVAL END
 	"sdmm/internal/imguiext"
 
 	"sdmm/internal/dmapi/dmmap"
@@ -30,11 +32,13 @@ const (
 	TNReplace = "Replace"
 )
 
+/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
 func init() {
 	window.RunRepeat(func() {
 		process(imguiext.IsAltDown()) // Enable tools alt-behaviour when Alt button is down.
 	})
 }
+APHELION EDIT REMOVAL END */
 
 type canvasControl interface {
 	Dragging() bool
@@ -199,6 +203,21 @@ func Tools() map[string]Tool {
 }
 
 func process(altBehaviour bool) {
+	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
+	processFrame(altBehaviour, false)
+	// APHELION EDIT ADDITION END
+}
+
+// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
+// ProcessForEditor runs after the owning canvas has resolved current input.
+// A release waits for the queued stroke samples to be consumed in order.
+func ProcessForEditor(owner editor, pendingSamples bool) {
+	if ed == owner {
+		processFrame(imguiext.IsAltDown(), pendingSamples)
+	}
+}
+
+func processFrame(altBehaviour bool, pendingSamples bool) {
 	// APHELION EDIT ADDITION START - CLOSED MAP TOOL OWNERSHIP
 	if ed == nil {
 		return
@@ -212,11 +231,15 @@ func process(altBehaviour bool) {
 		startedTool.onStop(oldCoord)
 	}
 
-	Selected().process()
 	Selected().setAltBehaviour(altBehaviour)
+	Selected().process()
 	processSelectedToolStart()
-	processSelectedToolsStop()
+	if !pendingSamples {
+		processSelectedToolsStop()
+	}
 }
+
+// APHELION EDIT ADDITION END
 
 func OnMouseMove() {
 	processSelectedToolMove()

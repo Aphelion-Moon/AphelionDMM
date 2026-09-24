@@ -45,6 +45,11 @@ func (e *Editor) StartEraseStroke(all bool) (*editing.EraseStroke, error) {
 		return false
 	}
 	return editing.NewEraseStroke(dmmap.WorldIconSize, all, func(x, y, z int, all bool, processed func(util.Point) bool) editing.EraseResult {
+		// Canvas coordinates outside the tile rectangle have no tile Z, but an
+		// offset sprite there still belongs to the gesture's frozen visible level.
+		if z == 0 {
+			z = level
+		}
 		fail := func(err error) editing.EraseResult {
 			return editing.EraseResult{Outcome: editing.MutationFailed, Err: err}
 		}

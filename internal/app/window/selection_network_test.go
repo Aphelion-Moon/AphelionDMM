@@ -45,6 +45,7 @@ type mouseNetworkApp struct {
 	mouse          func(uint, uint)
 	errors         []error
 	selectedPrefab *dmmprefab.Prefab
+	paths          *dm.PathsFilter
 }
 
 func (a *mouseNetworkApp) SelectedPrefab() (*dmmprefab.Prefab, bool) {
@@ -56,7 +57,12 @@ func (a *mouseNetworkApp) CommandStorage() *command.Storage { return a.commands 
 func (*mouseNetworkApp) Prefs() prefs.Prefs {
 	return prefs.Prefs{Editor: prefs.Editor{SaveFormat: prefs.SaveFormatDMM}}
 }
-func (*mouseNetworkApp) PathsFilter() *dm.PathsFilter                                          { return dm.NewPathsFilterEmpty() }
+func (a *mouseNetworkApp) PathsFilter() *dm.PathsFilter {
+	if a.paths == nil {
+		a.paths = dm.NewPathsFilterEmpty()
+	}
+	return a.paths
+}
 func (a *mouseNetworkApp) RunLater(job func())                                                 { window.RunLater(job); a.queued <- struct{}{} }
 func (*mouseNetworkApp) ConfigRegister(config.Config)                                          {}
 func (a *mouseNetworkApp) AddMouseChangeCallback(cb func(uint, uint)) int                      { a.mouse = cb; return 0 }
@@ -403,7 +409,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 	}
 }
 
-// Mirror startFrame ordering and GLFW frame-end callback delivery.
+// Mirror input polling followed by current-frame canvas ownership and drawing.
 func mouseWorkspaceFrame(t *testing.T, ws *wsmap.WsMap, mouse func(uint, uint)) func(bool, int, int) {
 	pane := ws.Map()
 	primed := false
@@ -413,6 +419,7 @@ func mouseWorkspaceFrame(t *testing.T, ws *wsmap.WsMap, mouse func(uint, uint)) 
 		pos := imgui.Vec2{X: float32((x-1)*32 + 16), Y: float32(128 - ((y-1)*32 + 16))}
 		io.SetMousePosition(pos)
 		io.SetMouseButtonDown(0, down)
+		mouse(uint(pos.X), uint(pos.Y))
 		shortcut.BeginFrame()
 		imgui.NewFrame()
 		window.DrainFrameJobsForTest()
@@ -421,10 +428,10 @@ func mouseWorkspaceFrame(t *testing.T, ws *wsmap.WsMap, mouse func(uint, uint)) 
 		imgui.SetNextWindowSize(imgui.Vec2{X: 128, Y: 128})
 		imgui.BeginV("Mouse network canvas", nil, imgui.WindowFlagsNoTitleBar|imgui.WindowFlagsNoResize|imgui.WindowFlagsNoMove|imgui.WindowFlagsNoScrollbar)
 		pane.CanvasControl().Process(imgui.Vec2{X: 128, Y: 128})
+		pane.ResolveCanvasInput()
 		pane.Canvas().Process(imgui.Vec2{X: 128, Y: 128})
 		imgui.End()
 		imgui.Render()
-		mouse(uint(pos.X), uint(pos.Y))
 		if primed && pane.CanvasState().HoveredTile() != (util.Point{X: x, Y: y, Z: 1}) {
 			t.Fatalf("screen input did not reach tile %d,%d: %v", x, y, pane.CanvasState().HoveredTile())
 		}

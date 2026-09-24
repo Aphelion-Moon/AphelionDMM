@@ -18,6 +18,7 @@ type Render struct {
 	unitProcessor unitProcessor
 	// APHELION EDIT ADDITION START - PLACEMENT PRESENTATION
 	presentation *Presentation
+	updates      renderUpdateBatch
 	// APHELION EDIT ADDITION END
 }
 
@@ -46,6 +47,11 @@ func (r *Render) SetActiveLevel(dmm *dmmap.Dmm, activeLevel int) {
 
 // UpdateBucketV will update the bucket data by the provided level.
 func (r *Render) UpdateBucketV(dmm *dmmap.Dmm, level int, tilesToUpdate []util.Point) {
+	// APHELION EDIT ADDITION START - FRAME GEOMETRY BATCH
+	if r.queueBucketUpdate(level, tilesToUpdate) {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	r.bucket.UpdateLevel(dmm, level, tilesToUpdate)
 }
 

@@ -135,6 +135,9 @@ func TestInstanceMoveCaptureFailureKeepsDisplay(t *testing.T) {
 			}
 			origin := util.Point{X: 1, Y: 1, Z: 1}
 			moved := e.Dmm().GetTile(origin).Instances()[scenario.index]
+			if scenario.index == 1 {
+				app.PathsFilter().TogglePath("/obj/foo")
+			}
 			fault := util.Point{X: 3, Y: 1, Z: 1}
 			if scenario.startFail {
 				fault = origin
@@ -144,7 +147,7 @@ func TestInstanceMoveCaptureFailureKeepsDisplay(t *testing.T) {
 			tools.SetSelected(tools.TNMove)
 			frame(false, 1, 1)
 			frame(false, 1, 1)
-			ws.Map().CanvasState().SetHoveredInstance(moved)
+			// The current-frame picker selects the visible turf when objects are hidden.
 			frame(true, 1, 1)
 			frame(true, 1, 1)
 			if scenario.priorHop {

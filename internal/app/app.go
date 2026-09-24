@@ -173,14 +173,22 @@ func (a *app) initialize() {
 }
 
 func (a *app) Process() {
+	/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
 	if a.shortcutsEnabled {
 		shortcut.Process()
 	}
+	APHELION EDIT REMOVAL END */
 
 	a.menu.Process()
 	a.layout.Process()
 
 	dialog.Process()
+	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
+	// Panels and dialogs establish this frame's text/modal/document ownership.
+	if a.shortcutsEnabled {
+		shortcut.Process()
+	}
+	// APHELION EDIT ADDITION END
 }
 
 func (a *app) PostProcess() {

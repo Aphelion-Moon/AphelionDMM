@@ -1,8 +1,14 @@
 package pmap
 
+// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
+import "sdmm/internal/app/ui/cpwsarea/wsmap/tools"
+
+// APHELION EDIT ADDITION END
+
 func (p *PaneMap) updateCanvasMousePosition(mouseX, mouseY int) {
 	// If canvas itself is not active, then no need to search for mouse position at all.
-	if !p.canvasControl.Active() {
+	// APHELION EDIT CHANGE - CURRENT FRAME INPUT - ORIGINAL: if !p.canvasControl.Active() {
+	if !p.canvasControl.Active() && !tools.OwnsGesture(p.editor) {
 		p.canvasState.SetMousePosition(-1, -1, -1)
 		return
 	}

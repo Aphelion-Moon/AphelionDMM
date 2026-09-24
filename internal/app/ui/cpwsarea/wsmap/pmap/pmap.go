@@ -110,6 +110,12 @@ type PaneMap struct {
 
 	// ID is needed to dispose a mouse callback when the pane is closed.
 	mouseChangeCbId int
+	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
+	pointerSamples  []imgui.Vec2
+	lastSample      imgui.Vec2
+	lastSampleValid bool
+	pendingTileMenu bool
+	// APHELION EDIT ADDITION END
 
 	// Properties for the pane.
 	pos, size imgui.Vec2
@@ -200,7 +206,8 @@ func New(app App, dmm *dmmap.Dmm) *PaneMap {
 	p.canvasControl = canvas.NewControl()
 	p.canvasOverlay = canvas.NewOverlay()
 
-	p.canvasControl.SetOnRmbClick(p.openTileMenu)
+	// APHELION EDIT CHANGE - CURRENT FRAME INPUT - ORIGINAL: p.canvasControl.SetOnRmbClick(p.openTileMenu)
+	p.canvasControl.SetOnRmbClick(func() { p.pendingTileMenu = true })
 
 	p.canvas.Render().SetOverlay(p.canvasOverlay)
 	p.canvas.Render().SetUnitProcessor(p)
@@ -218,10 +225,12 @@ func (p *PaneMap) Process() {
 	p.editor.ProcessPasteWork()
 	// APHELION EDIT ADDITION END
 
+	/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
 	// Enforce a focus to the current window if the canvas was touched.
 	if p.canvasControl.Touched() && !imgui.IsWindowFocusedV(imgui.FocusedFlagsRootAndChildWindows) {
 		imgui.SetWindowFocus()
 	}
+	APHELION EDIT REMOVAL END */
 
 	p.updateShortcutsState()
 
@@ -239,11 +248,22 @@ func (p *PaneMap) Process() {
 	p.canvas.Render().SetActiveLevel(p.dmm, p.activeLevel)
 
 	p.canvasControl.Process(p.size)
+	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
+	if p.canvasControl.Touched() && p.canvasControl.Active() {
+		imgui.SetWindowFocus()
+		if activePane != p {
+			p.OnActivate()
+		}
+	}
+	p.ResolveCanvasInput()
+	// APHELION EDIT ADDITION END
 	p.canvas.Process(p.size)
 
+	/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
 	p.processCanvasCamera()
 	p.processCanvasOverlay()
 	p.processCanvasHoveredInstance()
+	APHELION EDIT REMOVAL END */
 
 	p.tileMenu.Process()
 
@@ -313,7 +333,18 @@ func (p *PaneMap) showCanvas() {
 }
 
 func (p *PaneMap) mouseChangeCallback(x, y uint) {
+	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
+	if activePane != p && !tools.OwnsGesture(p.editor) {
+		return
+	}
+	if tools.OwnsGesture(p.editor) {
+		p.pointerSamples = append(p.pointerSamples, imgui.Vec2{X: float32(int(x)), Y: float32(int(y))})
+	}
+	// Pointer callbacks record the admitted stroke, but never mutate the map.
+	// Current-frame control/camera resolution consumes these samples.
+	// APHELION EDIT ADDITION END
 	p.updateCanvasMousePosition(int(x), int(y))
+	/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
 	// APHELION EDIT ADDITION START - COLLABORATION
 	if !p.canvasState.HoverOutOfBounds() {
 		hovered := p.canvasState.HoveredTile()
@@ -329,6 +360,7 @@ func (p *PaneMap) mouseChangeCallback(x, y uint) {
 	}
 	// APHELION EDIT ADDITION END
 	tools.OnMouseMove()
+	APHELION EDIT REMOVAL END */
 }
 
 func (p *PaneMap) openTileMenu() {
