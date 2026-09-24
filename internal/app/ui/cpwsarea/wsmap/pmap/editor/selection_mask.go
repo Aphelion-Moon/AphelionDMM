@@ -13,6 +13,17 @@ func (e *Editor) RotateSelectionMask(s editing.Selection, clockwise bool) (util.
 	if !e.CanStartMapEdit() || s.Level() != e.pMap.ActiveLevel() {
 		return s.Bounds(), fmt.Errorf("finish the current edit on the visible level")
 	}
+	label, transform := "Rotate Selection Left", editing.PlacementRotateLeft
+	if clockwise {
+		label, transform = "Rotate Selection Right", editing.PlacementRotateRight
+	}
+	destination := s.Rotate(clockwise)
+	if scheduled, err := e.tryScheduleSelectionTransform(s, destination, transform, label); scheduled {
+		if err != nil {
+			return s.Bounds(), err
+		}
+		return destination.Bounds(), nil
+	}
 	reservation, err := e.reserveSelectionPlan(s, s.Rotate(clockwise))
 	if err != nil {
 		return s.Bounds(), err
@@ -22,15 +33,25 @@ func (e *Editor) RotateSelectionMask(s editing.Selection, clockwise bool) (util.
 	if err != nil {
 		return s.Bounds(), err
 	}
-	label := "Rotate Selection Left"
-	if clockwise {
-		label = "Rotate Selection Right"
-	}
 	return e.commitSelectionTransform(plan, s.Bounds(), label)
 }
 func (e *Editor) MirrorSelectionMask(s editing.Selection, axis editing.MirrorAxis) (util.Bounds, error) {
 	if !e.CanStartMapEdit() || s.Level() != e.pMap.ActiveLevel() {
 		return s.Bounds(), fmt.Errorf("finish the current edit on the visible level")
+	}
+	if axis != editing.MirrorHorizontal && axis != editing.MirrorVertical {
+		return s.Bounds(), fmt.Errorf("unknown mirror axis")
+	}
+	label, transform := "Mirror Selection Horizontally", editing.PlacementMirrorHorizontal
+	if axis == editing.MirrorVertical {
+		label, transform = "Mirror Selection Vertically", editing.PlacementMirrorVertical
+	}
+	destination := s.Mirror(axis)
+	if scheduled, err := e.tryScheduleSelectionTransform(s, destination, transform, label); scheduled {
+		if err != nil {
+			return s.Bounds(), err
+		}
+		return destination.Bounds(), nil
 	}
 	reservation, err := e.reserveSelectionPlan(s, s.Mirror(axis))
 	if err != nil {
@@ -40,10 +61,6 @@ func (e *Editor) MirrorSelectionMask(s editing.Selection, axis editing.MirrorAxi
 	plan, err := editing.MirrorMask(e.dmm, s, axis, e.app.PathsFilter().IsVisiblePath)
 	if err != nil {
 		return s.Bounds(), err
-	}
-	label := "Mirror Selection Horizontally"
-	if axis == editing.MirrorVertical {
-		label = "Mirror Selection Vertically"
 	}
 	return e.commitSelectionTransform(plan, s.Bounds(), label)
 }

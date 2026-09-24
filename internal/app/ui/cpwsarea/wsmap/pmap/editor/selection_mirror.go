@@ -19,6 +19,9 @@ func (e *Editor) MirrorSelection(area util.Bounds, z int, axis editing.MirrorAxi
 	if !e.CanStartMapEdit() {
 		return area, fmt.Errorf("finish the current edit before mirroring")
 	}
+	if selection := editing.RectangleSelection(area, z); selection.Len() > directLocalTiles {
+		return e.MirrorSelectionMask(selection, axis)
+	}
 	plan, err := editing.Mirror(e.dmm, area, z, axis, e.app.PathsFilter().IsVisiblePath)
 	if err != nil {
 		return area, err

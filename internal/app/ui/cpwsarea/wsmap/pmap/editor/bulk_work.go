@@ -127,7 +127,7 @@ func (e *Editor) tryScheduleInstanceBatch(instances []*dmminstance.Instance, rep
 func (e *Editor) scheduleBulkEdit(local localEditExecutor, label string, visit func(func(model.Coord)), match func(model.Coord, model.PrefabState) bool, replacement *model.PrefabState, sameBase, allTiles bool) {
 	defaults := make([]model.PrefabState, 0, 2)
 	if replacement == nil {
-		for _, prefab := range []*dmmprefab.Prefab{dmmap.BaseTurf, dmmap.BaseArea} {
+		for _, prefab := range []*dmmprefab.Prefab{dmmap.BaseArea, dmmap.BaseTurf} {
 			value, err := captureBulkPrefab(prefab)
 			if err != nil || value == nil {
 				e.reportCollaborationError("Unable to prepare edit", fmt.Errorf("map defaults are unavailable"))

@@ -19,6 +19,9 @@ func (e *Editor) RotateSelection(area util.Bounds, z int, clockwise bool) (util.
 	if !e.CanStartMapEdit() {
 		return area, fmt.Errorf("finish the current edit before rotating")
 	}
+	if selection := editing.RectangleSelection(area, z); selection.Len() > directLocalTiles {
+		return e.RotateSelectionMask(selection, clockwise)
+	}
 	plan, err := editing.Rotate(e.dmm, area, z, clockwise, e.app.PathsFilter().IsVisiblePath)
 	if err != nil {
 		return area, err
