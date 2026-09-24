@@ -13,6 +13,10 @@ import (
 	"time"
 
 	"sdmm/internal/app/ui/cpwsarea/workspace"
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/editor"
+	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/dialog"
 	"sdmm/internal/app/window"
 	"sdmm/internal/dmapi/dm"
@@ -235,6 +239,11 @@ func (a *app) loadMap(path string, workspace *workspace.Workspace) {
 }
 
 func (a *app) installParsedMap(path string, workspace *workspace.Workspace, data *dmmdata.DmmData, backup string) {
+	dmm, unknown := dmmap.New(a.loadedEnvironment, data, backup)
+	a.installOpenMap(path, workspace, dmm, unknown, nil)
+}
+
+func (a *app) installOpenMap(path string, workspace *workspace.Workspace, dmm *dmmap.Dmm, unknownPrefabs map[string]*dmmprefab.Prefab, prepared *editor.PreparedOpen) {
 	// APHELION EDIT ADDITION END
 	/* APHELION EDIT REMOVAL START - OWNED MAP OPEN
 	log.Printf("opening map [%s]...", path)
@@ -284,9 +293,19 @@ func (a *app) installParsedMap(path string, workspace *workspace.Workspace, data
 		log.Print("ignoring map path add to the recent, since it's an outside resource")
 	}
 
-	// APHELION EDIT CHANGE - BACKUP FAILURE ISOLATION - ORIGINAL: dmm, unknownPrefabs := dmmap.New(a.loadedEnvironment, data, a.backupMap(path))
+	/* APHELION EDIT REMOVAL START - OWNED MAP OPEN
 	dmm, unknownPrefabs := dmmap.New(a.loadedEnvironment, data, backup)
 	if a.layout.WsArea.OpenMap(dmm, workspace) {
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	var installed bool
+	if prepared != nil {
+		installed = a.layout.WsArea.OpenPreparedMap(prepared, workspace)
+	} else {
+		installed = a.layout.WsArea.OpenMap(dmm, workspace)
+	}
+	if installed {
+		// APHELION EDIT ADDITION END
 		a.layout.Prefabs.Sync()
 
 		// TODO: processing for unknown prefabs

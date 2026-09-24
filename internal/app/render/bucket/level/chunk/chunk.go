@@ -74,7 +74,8 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int) {
 	// APHELION EDIT ADDITION START - RENDER CULLING
 	c.ViewBounds = viewBounds
 	// APHELION EDIT ADDITION END
-	log.Printf("chunk level [%d] updated: %v", level, c.MapBounds)
+	// APHELION EDIT CHANGE - QUIET FRAME WORK - ORIGINAL: log.Printf("chunk level [%d] updated: %v", level, c.MapBounds)
+	log.Debug().Int("level", level).Interface("bounds", c.MapBounds).Msg("chunk updated")
 }
 
 // APHELION EDIT ADDITION START - RENDER CULLING

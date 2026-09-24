@@ -31,9 +31,11 @@ func (b *Bucket) UpdateLevel(dmm *dmmap.Dmm, levelValue int, tilesToUpdate []uti
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	defer uistage.Begin(uistage.BucketBuild).End()
 	// APHELION EDIT ADDITION END
-	log.Printf("updating bucket with [%s]...", dmm.Path.Readable)
+	// APHELION EDIT CHANGE - QUIET FRAME WORK - ORIGINAL: log.Printf("updating bucket with [%s]...", dmm.Path.Readable)
+	log.Debug().Str("map", dmm.Path.Readable).Msg("updating bucket")
 	b.getOrCreateLevel(dmm, levelValue).Update(dmm, tilesToUpdate)
-	log.Print("bucket updated")
+	// APHELION EDIT CHANGE - QUIET FRAME WORK - ORIGINAL: log.Print("bucket updated")
+	log.Debug().Msg("bucket updated")
 }
 
 // Level returns a specific level of the bucket or nil if it's not exist.

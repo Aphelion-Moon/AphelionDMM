@@ -21,7 +21,22 @@ type prefabNode struct {
 	sprite    *dmicon.Sprite
 	color     imgui.Vec4
 	visHeight float32
+	// APHELION EDIT ADDITION START - PREFAB ROW CONTENT
+	description      string
+	descriptionReady bool
+	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION START - PREFAB ROW CONTENT
+func (n *prefabNode) descriptionText() string {
+	if !n.descriptionReady {
+		n.description = describeVars(n.orig.Vars())
+		n.descriptionReady = true
+	}
+	return n.description
+}
+
+// APHELION EDIT ADDITION END
 
 func newPrefabNodes(prefabs dmmdata.Prefabs) []*prefabNode {
 	nodes := make([]*prefabNode, 0, len(prefabs))

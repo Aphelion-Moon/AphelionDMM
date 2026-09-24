@@ -50,6 +50,7 @@ type Search struct {
 	resultEditor  *editor.Editor
 	resultVersion uint64
 	resultReady   bool
+	query         *mapsearch.Cursor
 	// APHELION EDIT ADDITION END
 }
 
@@ -70,6 +71,7 @@ func (s *Search) Init(app App) {
 func (s *Search) Free() {
 	// APHELION EDIT ADDITION START - SEARCH VIEW OWNERSHIP
 	s.resultEditor, s.resultVersion, s.resultReady = nil, 0, false
+	s.query = nil
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - SEARCH RETENTION - ORIGINAL: s.resultsAll = s.resultsAll[:0]
 	s.resultsAll = nil

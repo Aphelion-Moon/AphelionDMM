@@ -4,6 +4,7 @@ package cpsearch
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	mapsearch "sdmm/internal/aphelion/search"
@@ -25,21 +26,39 @@ func (s *Search) searchCurrentMap() {
 		return
 	}
 	log.Print("searching for:", s.prefabId)
+	var ids []uint64
 	if strings.HasPrefix(s.prefabId, "/") {
 		prefabs := dmmap.PrefabStorage.GetAllByPath(s.prefabId)
-		ids := make([]uint64, len(prefabs))
+		ids = make([]uint64, len(prefabs))
 		for i, prefab := range prefabs {
 			ids[i] = prefab.Id()
 		}
-		s.resultsAll = mapsearch.ByPrefabIDs(ed.Dmm(), ids)
 	} else {
 		id, err := strconv.ParseUint(s.prefabId, 10, 64)
 		if err != nil {
 			return
 		}
-		s.resultsAll = mapsearch.ByPrefabIDs(ed.Dmm(), []uint64{id})
+		ids = []uint64{id}
 	}
-	log.Print("found search results:", len(s.resultsAll))
+	s.query = mapsearch.NewCursor(ed.Dmm(), ids)
+	s.resultReady = false
+	s.advanceQuery()
+}
+
+func (s *Search) advanceQuery() bool {
+	if s.query == nil {
+		return s.resultReady
+	}
+	if !s.query.Step(4096, time.Now().Add(2*time.Millisecond)) {
+		return false
+	}
+	s.resultsAll = s.query.Result()
+	s.query = nil
+	s.resultReady = true
+	if !s.filterBound.IsEmpty() || !s.filterLevels.IsAll() {
+		s.updateFilteredResults()
+	}
+	return true
 }
 
 func (s *Search) resetResultNavigation() {

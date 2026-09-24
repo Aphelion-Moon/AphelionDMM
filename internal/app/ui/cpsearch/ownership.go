@@ -28,8 +28,8 @@ func (s *Search) ensureCurrent() bool {
 	if !ready {
 		return false
 	}
-	if s.resultEditor == ed && s.resultReady && s.resultVersion == version {
-		return true
+	if s.resultEditor == ed && s.resultVersion == version && (s.resultReady || s.query != nil) {
+		return s.advanceQuery()
 	}
 	sameEditor, bounds, levels := s.resultEditor == ed, s.filterBound, s.filterLevels
 	s.searchCurrentMap()

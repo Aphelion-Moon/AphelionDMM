@@ -187,6 +187,16 @@ func (p *PaneMap) SetShortcutsVisible(visible bool) {
 }
 
 func New(app App, dmm *dmmap.Dmm) *PaneMap {
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	return newPaneMap(app, dmm, nil)
+}
+
+func NewPrepared(app App, prepared *editor.PreparedOpen) *PaneMap {
+	return newPaneMap(app, prepared.Dmm(), prepared)
+}
+
+func newPaneMap(app App, dmm *dmmap.Dmm, prepared *editor.PreparedOpen) *PaneMap {
+	// APHELION EDIT ADDITION END
 	p := &PaneMap{
 		app: app,
 		dmm: dmm,
@@ -194,8 +204,19 @@ func New(app App, dmm *dmmap.Dmm) *PaneMap {
 
 	p.activeLevel = 1 // Every map has at least 1 z-level, so we point to it.
 
+	/* APHELION EDIT REMOVAL START - OWNED MAP OPEN
 	p.snapshot = dmmsnap.New(dmm)
 	p.editor = editor.New(app, p, dmm)
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	if prepared == nil {
+		p.snapshot = dmmsnap.New(dmm)
+		p.editor = editor.New(app, p, dmm)
+	} else {
+		p.snapshot = prepared.Compatibility
+		p.editor = editor.NewPrepared(app, p, prepared)
+	}
+	// APHELION EDIT ADDITION END
 
 	p.tileMenu = tilemenu.New(app, p.editor)
 
@@ -212,7 +233,12 @@ func New(app App, dmm *dmmap.Dmm) *PaneMap {
 
 	p.canvas.Render().SetOverlay(p.canvasOverlay)
 	p.canvas.Render().SetUnitProcessor(p)
-	p.canvas.Render().UpdateBucket(p.dmm, p.activeLevel)
+	// APHELION EDIT CHANGE - OWNED MAP OPEN - ORIGINAL: p.canvas.Render().UpdateBucket(p.dmm, p.activeLevel)
+	if prepared == nil {
+		p.canvas.Render().UpdateBucket(p.dmm, p.activeLevel)
+	} else {
+		p.canvas.Render().BeginLevelBuild(p.dmm, p.activeLevel)
+	}
 
 	p.mouseChangeCbId = app.AddMouseChangeCallback(p.mouseChangeCallback)
 	p.addShortcuts()
@@ -221,6 +247,15 @@ func New(app App, dmm *dmmap.Dmm) *PaneMap {
 }
 
 func (p *PaneMap) Process() {
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	if p.canvas.Render().LevelLoading() {
+		p.canvas.Render().ProcessLevelBuild()
+		if p.canvas.Render().LevelLoading() {
+			imgui.TextDisabled("Preparing map view…")
+			return
+		}
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COLLABORATION
 	p.editor.ProcessCollaborationUpdates()
 	p.editor.ProcessPasteWork()

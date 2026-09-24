@@ -3,6 +3,7 @@ package render
 
 import (
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
+	"sdmm/internal/dmapi/dmicon"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 )
 
@@ -16,7 +17,7 @@ func (r *Render) PickAt(x, y, level int, eligible func(*dmminstance.Instance) bo
 	var picked *dmminstance.Instance
 	for _, layer := range visible.Layers {
 		for _, chunk := range visible.ChunksByLayers[layer] {
-			if !chunk.ViewBounds.Contains(float32(x), float32(y)) {
+			if !dmicon.Cache.ExpandPendingBounds(chunk.ViewBounds).Contains(float32(x), float32(y)) {
 				continue
 			}
 			for _, u := range chunk.UnitsByLayers[layer] {

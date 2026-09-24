@@ -156,6 +156,21 @@ retains full history and has a measurement-backed scaling investigation in the
 
 The UI thread remains the only owner of OpenGL/ImGui work. Applied operations produce immutable render invalidations that are scheduled onto the UI thread.
 
+Cold icon metadata and image decoding use one byte-admitted worker. The UI
+uploads bounded pixel ranges, prepares sprite frames, and publishes completed
+textures through stable pending sprite handles. Alpha picking retains decoded
+pixels. Environment cancellation fences stale results and deletes unpublished
+textures on the graphics owner. Cached origins remain stable; conservative
+overhang bounds account for sprite dimensions learned after chunk construction.
+
+Map opening copies the parser's exact source stream into a unique flushed backup.
+The UI interns parsed prefabs in bounded steps; an owned worker then constructs
+instances, authority, initial history compatibility and area indexes. Installation
+transfers that prepared document once and builds initial geometry by chunk.
+Cancellation, environment identity and workspace-content identity fence publication.
+Loading progress is nonmodal; recoverable failures preserve other documents.
+Routine chunk logging is debug-level, and load boundaries do not force collection.
+
 The editor's `localWork` owner admits one expensive unshared edit at a time.
 Local paste composes its footprint and submits on a worker; large captured local
 edits and undo/redo share that owner. Publication installs one render chunk at a
@@ -208,6 +223,9 @@ filter changes reset navigation. Search's result generation remains local to the
 panel. A separate `Editor.MapViewVersion` fences its cached instance pointers
 across local edits, snapshot replacement, resize/history and attachment changes.
 Queries rebuild once when invalidated and ready; unfinished gestures defer them.
+Scanning and ordered result materialization use a resumable UI-owned cursor,
+bounded by an item quota and elapsed time. A generation change discards partial
+work; no worker reads live instance pointers and no partial result enables actions.
 Automatic same-map refresh retains filter bounds. Stale row/bulk actions refresh
 without retargeting their old indices. `CanStartMapEdit` fences mutations, and
 `CommitInstanceBatch` verifies membership and captures all targets before display

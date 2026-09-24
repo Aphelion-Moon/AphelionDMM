@@ -28,6 +28,9 @@ import (
 	"sdmm/internal/app/ui/shortcut"
 	"sdmm/internal/app/window"
 	"sdmm/internal/dmapi/dm"
+	// APHELION EDIT ADDITION START - ASYNC ICONS
+	"sdmm/internal/dmapi/dmicon"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmclip"
 	"sdmm/internal/env"
@@ -178,6 +181,9 @@ func (a *app) initialize() {
 }
 
 func (a *app) Process() {
+	// APHELION EDIT ADDITION START - ASYNC ICONS
+	dmicon.Cache.ProcessUploads()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	a.processMapOpen()
 	// APHELION EDIT ADDITION END
@@ -191,6 +197,9 @@ func (a *app) Process() {
 	a.layout.Process()
 
 	dialog.Process()
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	a.showMapOpenStatus()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
 	// Panels and dialogs establish this frame's text/modal/document ownership.
 	if a.shortcutsEnabled {

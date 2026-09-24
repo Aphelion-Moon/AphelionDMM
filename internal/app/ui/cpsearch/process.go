@@ -35,7 +35,12 @@ func (s *Search) Process(int32) {
 	s.showControls()
 	// APHELION EDIT ADDITION START - SEARCH VIEW OWNERSHIP
 	if !s.ensureCurrent() {
-		imgui.TextDisabled("Finish or cancel the current edit to update search results")
+		// APHELION EDIT CHANGE - BOUNDED QUERY - ORIGINAL: imgui.TextDisabled("Finish or cancel the current edit to update search results")
+		if s.query != nil {
+			imgui.TextDisabled("Updating search results...")
+		} else {
+			imgui.TextDisabled("Finish or cancel the current edit to update search results")
+		}
 		return
 	}
 	// APHELION EDIT ADDITION END

@@ -117,7 +117,7 @@ func (p *Prefabs) Process(int32) {
 				imgui.TextureID(node.sprite.Texture()), p.iconSize(),
 				imgui.Vec2{X: node.sprite.U1, Y: node.sprite.V1},
 				imgui.Vec2{X: node.sprite.U2, Y: node.sprite.V2},
-				node.color, node.name, describeVars(node.orig.Vars()),
+				node.color, node.name, node.descriptionText(),
 			)
 		}
 	}

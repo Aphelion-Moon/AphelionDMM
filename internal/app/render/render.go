@@ -19,6 +19,7 @@ type Render struct {
 	// APHELION EDIT ADDITION START - PLACEMENT PRESENTATION
 	presentation *Presentation
 	updates      renderUpdateBatch
+	levelBuild   *levelBuild
 	// APHELION EDIT ADDITION END
 }
 
@@ -61,6 +62,9 @@ func (r *Render) UpdateBucket(dmm *dmmap.Dmm, level int) {
 }
 
 func (r *Render) Draw(width, height float32) {
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	r.ProcessLevelBuild()
+	// APHELION EDIT ADDITION END
 	r.prepare()
 	r.draw(width, height)
 	r.cleanup()

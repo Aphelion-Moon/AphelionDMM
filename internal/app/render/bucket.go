@@ -1,6 +1,9 @@
 package render
 
 import (
+	// APHELION EDIT ADDITION START - ASYNC ICONS
+	"sdmm/internal/dmapi/dmicon"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/render/brush"
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/util"
@@ -53,7 +56,8 @@ func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight
 		// Iterate through chunks with units on the rendered layer.
 		for _, chunk := range visibleLevel.ChunksByLayers[layer] {
 			// Out of bounds = skip.
-			if !chunk.ViewBounds.ContainsV(viewBounds) {
+			// APHELION EDIT CHANGE - ASYNC ICONS - ORIGINAL: if !chunk.ViewBounds.ContainsV(viewBounds) {
+			if !dmicon.Cache.ExpandPendingBounds(chunk.ViewBounds).ContainsV(viewBounds) {
 				continue
 			}
 

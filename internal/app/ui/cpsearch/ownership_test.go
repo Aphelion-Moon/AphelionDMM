@@ -9,6 +9,22 @@ import (
 	"sdmm/internal/util"
 )
 
+func TestLargeSearchYieldsAndFencesReplacementDuringScan(t *testing.T) {
+	s := searchFixture(t, 10000, 2)
+	s.SearchByPath("/obj/search")
+	if s.query == nil || s.resultReady || len(s.resultsAll) != 0 {
+		t.Fatal("large query published partial or synchronous results")
+	}
+	a := s.app.(*searchTestApp)
+	other := a.current.Dmm().Copy()
+	other.Tiles = other.Tiles[:1]
+	other.MaxX = 1
+	a.current = editor.New(a, nil, &other)
+	if !s.ensureCurrent() || len(s.resultsAll) != 1 || s.resultsAll[0] != other.Tiles[0].Instances()[0] {
+		t.Fatal("stale query crossed editor generation")
+	}
+}
+
 func TestSearchActionsAfterMapClose(t *testing.T) {
 	searchUI(t)
 	for name, action := range map[string]func(*Search){
@@ -79,6 +95,8 @@ func TestSearchAutomaticRefreshPreservesFilterBounds(t *testing.T) {
 func TestSearchUnchangedViewDoesNotRebuildQuery(t *testing.T) {
 	s := searchFixture(t, 10000, 16)
 	s.SearchByPath("/obj/search")
+	for !s.ensureCurrent() {
+	}
 	firstSlot := &s.resultsAll[0]
 	allocs := testing.AllocsPerRun(100, func() {
 		if !s.ensureCurrent() {

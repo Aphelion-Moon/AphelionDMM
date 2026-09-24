@@ -32,7 +32,15 @@ func (u Unit) Layer() float32 {
 }
 
 func (u Unit) ViewBounds() util.Bounds {
-	return u.viewBounds
+	// APHELION EDIT ADDITION START - ASYNC ICONS
+	// Original return u.viewBounds used the placeholder's fixed dimensions.
+	bounds := u.viewBounds
+	if u.sprite != nil {
+		bounds.X2 = bounds.X1 + float32(u.sprite.IconWidth())
+		bounds.Y2 = bounds.Y1 + float32(u.sprite.IconHeight())
+	}
+	return bounds
+	// APHELION EDIT ADDITION END
 }
 
 func (u Unit) R() float32 {

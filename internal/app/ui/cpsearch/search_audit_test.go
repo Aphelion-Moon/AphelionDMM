@@ -133,6 +133,8 @@ func BenchmarkSearchPath(b *testing.B) {
 		b.Run(fmt.Sprintf("variants%d", variants), func(b *testing.B) {
 			s := searchFixture(b, 10000, variants)
 			s.SearchByPath("/obj/search")
+			for !s.ensureCurrent() {
+			}
 			var expected []*dmminstance.Instance
 			for _, prefab := range dmmap.PrefabStorage.GetAllByPath("/obj/search") {
 				expected = append(expected, s.app.CurrentEditor().InstancesFindByPrefabId(prefab.Id())...)
@@ -142,6 +144,8 @@ func BenchmarkSearchPath(b *testing.B) {
 			b.ResetTimer()
 			for range b.N {
 				s.SearchByPath("/obj/search")
+				for !s.ensureCurrent() {
+				}
 			}
 			b.StopTimer()
 			if !reflect.DeepEqual(s.results(), expected) {

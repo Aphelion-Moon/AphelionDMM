@@ -9,14 +9,22 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var Cache = &IconsCache{icons: make(map[string]*Dmi)}
+// APHELION EDIT CHANGE - ASYNC ICONS - ORIGINAL: var Cache = &IconsCache{icons: make(map[string]*Dmi)}
+var Cache = &IconsCache{icons: make(map[string]*Dmi), asynchronous: true}
 
 type IconsCache struct {
 	rootDirPath string
 	icons       map[string]*Dmi
+	// APHELION EDIT ADDITION START - ASYNC ICONS
+	asynchronous bool
+	async        asyncIcons
+	// APHELION EDIT ADDITION END
 }
 
 func (i *IconsCache) Free() {
+	// APHELION EDIT ADDITION START - ASYNC ICONS
+	i.cancelPending()
+	// APHELION EDIT ADDITION END
 	for _, dmi := range i.icons {
 		dmi.free()
 	}
@@ -26,6 +34,11 @@ func (i *IconsCache) Free() {
 }
 
 func (i *IconsCache) SetRootDirPath(rootDirPath string) {
+	// APHELION EDIT ADDITION START - ASYNC ICONS
+	if i.rootDirPath != rootDirPath {
+		i.Free()
+	}
+	// APHELION EDIT ADDITION END
 	i.rootDirPath = rootDirPath
 	log.Print("cache root dir:", rootDirPath)
 }
@@ -42,6 +55,11 @@ func (i *IconsCache) Get(icon string) (*Dmi, error) {
 		return dmi, nil
 	}
 
+	// APHELION EDIT ADDITION START - ASYNC ICONS
+	if i.asynchronous {
+		return nil, i.request(icon)
+	}
+	// APHELION EDIT ADDITION END
 	dmi, err := New(i.rootDirPath + "/" + icon)
 	i.icons[icon] = dmi
 	return dmi, err
@@ -75,5 +93,10 @@ func (i *IconsCache) GetSpriteOrPlaceholderV(icon, state string, dir int) *Sprit
 	if s, err := i.GetSpriteV(icon, state, dir); err == nil {
 		return s
 	}
+	// APHELION EDIT ADDITION START - ASYNC ICONS
+	if i.asynchronous && i.async.pending[icon] {
+		return i.pendingSprite(icon, state, dir)
+	}
+	// APHELION EDIT ADDITION END
 	return SpritePlaceholder()
 }

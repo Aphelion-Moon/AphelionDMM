@@ -20,6 +20,7 @@ import (
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/app/ui/shortcut"
 	"sdmm/internal/app/window"
+	"sdmm/internal/dmapi/dmicon"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/platform"
 	"sdmm/internal/util"
@@ -27,7 +28,7 @@ import (
 
 type traceFrameApp struct{ draw func() }
 
-func (a traceFrameApp) Process()                                            { a.draw() }
+func (a traceFrameApp) Process()                                            { dmicon.Cache.ProcessUploads(); a.draw() }
 func (traceFrameApp) PostProcess()                                          {}
 func (traceFrameApp) CloseCheck()                                           {}
 func (traceFrameApp) IsClosed() bool                                        { return false }
@@ -136,6 +137,18 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 	}})
 	frame()
 	frame()
+	if mapPath != "" {
+		cold := time.Now()
+		for dmicon.Cache.Loading() && time.Since(cold) < 90*time.Second {
+			dmicon.Cache.ProcessUploads()
+			time.Sleep(time.Millisecond)
+		}
+		if dmicon.Cache.Loading() {
+			t.Fatal("cold icon queue did not settle")
+		}
+		t.Logf("cold_icon_settle_ms=%.3f", float64(time.Since(cold).Microseconds())/1000)
+		frame()
+	}
 	if mapPath != "" {
 		camera := ws.Map().Canvas().Render().Camera
 		camera.ShiftX = ws.Map().Size().X/2/camera.Scale - float32((selected.X-1)*dmmap.WorldIconSize)

@@ -79,11 +79,13 @@ func (r *Render) SetPresentation(p *Presentation) { r.presentation = p }
 func (p *Presentation) drawLayer(layer float32, view util.Bounds) {
 	dx, dy := float32((p.Anchor.X-1)*p.IconSize), float32((p.Anchor.Y-1)*p.IconSize)
 	for _, group := range p.groups[layer] {
-		if !group.bounds.Plus(dx, dy).ContainsV(view) {
+		if !dmicon.Cache.ExpandPendingBounds(group.bounds).Plus(dx, dy).ContainsV(view) {
 			continue
 		}
 		for _, a := range group.sprites {
 			bounds := a.Bounds.Plus(dx, dy)
+			bounds.X2 = bounds.X1 + float32(a.Sprite.IconWidth())
+			bounds.Y2 = bounds.Y1 + float32(a.Sprite.IconHeight())
 			if !bounds.ContainsV(view) || p.Visible != nil && !p.Visible(a) {
 				continue
 			}
