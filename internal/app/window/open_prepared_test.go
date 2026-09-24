@@ -14,7 +14,7 @@ func TestNativePreparedOpenPublishesWholeAuthorityBeforeBoundedGeometry(t *testi
 	original, app := newMouseNetworkWorkspace(t)
 	owned := original.Map().Dmm().Copy()
 	owned.Path.Absolute = filepath.Join(t.TempDir(), "prepared.dmm")
-	owned.SetMapSize(100, 100, 1)
+	owned.SetMapSize(100, 100, 2)
 	type result struct {
 		prepared *editor.PreparedOpen
 		err      error
@@ -58,6 +58,20 @@ func TestNativePreparedOpenPublishesWholeAuthorityBeforeBoundedGeometry(t *testi
 	}
 	if renderer.PickAt(16, 16, 1, func(i *dmminstance.Instance) bool { return i.Prefab().Path() == "/obj/foo" }) == nil {
 		t.Fatal("prepared geometry did not contain source object")
+	}
+	renderer.SetActiveLevel(&owned, 2)
+	if !renderer.LevelLoading() {
+		t.Fatal("cold level switch synchronously built all geometry")
+	}
+	for steps := 0; renderer.LevelLoading() && steps < 100; steps++ {
+		renderer.ProcessLevelBuild()
+	}
+	if renderer.LevelLoading() || renderer.PickAt(16, 16, 2, func(i *dmminstance.Instance) bool { return true }) == nil {
+		t.Fatal("cold level geometry did not complete")
+	}
+	renderer.SetActiveLevel(&owned, 1)
+	if renderer.LevelLoading() {
+		t.Fatal("warm level switch rebuilt geometry")
 	}
 	after, err := ws.Map().Editor().SaveSnapshot(context.Background())
 	if err != nil {

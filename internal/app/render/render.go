@@ -42,7 +42,10 @@ func (r *Render) SetOverlay(state overlay) {
 func (r *Render) SetActiveLevel(dmm *dmmap.Dmm, activeLevel int) {
 	r.Camera.Level = activeLevel
 	if r.bucket.Level(activeLevel) == nil { // Ensure level exists
-		r.UpdateBucket(dmm, activeLevel)
+		// APHELION EDIT CHANGE - BOUNDED COLD LEVEL - ORIGINAL: r.UpdateBucket(dmm, activeLevel)
+		if r.levelBuild == nil {
+			r.BeginLevelBuild(dmm, activeLevel)
+		}
 	}
 }
 

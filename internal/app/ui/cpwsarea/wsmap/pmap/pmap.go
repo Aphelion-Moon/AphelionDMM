@@ -248,8 +248,13 @@ func newPaneMap(app App, dmm *dmmap.Dmm, prepared *editor.PreparedOpen) *PaneMap
 
 func (p *PaneMap) Process() {
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	// Admit input only after a newly selected level has complete pick geometry.
+	p.canvas.Render().SetActiveLevel(p.dmm, p.activeLevel)
 	if p.canvas.Render().LevelLoading() {
 		p.canvas.Render().ProcessLevelBuild()
+		// A level switch during an older build waits for that build, then starts
+		// the requested level before allowing any canvas action.
+		p.canvas.Render().SetActiveLevel(p.dmm, p.activeLevel)
 		if p.canvas.Render().LevelLoading() {
 			imgui.TextDisabled("Preparing map view…")
 			return
@@ -281,7 +286,9 @@ func (p *PaneMap) Process() {
 		p.centered = true
 	}
 
+	/* APHELION EDIT REMOVAL START - BOUNDED COLD LEVEL
 	p.canvas.Render().SetActiveLevel(p.dmm, p.activeLevel)
+	APHELION EDIT REMOVAL END */
 
 	p.canvasControl.Process(p.size)
 	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
