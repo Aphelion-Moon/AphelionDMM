@@ -203,17 +203,41 @@ func (v *VarEditor) showAllVariables() {
 	}
 }
 
+/* APHELION EDIT REMOVAL START - VARIABLE PANEL CLIPPING
 func (v *VarEditor) showVariablesNames(variablesNames []string) {
 	for _, varName := range variablesNames {
 		v.showVariable(varName)
 	}
 }
+APHELION EDIT REMOVAL END */
+
+// APHELION EDIT ADDITION START - VARIABLE PANEL CLIPPING
+func (v *VarEditor) showVariablesNames(variablesNames []string) {
+	visibleNames := make([]string, 0, len(variablesNames))
+	for _, varName := range variablesNames {
+		if !v.isFilteredVariable(varName) {
+			visibleNames = append(visibleNames, varName)
+		}
+	}
+
+	var clipper imgui.ListClipper
+	clipper.Begin(len(visibleNames))
+	for clipper.Step() {
+		for i := clipper.DisplayStart; i < clipper.DisplayEnd; i++ {
+			imgui.TableNextRow()
+			v.showVariable(visibleNames[i])
+		}
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func (v *VarEditor) showVariable(varName string) {
+	/* APHELION EDIT REMOVAL START - VARIABLE PANEL CLIPPING
 	if v.isFilteredVariable(varName) {
 		return
 	}
-
+	APHELION EDIT REMOVAL END */
 	imgui.TableNextColumn()
 	if v.config().ShowPins {
 		v.showVarPin(varName)

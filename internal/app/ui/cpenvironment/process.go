@@ -13,6 +13,7 @@ import (
 	"github.com/SpaiR/imgui-go"
 )
 
+/* APHELION EDIT REMOVAL START - OBJECT TREE FILTER CLIPPING
 func (e *Environment) Process(int32) {
 	if e.app.LoadedEnvironment() == nil {
 		imgui.TextDisabled("No environment loaded")
@@ -23,6 +24,22 @@ func (e *Environment) Process(int32) {
 		e.postProcess()
 	}
 }
+APHELION EDIT REMOVAL END */
+
+// APHELION EDIT ADDITION START - OBJECT TREE FILTER CLIPPING
+func (e *Environment) Process(int32) {
+	environment := e.app.LoadedEnvironment()
+	e.process(environment)
+	if environment == nil {
+		imgui.TextDisabled("No environment loaded")
+	} else {
+		e.showControls()
+		e.showTree()
+		e.postProcess()
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func (e *Environment) showControls() {
 	w.Button(icon.Remove, e.doCollapseAll).
@@ -115,11 +132,22 @@ func (e *Environment) showFilteredNodes() {
 	}
 }
 
+/* APHELION EDIT REMOVAL START - OBJECT TREE FILTER CLIPPING
 func (e *Environment) showPathBranch(t string) {
 	if atom := e.app.LoadedEnvironment().Objects[t]; atom != nil {
 		e.showBranch0(atom)
 	}
 }
+APHELION EDIT REMOVAL END */
+
+// APHELION EDIT ADDITION START - OBJECT TREE FILTER CLIPPING
+func (e *Environment) showPathBranch(t string) {
+	if atom := e.treeEnvironment.Objects[t]; atom != nil {
+		e.showBranch0(atom)
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func (e *Environment) showBranch0(object *dmenv.Object) {
 	node, ok := e.newTreeNode(object)
@@ -158,7 +186,8 @@ func (e *Environment) showBranch0(object *dmenv.Object) {
 				imgui.StateStorage().SetAllInt(0)
 			}
 			for _, childPath := range object.DirectChildren {
-				e.showBranch0(e.app.LoadedEnvironment().Objects[childPath])
+				// APHELION EDIT CHANGE - OBJECT TREE FILTER CLIPPING - ORIGINAL: e.showBranch0(e.app.LoadedEnvironment().Objects[childPath])
+				e.showBranch0(e.treeEnvironment.Objects[childPath])
 			}
 			imgui.TreePop()
 		} else {
