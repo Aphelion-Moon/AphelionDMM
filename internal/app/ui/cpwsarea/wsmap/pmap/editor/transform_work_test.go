@@ -7,8 +7,35 @@ import (
 
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/dmapi/dmmap"
+	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
+	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 )
+
+func TestLargeTransformInvalidExpressionLeavesAuthorityAndDisplayIntact(t *testing.T) {
+	e := largeBulkEditor(t)
+	app := e.app.(*editorTestApp)
+	e.app = &noopReportingApp{editorTestApp: app}
+	i := e.dmm.Tiles[150].Instances()[2]
+	i.SetPrefab(dmmprefab.New(0, i.Prefab().Path(), dmvars.Set(i.Prefab().Vars(), "dir", "not_a_direction")))
+	e.initializeCollaboration()
+	before, err := e.SaveSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	display := e.dmm.Copy()
+	_, err = e.MirrorSelectionMask(editing.RectangleSelection(util.Bounds{X1: 1, Y1: 1, X2: 160, Y2: 1}, 1), editing.MirrorHorizontal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for e.localWork != nil {
+		app.runScheduled(t)
+	}
+	after, err := e.SaveSnapshot(context.Background())
+	if err != nil || !reflect.DeepEqual(before, after) || !reflect.DeepEqual(display, e.dmm.Copy()) || app.commands.HasUndoV("test") {
+		t.Fatal("failed preparation changed committed state", err)
+	}
+}
 
 func TestLargeMaskTransformsPrepareWithoutDisplayCapture(t *testing.T) {
 	for _, rotate := range []bool{false, true} {
