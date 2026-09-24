@@ -17,6 +17,9 @@ const Size = 24
 // Map bounds are coordinate points of tiles in the chunk.
 type Chunk struct {
 	ViewBounds, MapBounds util.Bounds
+	// APHELION EDIT ADDITION START - RENDER CULLING
+	baseViewBounds util.Bounds
+	// APHELION EDIT ADDITION END
 
 	UnitsByLayers map[float32][]unit.Unit
 }
@@ -29,6 +32,9 @@ func New(x1, y1, x2, y2, iconSize float32) *Chunk {
 			X2: x2 * iconSize,
 			Y2: y2 * iconSize,
 		},
+		// APHELION EDIT ADDITION START - RENDER CULLING
+		baseViewBounds: util.Bounds{X1: (x1 - 1) * iconSize, Y1: (y1 - 1) * iconSize, X2: x2 * iconSize, Y2: y2 * iconSize},
+		// APHELION EDIT ADDITION END
 		MapBounds: util.Bounds{
 			X1: x1,
 			Y1: y1,
@@ -47,6 +53,9 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int) {
 	for layer := range c.UnitsByLayers {
 		unitsByLayers[layer] = make([]unit.Unit, 0, len(c.UnitsByLayers[layer]))
 	}
+	// APHELION EDIT ADDITION START - RENDER CULLING
+	viewBounds := c.baseViewBounds
+	// APHELION EDIT ADDITION END
 
 	for x := c.MapBounds.X1; x <= c.MapBounds.X2; x++ {
 		for y := c.MapBounds.Y1; y <= c.MapBounds.Y2; y++ {
@@ -54,10 +63,35 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int) {
 			for _, i := range dmm.GetTile(util.Point{X: x, Y: y, Z: level}).Instances() {
 				u := unit.Make(x, y, i, dmmap.WorldIconSize)
 				unitsByLayers[u.Layer()] = append(unitsByLayers[u.Layer()], u)
+				// APHELION EDIT ADDITION START - RENDER CULLING
+				viewBounds = includeViewBounds(viewBounds, u.ViewBounds())
+				// APHELION EDIT ADDITION END
 			}
 		}
 	}
 
 	c.UnitsByLayers = unitsByLayers
+	// APHELION EDIT ADDITION START - RENDER CULLING
+	c.ViewBounds = viewBounds
+	// APHELION EDIT ADDITION END
 	log.Printf("chunk level [%d] updated: %v", level, c.MapBounds)
 }
+
+// APHELION EDIT ADDITION START - RENDER CULLING
+func includeViewBounds(bounds, addition util.Bounds) util.Bounds {
+	if addition.X1 < bounds.X1 {
+		bounds.X1 = addition.X1
+	}
+	if addition.Y1 < bounds.Y1 {
+		bounds.Y1 = addition.Y1
+	}
+	if addition.X2 > bounds.X2 {
+		bounds.X2 = addition.X2
+	}
+	if addition.Y2 > bounds.Y2 {
+		bounds.Y2 = addition.Y2
+	}
+	return bounds
+}
+
+// APHELION EDIT ADDITION END
