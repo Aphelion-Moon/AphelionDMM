@@ -26,7 +26,6 @@ type mapOpenRequest struct {
 	environment                                 *dmenv.Dme
 	workspace                                   *workspace.Workspace
 	results                                     chan mapOpenResult
-	dialog                                      dialog.Type
 	cancelled                                   bool // UI-owned; workers only own their result channel and captured strings.
 	ctx                                         context.Context
 	cancel                                      context.CancelFunc
@@ -194,7 +193,6 @@ func (a *app) finishMapOpen(request *mapOpenRequest) {
 		request.cancel()
 	}
 	a.mapOpenActive = nil
-	dialog.Close(request.dialog)
 	a.startNextMapOpen()
 }
 

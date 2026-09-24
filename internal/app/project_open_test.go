@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"sdmm/internal/app/ui/dialog"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
 	"testing"
@@ -43,7 +42,7 @@ func TestMapOpenLateResultCannotInstallAfterCancellationOrProjectChange(t *testi
 	for _, cancel := range []bool{false, true} {
 		old := &dmenv.Dme{}
 		a := &app{loadedEnvironment: old}
-		req := &mapOpenRequest{environment: old, results: make(chan mapOpenResult, 1), dialog: dialog.TypeInformation{Title: "test open"}}
+		req := &mapOpenRequest{environment: old, results: make(chan mapOpenResult, 1)}
 		a.mapOpenActive = req
 		if cancel {
 			a.cancelMapOpens()
