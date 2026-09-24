@@ -37,6 +37,11 @@ type WsMap struct {
 	savedGeneration uint64
 	savedRevision   model.Revision
 	diskConflict    bool
+	saveRequestID   uint64
+	saveLifetime    uint64
+	activeSave      *saveJob
+	pendingSaveAck  *saveAcknowledgement
+	disposed        bool
 	// APHELION EDIT ADDITION END
 }
 
@@ -49,7 +54,8 @@ func New(app App, dmm *dmmap.Dmm) *WsMap {
 	// APHELION EDIT ADDITION START - ATOMIC_SAVE
 	if snapshot, err := ws.paneMap.Editor().SaveSnapshot(context.Background()); err == nil {
 		ws.savedMapHash, _ = snapshot.Hash()
-		ws.savedGeneration, ws.savedRevision = ws.paneMap.Editor().SaveVersion()
+		ws.savedGeneration, _ = ws.paneMap.Editor().SaveVersion()
+		ws.savedRevision = snapshot.Revision
 	}
 	return ws
 	// APHELION EDIT ADDITION END
@@ -76,6 +82,11 @@ func (ws *WsMap) Name() string {
 	if ws.diskConflict || ws.app.CommandStorage().IsModified(ws.CommandStackId()) || ws.paneMap.Editor().ChangedSinceSave(ws.savedGeneration, ws.savedRevision) {
 		visibleName = "* " + visibleName
 	}
+	// APHELION EDIT ADDITION START - RESPONSIVE_SAVE
+	if ws.activeSave != nil {
+		visibleName += " (Saving...)"
+	}
+	// APHELION EDIT ADDITION END
 	return fmt.Sprint(visibleName, "###workspace_map_", ws.paneMap.Dmm().Path.Absolute)
 }
 
@@ -96,9 +107,24 @@ func (ws *WsMap) PreProcess() {
 
 func (ws *WsMap) Process() {
 	ws.paneMap.Process()
+	// APHELION EDIT ADDITION START - RESPONSIVE_SAVE
+	ws.tryCompleteSaveAcknowledgement()
+	// APHELION EDIT ADDITION END
 }
 
 func (ws *WsMap) Dispose() {
+	// APHELION EDIT ADDITION START - RESPONSIVE_SAVE
+	ws.disposed = true
+	ws.saveLifetime++
+	if ws.activeSave != nil {
+		ws.completeSaveCallbacks(ws.activeSave.callbacks, false)
+		ws.activeSave = nil
+	}
+	if ws.pendingSaveAck != nil {
+		ws.completeSaveCallbacks(ws.pendingSaveAck.callbacks, false)
+		ws.pendingSaveAck = nil
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP
 	ws.paneMap.SetShortcutsVisible(false)
 	// APHELION EDIT ADDITION END

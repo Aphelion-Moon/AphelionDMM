@@ -18,6 +18,12 @@ func TestSnapshotCaptureRemainsAtRevisionAcrossLocalEdit(t *testing.T) {
 	if allocs := testing.AllocsPerRun(100, func() { _ = doc.CaptureSnapshot() }); allocs != 0 {
 		t.Fatalf("capture allocated %v", allocs)
 	}
+	if estimated := capture.EstimatedBytes(); estimated <= 1<<20 {
+		t.Fatalf("snapshot estimate = %d, want fixed allowance plus payload", estimated)
+	}
+	if allocs := testing.AllocsPerRun(100, func() { _ = capture.EstimatedBytes() }); allocs != 0 {
+		t.Fatalf("snapshot estimate allocated %v", allocs)
+	}
 	first := source.Tiles[1]
 	accepted, err := doc.ApplyLocal(context.Background(), LocalRequest{Version: doc.LocalVersion(), Changes: []model.TileChange{{Coord: first.Coord, Before: first.State, After: model.TileState{}}}})
 	if err != nil {

@@ -128,6 +128,62 @@ func TestSaveAtomicWithStateReturnsVersionOfSavedOutput(t *testing.T) {
 	}
 }
 
+// APHELION EDIT ADDITION START - SERIALIZED_TARGET_SAVE
+func TestSaveAtomicWithStateSerializesSameTargetWriters(t *testing.T) {
+	target := existingTarget(t)
+	expected, err := diskversion.Capture(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	firstWriting := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	results := make(chan error, 2)
+	go func() {
+		_, saveErr := SaveAtomicWithState(target, func(writer io.Writer) error {
+			close(firstWriting)
+			<-releaseFirst
+			_, writeErr := io.WriteString(writer, "first editor save")
+			return writeErr
+		}, func(string) error { return nil }, expected)
+		results <- saveErr
+	}()
+	<-firstWriting
+
+	secondStarted := make(chan struct{})
+	go func() {
+		close(secondStarted)
+		_, saveErr := SaveAtomicWithState(target, func(writer io.Writer) error {
+			_, writeErr := io.WriteString(writer, "second editor save")
+			return writeErr
+		}, func(string) error { return nil }, expected)
+		results <- saveErr
+	}()
+	<-secondStarted
+	close(releaseFirst)
+
+	firstErr, secondErr := <-results, <-results
+	if (firstErr == nil) == (secondErr == nil) {
+		t.Fatalf("save results = (%v, %v), want exactly one success", firstErr, secondErr)
+	}
+	if firstErr != nil && !errors.Is(firstErr, diskversion.ErrConflict) {
+		t.Fatalf("first save error = %v, want disk conflict or nil", firstErr)
+	}
+	if secondErr != nil && !errors.Is(secondErr, diskversion.ErrConflict) {
+		t.Fatalf("second save error = %v, want disk conflict or nil", secondErr)
+	}
+	contents, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "first editor save" {
+		t.Fatalf("target contents = %q, want first writer's committed contents", contents)
+	}
+	assertNoStages(t, target)
+}
+
+// APHELION EDIT ADDITION END
+
 func TestSaveAtomicWithStateDoesNotReplaceUnexpectedNewTarget(t *testing.T) {
 	t.Parallel()
 

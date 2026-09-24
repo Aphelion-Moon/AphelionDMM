@@ -29,6 +29,12 @@ type saveProcess struct {
 	// APHELION EDIT ADDITION START - EXPECTED INPUT VALIDATION
 	expected *dmmdata.DmmData
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - SAVE_INDEX
+	stacks           map[util.Point]mapsave.TileStack
+	initialContent   *mapsave.ContentIndex
+	outputContent    *mapsave.ContentIndex
+	initialLocations map[dmmdata.Key][]util.Point
+	// APHELION EDIT ADDITION END
 }
 
 func makeSaveProcess(cfg Config, dme *dmenv.Dme, dmm *dmmap.Dmm, path string) (*saveProcess, error) {
@@ -77,6 +83,12 @@ func makeSaveProcess(cfg Config, dme *dmenv.Dme, dmm *dmmap.Dmm, path string) (*
 	if cfg.SanitizeVariables {
 		sp.sanitizeVariables()
 	}
+	// APHELION EDIT ADDITION START - SAVE_INDEX
+	sp.stacks = mapsave.Normalize(dmm)
+	sp.initialContent = mapsave.NewContentIndex(initial.Dictionary)
+	sp.outputContent = mapsave.NewContentIndex(output.Dictionary)
+	sp.initialLocations = mapsave.LocationsByKey(initial)
+	// APHELION EDIT ADDITION END
 	sp.expected = mapsave.Expected(dmm, output.IsTgm)
 	return sp, nil
 	// APHELION EDIT ADDITION END
@@ -133,12 +145,12 @@ func (sp *saveProcess) sanitizeVariables() {
 func (sp *saveProcess) handleReusedKeys() {
 	log.Print("handle reused keys...")
 
+	/* APHELION EDIT REMOVAL START - SAVE_INDEX
 	// Cache the initial content, since we know it won't change.
 	keyByPrefabs := make(map[uint64]dmmdata.Key, len(sp.initial.Dictionary))
 	for key, prefabs := range sp.initial.Dictionary {
 		keyByPrefabs[prefabs.Hash()] = key
 	}
-
 	for _, tile := range sp.dmm.Tiles {
 		prefabs := tile.Instances().Sorted().Prefabs()
 		if initialKey, ok := findKeyByTileContent(sp.initial, keyByPrefabs, prefabs); ok {
@@ -146,6 +158,16 @@ func (sp *saveProcess) handleReusedKeys() {
 			delete(sp.unusedKeys, initialKey)
 		}
 	}
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - SAVE_INDEX
+	for _, tile := range sp.dmm.Tiles {
+		stack := sp.stacks[tile.Coord]
+		if initialKey, ok := sp.initialContent.Find(stack.Hash, stack.Prefabs); ok {
+			sp.setOutputKeyContent(tile.Coord, initialKey, stack)
+			delete(sp.unusedKeys, initialKey)
+		}
+	}
+	// APHELION EDIT ADDITION END
 
 	log.Print("remaining count of unused keys:", len(sp.unusedKeys))
 }
@@ -166,6 +188,9 @@ func (sp *saveProcess) handleLocationsWithoutKeys() error {
 		sp.keygen.DropKeysPool()
 		sp.output.Dictionary = make(dmmdata.DataDictionary)
 		sp.output.Grid = make(dmmdata.DataGrid)
+		// APHELION EDIT ADDITION START - SAVE_INDEX
+		sp.outputContent = mapsave.NewContentIndex(sp.output.Dictionary)
+		// APHELION EDIT ADDITION END
 		sp.unusedKeys = nil
 		return sp.handleLocationsWithoutKeys()
 	} else if errors.Is(err, errKeysLimitExceeded) {
@@ -201,39 +226,56 @@ func (sp *saveProcess) tryToReuseKeysByTheirInitialLocation(locsWithoutKey map[u
 
 	log.Print("trying to match unused keys with its previous location...")
 
+	/* APHELION EDIT REMOVAL START - SAVE_INDEX
 	// Copy to modify the original map safely during its iteration.
 	unusedKeysCpy := make(map[dmmdata.Key]bool)
 	for key := range sp.unusedKeys {
 		unusedKeysCpy[key] = true
 	}
-
-	// Content can be the same for different locations, so we will remember an unusedKey we applied to locs.
 	keyByPrefabs := make(map[uint64]dmmdata.Key)
-
 	for unusedKey := range unusedKeysCpy {
 		for loc := range locsWithoutKey {
 			prefabs := sp.dmm.GetTile(loc).Instances().Sorted().Prefabs()
 			prefabsHash := prefabs.Hash()
-
-			// If the key was already applied to the content in a previous iteration.
-			// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: if cachedKey, ok := keyByPrefabs[prefabsHash]; ok {
 			if cachedKey, ok := keyByPrefabs[prefabsHash]; ok && prefabs.Equals(sp.output.Dictionary[cachedKey]) {
 				sp.output.Grid[loc] = cachedKey
 				continue
 			}
-
 			if sp.initial.Grid[loc] == unusedKey {
 				keyByPrefabs[prefabsHash] = unusedKey
-
 				sp.setOutputKeyContent(loc, unusedKey, prefabs)
-
 				delete(sp.unusedKeys, unusedKey)
 				delete(locsWithoutKey, loc)
-
 				break
 			}
 		}
 	}
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - SAVE_INDEX
+	// Candidate locations are indexed by their original key, so each unused
+	// key examines only its own prior locations instead of every unmatched cell.
+	reusedByContent := mapsave.NewContentIndex(nil)
+	for _, unusedKey := range sp.initial.Keys() {
+		if !sp.unusedKeys[unusedKey] {
+			continue
+		}
+		for _, loc := range sp.initialLocations[unusedKey] {
+			if !locsWithoutKey[loc] {
+				continue
+			}
+			stack := sp.stacks[loc]
+			if cachedKey, ok := reusedByContent.Find(stack.Hash, stack.Prefabs); ok {
+				sp.output.Grid[loc] = cachedKey
+				continue
+			}
+			sp.setOutputKeyContent(loc, unusedKey, stack)
+			reusedByContent.Add(stack.Hash, unusedKey, stack.Prefabs)
+			delete(sp.unusedKeys, unusedKey)
+			delete(locsWithoutKey, loc)
+			break
+		}
+	}
+	// APHELION EDIT ADDITION END
 
 	log.Print("remaining count of unused keys:", len(sp.unusedKeys))
 	log.Print("count of locations without keys:", len(locsWithoutKey))
@@ -249,13 +291,13 @@ func (sp *saveProcess) fillLocations(locsWithoutKey map[util.Point]bool) error {
 		createdKeys []dmmdata.Key
 	)
 
-	keyByPrefabs := make(map[uint64]dmmdata.Key)
-
 	for loc := range locsWithoutKey {
-		prefabs := sp.dmm.GetTile(loc).Instances().Sorted().Prefabs()
+		// APHELION EDIT CHANGE - SAVE_INDEX - ORIGINAL: prefabs := sp.dmm.GetTile(loc).Instances().Sorted().Prefabs()
+		stack := sp.stacks[loc]
 
 		var key dmmdata.Key
-		if reusableKey, ok := findKeyByTileContent(sp.output, keyByPrefabs, prefabs); ok {
+		// APHELION EDIT CHANGE - SAVE_INDEX - ORIGINAL: if reusableKey, ok := findKeyByTileContent(sp.output, keyByPrefabs, prefabs); ok {
+		if reusableKey, ok := sp.outputContent.Find(stack.Hash, stack.Prefabs); ok {
 			key = reusableKey
 		} else if len(sp.unusedKeys) != 0 {
 			for unusedKey := range sp.unusedKeys { // Pick up the first available key.
@@ -277,7 +319,8 @@ func (sp *saveProcess) fillLocations(locsWithoutKey map[util.Point]bool) error {
 			createdKeys = append(createdKeys, key)
 		}
 
-		sp.setOutputKeyContent(loc, key, prefabs)
+		// APHELION EDIT CHANGE - SAVE_INDEX - ORIGINAL: sp.setOutputKeyContent(loc, key, prefabs)
+		sp.setOutputKeyContent(loc, key, stack)
 	}
 
 	log.Print("all tiles handled")
@@ -287,29 +330,37 @@ func (sp *saveProcess) fillLocations(locsWithoutKey map[util.Point]bool) error {
 	return nil
 }
 
+/* APHELION EDIT REMOVAL START - SAVE_INDEX
 func (sp *saveProcess) setOutputKeyContent(loc util.Point, key dmmdata.Key, prefabs dmmdata.Prefabs) {
 	sp.output.Grid[loc] = key
 	sp.output.Dictionary[key] = prefabs
 }
+APHELION EDIT REMOVAL END */
+// APHELION EDIT ADDITION START - SAVE_INDEX
+func (sp *saveProcess) setOutputKeyContent(loc util.Point, key dmmdata.Key, stack mapsave.TileStack) {
+	sp.output.Grid[loc] = key
+	sp.output.Dictionary[key] = stack.Prefabs
+	sp.outputContent.Add(stack.Hash, key, stack.Prefabs)
+}
 
+// APHELION EDIT ADDITION END
+
+/* APHELION EDIT REMOVAL START - SAVE_INDEX
 func findKeyByTileContent(
 	data *dmmdata.DmmData,
 	keyByPrefabs map[uint64]dmmdata.Key,
 	prefabs dmmdata.Prefabs,
 ) (dmmdata.Key, bool) {
 	contentHash := prefabs.Hash()
-
-	// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: if key, ok := keyByPrefabs[contentHash]; ok {
 	if key, ok := keyByPrefabs[contentHash]; ok && prefabs.Equals(data.Dictionary[key]) {
 		return key, true
 	}
-
 	for key, dataContent := range data.Dictionary {
 		if prefabs.Equals(dataContent) {
 			keyByPrefabs[contentHash] = key
 			return key, true
 		}
 	}
-
 	return "", false
 }
+APHELION EDIT REMOVAL END */

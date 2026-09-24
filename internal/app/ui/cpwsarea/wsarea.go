@@ -244,19 +244,23 @@ func (w *WsArea) closeWorkspacesGentlyV(wsToClose []*workspace.Workspace, guard 
 	}
 
 	dType.ActionYes = func() {
-		for _, ws := range unsavedWorkspaces {
-			// APHELION EDIT CHANGE - ATOMIC_SAVE - ORIGINAL: ws.Save()
-			if !saveWorkspacesBeforeClose([]*workspace.Workspace{ws}, callback) {
+		// APHELION EDIT ADDITION START - RESPONSIVE_SAVE
+		saveWorkspacesBeforeClose(unsavedWorkspaces, func(saved bool) {
+			if !saved || !w.savedWorkspacesStillClosable(wsToClose) {
+				if callback != nil {
+					callback(false)
+				}
 				return
 			}
-		}
-		if !allowWorkspaceClose(guard, callback) {
-			return
-		}
-		w.closeWorkspaces(wsToClose)
-		if callback != nil {
-			callback(true)
-		}
+			if !allowWorkspaceClose(guard, callback) {
+				return
+			}
+			w.closeWorkspaces(wsToClose)
+			if callback != nil {
+				callback(true)
+			}
+		})
+		// APHELION EDIT ADDITION END
 	}
 	dType.ActionNo = func() {
 		for _, ws := range unsavedWorkspaces {
@@ -320,17 +324,23 @@ func (w *WsArea) closeWorkspaceGentlyV(ws *workspace.Workspace, guard func() boo
 
 	dType := makeSaveSingleWorkspaceDialogType(ws)
 	dType.ActionYes = func() {
-		// APHELION EDIT CHANGE - ATOMIC_SAVE - ORIGINAL: ws.Save()
-		if !saveWorkspacesBeforeClose([]*workspace.Workspace{ws}, callback) {
-			return
-		}
-		if !allowWorkspaceClose(guard, callback) {
-			return
-		}
-		w.closeWorkspace(ws)
-		if callback != nil {
-			callback(true)
-		}
+		// APHELION EDIT ADDITION START - RESPONSIVE_SAVE
+		saveWorkspacesBeforeClose([]*workspace.Workspace{ws}, func(saved bool) {
+			if !saved || !w.savedWorkspacesStillClosable([]*workspace.Workspace{ws}) {
+				if callback != nil {
+					callback(false)
+				}
+				return
+			}
+			if !allowWorkspaceClose(guard, callback) {
+				return
+			}
+			w.closeWorkspace(ws)
+			if callback != nil {
+				callback(true)
+			}
+		})
+		// APHELION EDIT ADDITION END
 	}
 	dType.ActionNo = func() {
 		w.app.CommandStorage().Balance(ws.CommandStackId())

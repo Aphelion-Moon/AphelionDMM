@@ -82,6 +82,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	io.Fonts().TextureDataRGBA32()
 	for _, key := range []glfw.Key{glfw.KeyRightBracket, glfw.KeyLeftBracket} {
 		io.KeyPress(int(key))
+		shortcut.BeginFrame()
 		imgui.NewFrame()
 		shortcut.Process()
 		imgui.EndFrame()
@@ -103,6 +104,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 		tool string
 	}{{glfw.Key5, tools.TNPick}, {glfw.Key6, tools.TNDelete}, {glfw.Key7, tools.TNReplace}} {
 		io.KeyPress(int(binding.key))
+		shortcut.BeginFrame()
 		imgui.NewFrame()
 		shortcut.Process()
 		imgui.EndFrame()
@@ -157,7 +159,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	// A stale display must not override the acknowledged snapshot being saved.
 	instance = mapState.Tiles[0].Instances()[2]
 	instance.SetPrefab(dmmprefab.New(dmmprefab.IdNone, instance.Prefab().Path(), dmvars.Set(instance.Prefab().Vars(), "dir", "8")))
-	if !ws.Save() {
+	if !saveForTest(t, ws, app.jobs) {
 		t.Fatal("acknowledged save failed")
 	}
 	saved, err := dmmdata.New(path)
@@ -181,12 +183,45 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	if app.commands.IsModified(path) {
 		t.Fatal("successful save did not balance commands")
 	}
+	// APHELION EDIT ADDITION START - RESPONSIVE_SAVE
+	// Rebind the display to committed state, then deliver an edit after the save
+	// worker has captured and written its revision but before UI acknowledgement.
+	instance = mapState.Tiles[0].Instances()[2]
+	instance.SetPrefab(dmmprefab.New(dmmprefab.IdNone, instance.Prefab().Path(), dmvars.Set(instance.Prefab().Vars(), "dir", "4")))
+	request, err := ws.captureSaveRequest(path, mapState.DiskState, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws.saveRequestID++
+	request.id = ws.saveRequestID
+	request.lifetime = ws.saveLifetime
+	var saveCompleted bool
+	job := &saveJob{request: request, callbacks: []func(bool){func(saved bool) { saveCompleted = saved }}}
+	ws.activeSave = job
+	workerResult := runSaveWorker(request)
+	if workerResult.err != nil {
+		t.Fatal("captured revision failed to save", workerResult.err)
+	}
+	instance = mapState.Tiles[0].Instances()[2]
+	ws.Map().Editor().InstanceReplace(instance, dmmprefab.New(dmmprefab.IdNone, instance.Prefab().Path(), dmvars.Set(instance.Prefab().Vars(), "dir", "6")))
+	ws.Map().Editor().CommitOperation("Concurrent edit during save")
+	accepted, err = delayed.Execute(context.Background(), delayed.operation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	delayed.complete(accepted, nil)
+	(<-app.jobs)()
+	ws.finishSave(job, workerResult)
+	if saveCompleted || !app.commands.IsModified(path) || !ws.HasUnsavedChanges() {
+		t.Fatal("save acknowledgement marked a newer edit clean")
+	}
+	// APHELION EDIT ADDITION END
 	external := []byte("external editor replacement")
 	if err := os.WriteFile(path, external, 0600); err != nil {
 		t.Fatal(err)
 	}
 	app.commands.Push(command.Make("Unsaved edit before external conflict", func() {}, func() {}))
-	if ws.Save() {
+	if saveForTest(t, ws, app.jobs) {
 		t.Fatal("save silently replaced a map changed on disk")
 	}
 	unchanged, err := os.ReadFile(path)
@@ -200,7 +235,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ws.overwriteAfterConflict(observedExternal) {
+	if !awaitSaveResult(t, app.jobs, func(done func(bool)) { ws.overwriteAfterConflictAsync(observedExternal, done) }) {
 		t.Fatal("explicit overwrite of the observed disk version failed")
 	}
 	if app.commands.IsModified(path) || ws.HasUnsavedChanges() {
@@ -214,7 +249,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	app.commands.Push(command.Make("Unsaved edit before Save As", func() {}, func() {}))
-	if ws.Save() {
+	if saveForTest(t, ws, app.jobs) {
 		t.Fatal("save silently replaced a second external edit")
 	}
 	if ws.saveAsTo(path) {
@@ -228,7 +263,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 		t.Fatal("rejected Save As changed workspace identity or cleared dirty state")
 	}
 	copyPath := filepath.Join(directory, "map-copy.dmm")
-	if !ws.saveAsTo(copyPath) {
+	if !awaitSaveResult(t, app.jobs, func(done func(bool)) { ws.saveAsToAsync(copyPath, done) }) {
 		t.Fatal("Save As to a new destination failed")
 	}
 	if ws.CommandStackId() != copyPath || ws.HasUnsavedChanges() {
@@ -250,7 +285,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ws.Save() {
+	if saveForTest(t, ws, app.jobs) {
 		t.Fatal("failed staging reported success")
 	}
 	afterFailure, err := os.ReadFile(copyPath)

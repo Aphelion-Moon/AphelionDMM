@@ -34,6 +34,10 @@ func saveAtomic(path string, write func(io.Writer) error, validate func(string) 
 	if validate == nil {
 		return diskversion.State{}, fmt.Errorf("atomic save: validator is nil")
 	}
+	// APHELION EDIT ADDITION START - SERIALIZED_TARGET_SAVE
+	unlockTarget := diskversion.LockTarget(path)
+	defer unlockTarget()
+	// APHELION EDIT ADDITION END
 
 	directory := filepath.Dir(path)
 	stage, err := os.CreateTemp(directory, "."+filepath.Base(path)+".tmp-*")
@@ -109,11 +113,31 @@ func (d DmmData) ValidateSaved(path string) error {
 	return d.validateSaved(path, d.IsTgm)
 }
 
+// ValidateSavedPair reparses a staged save once, then checks both its output
+// structure and an independent intended-input view against the same result.
+func ValidateSavedPair(path string, output, intended DmmData) error {
+	reparsed, err := New(path)
+	if err != nil {
+		return fmt.Errorf("reparse staged map: %w", err)
+	}
+	if err := output.validateSavedData(reparsed, output.IsTgm); err != nil {
+		return err
+	}
+	if err := intended.validateSavedData(reparsed, intended.IsTgm); err != nil {
+		return fmt.Errorf("saved map differs from intended input: %w", err)
+	}
+	return nil
+}
+
 func (d DmmData) validateSaved(path string, isTGM bool) error {
 	reparsed, err := New(path)
 	if err != nil {
 		return fmt.Errorf("reparse staged map: %w", err)
 	}
+	return d.validateSavedData(reparsed, isTGM)
+}
+
+func (d DmmData) validateSavedData(reparsed *DmmData, isTGM bool) error {
 	if reparsed.IsTgm != isTGM {
 		return fmt.Errorf("staged map format mismatch: got TGM=%t, want %t", reparsed.IsTgm, isTGM)
 	}

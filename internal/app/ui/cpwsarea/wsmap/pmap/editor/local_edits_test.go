@@ -57,6 +57,37 @@ func TestLocalEditAndHistoryUseDeltasWithoutWireOrSnapshots(t *testing.T) {
 	}
 }
 
+// APHELION EDIT ADDITION START - RESPONSIVE_SAVE
+func TestSaveCaptureDefersLocalSnapshotMaterialization(t *testing.T) {
+	e := selectionEditor(t)
+	counted := &countedLocalEdits{Local: e.executor.(*executor.Local)}
+	e.executor = counted
+	initialHash, err := e.authoritative.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	captured, version, err := e.CaptureSaveSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counted.snapshots != 0 || version.Revision != e.authoritative.Revision {
+		t.Fatalf("save capture materialized synchronously or selected the wrong revision: snapshots=%d capture=%d authority=%d", counted.snapshots, version.Revision, e.authoritative.Revision)
+	}
+
+	instance := e.dmm.Tiles[0].Instances()[2]
+	e.InstanceReplace(instance, dmmprefab.New(dmmprefab.IdNone, instance.Prefab().Path(), dmvars.Set(instance.Prefab().Vars(), "dir", "4")))
+	e.CommitOperation("Edit while save materializes")
+	materialized := captured.Snapshot()
+	materializedHash, err := materialized.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if materialized.Revision != version.Revision || materializedHash != initialHash || counted.snapshots != 0 {
+		t.Fatal("deferred save materialization did not preserve its captured local revision")
+	}
+}
+// APHELION EDIT ADDITION END
+
 func TestAttachedLocalCapabilityStillUsesSessionContract(t *testing.T) {
 	e := selectionEditor(t)
 	counted := &countedLocalEdits{Local: e.executor.(*executor.Local)}

@@ -2,7 +2,6 @@
 package dmmsave
 
 import (
-	"fmt"
 	"sdmm/internal/aphelion/diskversion"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
 )
@@ -22,13 +21,7 @@ func (sp *saveProcess) writeAndValidate(expected *diskversion.State) (diskversio
 		write = sp.output.WriteTGM
 	}
 	validate := func(path string) error {
-		if err := sp.output.ValidateSaved(path); err != nil {
-			return err
-		}
-		if err := sp.expected.ValidateSaved(path); err != nil {
-			return fmt.Errorf("saved map differs from intended input: %w", err)
-		}
-		return nil
+		return dmmdata.ValidateSavedPair(path, *sp.output, *sp.expected)
 	}
 	if expected == nil {
 		if err := dmmdata.SaveAtomic(sp.output.Filepath, write, validate); err != nil {

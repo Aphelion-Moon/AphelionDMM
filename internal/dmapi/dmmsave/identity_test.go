@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"sdmm/internal/aphelion/mapsave"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
@@ -17,12 +18,52 @@ import (
 func TestSaveKeyCacheResolvesCollision(t *testing.T) {
 	a := dmmdata.Prefabs{dmmprefab.New(42, "/obj/a", &dmvars.Variables{})}
 	b := dmmdata.Prefabs{dmmprefab.New(42, "/obj/b", &dmvars.Variables{})}
-	data := &dmmdata.DmmData{Dictionary: dmmdata.DataDictionary{"a": a, "b": b}}
-	key, ok := findKeyByTileContent(data, map[uint64]dmmdata.Key{b.Hash(): "a"}, b)
+	index := mapsave.NewContentIndex(nil)
+	index.Add(42, "a", a)
+	index.Add(42, "b", b)
+	key, ok := index.Find(42, b)
 	if !ok || key != "b" {
 		t.Fatalf("collision resolved to %q, %t", key, ok)
 	}
 }
+
+// APHELION EDIT ADDITION START - SAVE_INDEX
+func TestSaveReusesOriginalLocationKeysForDistinctChangedStacks(t *testing.T) {
+	dir := t.TempDir()
+	backup := filepath.Join(dir, "input.dmm")
+	input := "\"a\"=(/obj/one)\n\"b\"=(/obj/two)\n(1,1,1)={\"\nab\"}\n"
+	if err := os.WriteFile(backup, []byte(input), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data, err := dmmdata.New(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dme := &dmenv.Dme{RootDir: dir}
+	dmm, _ := dmmap.New(dme, data, backup)
+	for index, path := range []string{"/obj/changed_one", "/obj/changed_two"} {
+		tile := dmm.Tiles[index]
+		old := tile.Instances()[0].Prefab()
+		tile.Instances()[0].SetPrefab(dmmprefab.New(dmmprefab.IdNone, path, old.Vars()))
+	}
+	output := filepath.Join(dir, "output.dmm")
+	sp, err := makeSaveProcess(Config{Format: FormatDM}, dme, dmm, output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sp.handleReusedKeys()
+	if err := sp.handleLocationsWithoutKeys(); err != nil {
+		t.Fatal(err)
+	}
+	if got := sp.output.Grid[util.Point{X: 1, Y: 1, Z: 1}]; got != "a" {
+		t.Fatalf("first changed stack reused key %q, want original location key a", got)
+	}
+	if got := sp.output.Grid[util.Point{X: 2, Y: 1, Z: 1}]; got != "b" {
+		t.Fatalf("second changed stack reused key %q, want original location key b", got)
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func TestSaveVPreservesAmbiguousContent(t *testing.T) {
 	for _, format := range []Format{FormatDM, FormatTGM} {
