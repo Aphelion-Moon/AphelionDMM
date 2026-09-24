@@ -8,6 +8,7 @@ import (
 
 	"sdmm/internal/aphelion/collab/mapadapter"
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/prefabidentity"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
@@ -73,7 +74,10 @@ func TestInstanceBatchRetainsIntentAfterSnapshotFailure(t *testing.T) {
 	before := model.CloneSnapshot(e.authoritative)
 	replacement := dmmprefab.New(dmmprefab.IdNone, instance.Prefab().Path(), dmvars.Set(instance.Prefab().Vars(), "dir", "4"))
 	e.CommitInstanceBatch([]*dmminstance.Instance{instance}, replacement, "Search replacement")
-	if len(app.errors) != 1 || e.CanStartMapEdit() || len(e.pendingChanges) != 1 || instance.Prefab() != replacement || e.app.CommandStorage().HasUndoV("test") {
+	// Persistence may intern an owned copy; recovery must retain the entered
+	// contents, not the caller's mutable candidate pointer.
+	retained := instance.Prefab()
+	if len(app.errors) != 1 || e.CanStartMapEdit() || len(e.pendingChanges) != 1 || !prefabidentity.Equal(retained.Path(), retained.Vars(), replacement.Path(), replacement.Vars()) || e.app.CommandStorage().HasUndoV("test") {
 		t.Fatal("snapshot failure discarded intent or permitted a new edit/history")
 	}
 	if _, err := e.SaveSnapshot(context.Background()); err == nil {

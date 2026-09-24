@@ -31,3 +31,43 @@ func TestStorageResolvesContentCollisions(t *testing.T) {
 		t.Fatal("deletion removed colliding prefab")
 	}
 }
+
+func TestInternedContentOwnsVariablesAndWarmPutAllocatesNothing(t *testing.T) {
+	s := &prefabStorage{}
+	s.Free()
+	values := &dmvars.MutableVariables{}
+	values.Put("custom", `"original"`)
+	input := values.ToImmutable()
+	p := s.Put(dmmprefab.New(dmmprefab.IdNone, "/obj/test", input))
+	id := p.Id()
+	key := p.ContentKey()
+	parent := &dmvars.MutableVariables{}
+	parent.Put("dir", "4")
+	p.Vars().LinkParent(parent.ToImmutable())
+	if p.ContentKey() != key || p.Id() != id || p.Vars().IntV("dir", 0) != 4 {
+		t.Fatal("parent appearance changed explicit identity")
+	}
+	input.Iterate()[0] = "corrupted input"
+	names := p.Vars().Iterate()
+	names[0] = "corrupted output"
+	wrapped := &dmvars.MutableVariables{Variables: *p.Vars()}
+	wrapped.Put("custom", `"changed"`)
+	if got, _ := p.Vars().Value("custom"); got != `"original"` || p.Vars().Iterate()[0] != "custom" || p.Id() != id {
+		t.Fatal("interned contents changed through an alias", got)
+	}
+	if got := testing.AllocsPerRun(100, func() {
+		if s.Put(p) != p {
+			panic("canonical reference changed")
+		}
+	}); got != 0 {
+		t.Fatalf("warm Put allocated %g times", got)
+	}
+	modified := s.Put(dmmprefab.New(dmmprefab.IdNone, p.Path(), dmvars.Set(p.Vars(), "custom", `"new"`)))
+	if modified == p || modified.Id() == p.Id() {
+		t.Fatal("copy-on-write edit reused old identity")
+	}
+	s.Delete(p)
+	if _, ok := s.GetById(modified.Id()); !ok {
+		t.Fatal("deleting canonical content removed a different value")
+	}
+}

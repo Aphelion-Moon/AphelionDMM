@@ -19,6 +19,9 @@ type Variables struct {
 	names  []string
 	vars   map[string]string
 	parent *Variables
+	// APHELION EDIT ADDITION START - SEALED PREFAB CONTENT
+	frozen bool
+	// APHELION EDIT ADDITION END
 }
 
 func (v *Variables) Copy() Variables {
@@ -38,6 +41,11 @@ func (v *Variables) Copy() Variables {
 }
 
 func (v *Variables) put(name string, value string) {
+	// APHELION EDIT ADDITION START - SEALED PREFAB CONTENT
+	if v.frozen {
+		*v = v.Copy()
+	}
+	// APHELION EDIT ADDITION END
 	if v.vars == nil {
 		v.vars = make(map[string]string)
 	}
@@ -48,6 +56,11 @@ func (v *Variables) put(name string, value string) {
 }
 
 func (v *Variables) delete(name string) {
+	// APHELION EDIT ADDITION START - SEALED PREFAB CONTENT
+	if v.frozen {
+		*v = v.Copy()
+	}
+	// APHELION EDIT ADDITION END
 	v.names = slice.StrRemove(v.names, name)
 	delete(v.vars, name)
 }
@@ -99,8 +112,38 @@ func (v *Variables) LinkParent(parent *Variables) {
 }
 
 func (v *Variables) Iterate() []string {
+	// APHELION EDIT ADDITION START - SEALED PREFAB CONTENT
+	if v.frozen {
+		return append([]string(nil), v.names...)
+	}
+	// APHELION EDIT ADDITION END
 	return v.names
 }
+
+// APHELION EDIT ADDITION START - SEALED PREFAB CONTENT
+// FrozenCopy owns explicit contents at the interning boundary. Parent linkage
+// remains appearance/environment state and does not enter structural identity.
+func (v *Variables) FrozenCopy() *Variables {
+	if v == nil {
+		return nil
+	}
+	if v.frozen {
+		return v
+	}
+	copy := v.Copy()
+	copy.frozen = true
+	return &copy
+}
+
+func (v *Variables) ExplicitValue(name string) (string, bool) {
+	if v == nil {
+		return "", false
+	}
+	value, ok := v.vars[name]
+	return value, ok
+}
+
+// APHELION EDIT ADDITION END
 
 func (v *Variables) Len() int {
 	return len(v.names)

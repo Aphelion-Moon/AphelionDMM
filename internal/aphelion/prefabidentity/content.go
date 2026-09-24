@@ -26,7 +26,7 @@ func Key(path string, vars *dmvars.Variables) string {
 		sort.Strings(names)
 		for _, name := range names {
 			field(name)
-			value, ok := vars.Value(name)
+			value, ok := vars.ExplicitValue(name)
 			if ok {
 				b.WriteByte(1)
 			} else {
@@ -42,6 +42,9 @@ func Equal(pathA string, a *dmvars.Variables, pathB string, b *dmvars.Variables)
 	if pathA != pathB {
 		return false
 	}
+	if a == b {
+		return true
+	}
 	length := func(v *dmvars.Variables) int {
 		if v == nil {
 			return 0
@@ -55,19 +58,17 @@ func Equal(pathA string, a *dmvars.Variables, pathB string, b *dmvars.Variables)
 		return true
 	}
 	// Compare only explicit names: inherited values cannot stand in for overrides.
+	namesB := make(map[string]struct{}, length(b))
+	for _, name := range b.Iterate() {
+		namesB[name] = struct{}{}
+	}
 	for _, name := range a.Iterate() {
-		found := false
-		for _, other := range b.Iterate() {
-			if name == other {
-				found = true
-				break
-			}
-		}
+		_, found := namesB[name]
 		if !found {
 			return false
 		}
-		av, aok := a.Value(name)
-		bv, bok := b.Value(name)
+		av, aok := a.ExplicitValue(name)
+		bv, bok := b.ExplicitValue(name)
 		if aok != bok || av != bv {
 			return false
 		}

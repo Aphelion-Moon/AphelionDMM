@@ -17,11 +17,46 @@ type Prefab struct {
 	id   uint64
 	path string
 	vars *dmvars.Variables
+	// APHELION EDIT ADDITION START - SEALED PREFAB CONTENT
+	contentKey string
+	// APHELION EDIT ADDITION END
 }
 
 func New(id uint64, path string, vars *dmvars.Variables) *Prefab {
-	return &Prefab{id, path, vars}
+	// APHELION EDIT CHANGE - SEALED PREFAB CONTENT - ORIGINAL: return &Prefab{id, path, vars}
+	return &Prefab{id: id, path: path, vars: vars}
 }
+
+// APHELION EDIT ADDITION START - SEALED PREFAB CONTENT
+func (p Prefab) IsStaged() bool   { return p.id == IdStage }
+func (p Prefab) IsInterned() bool { return p.contentKey != "" }
+
+// Interned seals explicit contents before caching their structural key and ID.
+// Plain/staged candidates remain editable through the existing copy-on-write API.
+func (p *Prefab) Interned() *Prefab {
+	if p.IsInterned() {
+		return p
+	}
+	copy := *p
+	copy.vars = p.vars.FrozenCopy()
+	copy.contentKey = prefabidentity.Key(copy.path, copy.vars)
+	if copy.id == IdNone {
+		copy.id = util.Djb2(copy.contentKey)
+		if copy.id <= IdStage {
+			copy.id += 2
+		}
+	}
+	return &copy
+}
+func (p Prefab) ContentKey() string {
+	if p.contentKey != "" {
+		return p.contentKey
+	}
+	return prefabidentity.Key(p.path, p.vars)
+}
+func (p Prefab) WithLocalID(id uint64) *Prefab { p.id = id; return &p }
+
+// APHELION EDIT ADDITION END
 
 func (p Prefab) Id() uint64 {
 	if p.id == IdNone {

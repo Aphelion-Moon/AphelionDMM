@@ -1,9 +1,6 @@
 package dmmap
 
 import (
-	// APHELION EDIT ADDITION START - CONTENT IDENTITY
-	"sdmm/internal/aphelion/prefabidentity"
-	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmvars"
 
@@ -41,12 +38,16 @@ func (s *prefabStorage) Put(prefab *dmmprefab.Prefab) *dmmprefab.Prefab {
 	return prefab
 	APHELION EDIT REMOVAL END */
 	// APHELION EDIT ADDITION START - CONTENT IDENTITY
-	if prefab.Id() == dmmprefab.IdStage {
+	if prefab.IsStaged() {
 		return prefab
 	}
+	if prefab.IsInterned() && s.prefabs[prefab.Id()] == prefab {
+		return prefab
+	}
+	prefab = prefab.Interned()
 	// Resolve by content before assigning a free local UI identifier. Hashes are
 	// only hints; probing also preserves existing selections on a collision.
-	content := prefabidentity.Key(prefab.Path(), prefab.Vars())
+	content := prefab.ContentKey()
 	if cached, exists := s.byContent[content]; exists {
 		return cached
 	}
@@ -58,7 +59,7 @@ func (s *prefabStorage) Put(prefab *dmmprefab.Prefab) *dmmprefab.Prefab {
 		id++
 	}
 	if id != prefab.Id() {
-		prefab = dmmprefab.New(id, prefab.Path(), prefab.Vars())
+		prefab = prefab.WithLocalID(id)
 	}
 	if s.prefabs == nil {
 		s.prefabs = make(map[uint64]*dmmprefab.Prefab)
@@ -109,7 +110,7 @@ func (s *prefabStorage) GetV(path string, vars *dmvars.Variables) (*dmmprefab.Pr
 // Delete deletes the provided prefab from the storage.
 func (s *prefabStorage) Delete(prefab *dmmprefab.Prefab) {
 	// APHELION EDIT ADDITION START - CONTENT IDENTITY
-	content := prefabidentity.Key(prefab.Path(), prefab.Vars())
+	content := prefab.ContentKey()
 	stored, exists := s.byContent[content]
 	if !exists {
 		return
