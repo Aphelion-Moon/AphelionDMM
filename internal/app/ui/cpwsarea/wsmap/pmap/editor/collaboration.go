@@ -79,7 +79,7 @@ func (e *Editor) CollaborationSnapshot(ctx context.Context) (model.Snapshot, err
 	if e.executor == nil {
 		return model.Snapshot{}, fmt.Errorf("read collaboration snapshot: executor is unavailable")
 	}
-	if e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
+	if e.localWork != nil || e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
 		return model.Snapshot{}, fmt.Errorf("read collaboration snapshot: map has an uncommitted edit")
 	}
 	snapshot, err := e.executor.Snapshot(ctx)
@@ -94,7 +94,7 @@ func (e *Editor) AttachCollaborationExecutor(execution executor.Executor) error 
 	if execution == nil {
 		return fmt.Errorf("attach collaboration executor: executor is nil")
 	}
-	if e.selectionMove != nil || e.paste != nil || len(e.pendingChanges) != 0 {
+	if e.localWork != nil || e.selectionMove != nil || e.paste != nil || len(e.pendingChanges) != 0 {
 		return fmt.Errorf("attach collaboration executor: map has an uncommitted edit")
 	}
 	snapshot, err := execution.Snapshot(context.Background())
@@ -123,7 +123,7 @@ func (e *Editor) AttachCollaborationExecutor(execution executor.Executor) error 
 
 // DetachCollaborationExecutor restores local compatibility mode from the synchronized snapshot.
 func (e *Editor) DetachCollaborationExecutor(ctx context.Context) error {
-	if e.selectionMove != nil || e.paste != nil || len(e.pendingChanges) != 0 {
+	if e.localWork != nil || e.selectionMove != nil || e.paste != nil || len(e.pendingChanges) != 0 {
 		return fmt.Errorf("detach collaboration executor: map has an uncommitted edit")
 	}
 	if pending, ok := e.executor.(pendingExecutor); ok && pending.HasUnacknowledgedOperations() {
@@ -162,7 +162,7 @@ func (e *Editor) ProcessCollaborationUpdates() {
 	if e.selectionMove != nil && e.selectionMove.Level() != e.pMap.ActiveLevel() {
 		e.FinishSelectionMove(e.selectionMove, true)
 	}
-	if e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
+	if e.localWork != nil || e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
 		return
 	}
 	execution, ok := e.executor.(projectionExecutor)
@@ -200,7 +200,7 @@ func (e *Editor) RefreshCollaborationSnapshot(ctx context.Context) error {
 	if e.collaborationErr != nil {
 		return fmt.Errorf("inspect and explicitly discard the retained local edit before refreshing")
 	}
-	if e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
+	if e.localWork != nil || e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
 		return fmt.Errorf("refresh collaboration snapshot: map has an uncommitted edit")
 	}
 	if e.executor == nil {
@@ -220,14 +220,14 @@ func (e *Editor) RefreshCollaborationSnapshot(ctx context.Context) error {
 
 func (e *Editor) CanChangeMapSize() bool {
 	_, local := e.executor.(*executor.Local)
-	return local && e.history.Valid() && e.collaborationErr == nil && e.selectionMove == nil && e.paste == nil && len(e.pendingChanges) == 0 && len(e.unresolvedSubmissions) == 0
+	return e.localWork == nil && local && e.history.Valid() && e.collaborationErr == nil && e.selectionMove == nil && e.paste == nil && len(e.pendingChanges) == 0 && len(e.unresolvedSubmissions) == 0
 }
 
 // TryBeginTileChange captures every target before a tool mutates the display.
 // A failed batch releases only its newly acquired captures, retaining earlier
 // gesture state and the capture fault that guards Save.
 func (e *Editor) TryBeginTileChange(points ...util.Point) bool {
-	if e.mapViewClosed || !e.history.Valid() || e.paste != nil || e.HasPastePlacement() {
+	if e.localWork != nil || e.mapViewClosed || !e.history.Valid() || e.paste != nil || e.HasPastePlacement() {
 		return false
 	}
 	acquired := make([]model.Coord, 0, len(points))
@@ -254,7 +254,7 @@ func (e *Editor) BeginTileChange(point util.Point) {
 	// Invalidate derived queries even when capture fails: inherited callers may
 	// already be preparing a display edit. Queries defer while captures are open.
 	e.mapViewGeneration++
-	if e.collaborationErr != nil || e.executor == nil || e.paste != nil {
+	if e.localWork != nil || e.collaborationErr != nil || e.executor == nil || e.paste != nil {
 		return
 	}
 	coord := model.Coord{X: point.X, Y: point.Y, Z: point.Z}
@@ -546,6 +546,10 @@ func (e *Editor) setAuthoritative(snapshot model.Snapshot) {
 }
 
 func (e *Editor) resetAttachment() {
+	if e.localWork != nil {
+		e.localWork.cancel()
+		e.localWork = nil
+	}
 	e.repeatTransforms.Clear()
 	e.mapViewGeneration++
 	e.discardPasteWithoutRestore()
@@ -591,7 +595,7 @@ func (e *Editor) SaveVersion() (uint64, model.Revision) {
 
 func (e *Editor) ChangedSinceSave(generation uint64, revision model.Revision) bool {
 	return generation != e.attachmentGeneration || revision != e.authoritative.Revision ||
-		e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 || len(e.unresolvedSubmissions) != 0 || e.collaborationErr != nil
+		e.localWork != nil || e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 || len(e.unresolvedSubmissions) != 0 || e.collaborationErr != nil
 }
 
 func (e *Editor) reportCollaborationError(message string, err error) {

@@ -10,7 +10,7 @@ import (
 )
 
 func (e *Editor) BeginSelectionMove(area util.Bounds, z int) (*editing.Move, error) {
-	if e.executor == nil || e.collaborationErr != nil || e.selectionMove != nil || len(e.pendingChanges) != 0 || z != e.pMap.ActiveLevel() {
+	if e.localWork != nil || e.executor == nil || e.collaborationErr != nil || e.selectionMove != nil || len(e.pendingChanges) != 0 || z != e.pMap.ActiveLevel() {
 		return nil, fmt.Errorf("finish the current edit and select the visible level before moving")
 	}
 	filter := e.app.PathsFilter().Copy()

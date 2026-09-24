@@ -24,6 +24,9 @@ func (e *Editor) HasLocalRecovery() bool {
 }
 
 func (e *Editor) InspectLocalRecovery() (*LocalRecovery, error) {
+	if e.localWork != nil {
+		return nil, fmt.Errorf("wait for the current edit to finish before inspecting recovery")
+	}
 	if !e.HasLocalRecovery() {
 		return nil, fmt.Errorf("no retained local edit is available")
 	}
@@ -35,6 +38,9 @@ func (e *Editor) InspectLocalRecovery() (*LocalRecovery, error) {
 }
 
 func (e *Editor) DiscardLocalRecovery(draft *LocalRecovery) error {
+	if e.localWork != nil {
+		return fmt.Errorf("wait for the current edit to finish before recovery")
+	}
 	if draft == nil || draft.owner != e || draft.attachment != e.attachmentGeneration || draft.view != e.mapViewGeneration || !e.HasLocalRecovery() {
 		return fmt.Errorf("the map changed; inspect the retained edit again before discarding")
 	}

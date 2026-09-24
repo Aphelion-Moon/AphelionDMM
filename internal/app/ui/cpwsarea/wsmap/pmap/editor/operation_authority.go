@@ -4,6 +4,9 @@ package editor
 import "fmt"
 
 func (e *Editor) commitWithAuthority(message string) {
+	if e.localWork != nil {
+		return
+	}
 	if e.HasPastePlacement() {
 		e.reportCollaborationError("Unable to apply map change", fmt.Errorf("confirm or cancel paste placement first"))
 		return

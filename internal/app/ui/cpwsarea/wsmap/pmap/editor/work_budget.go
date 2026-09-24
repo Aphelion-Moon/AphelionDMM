@@ -13,7 +13,7 @@ func (e *Editor) SetEditWorkBudget(budget *resources.Budget) error {
 	if e == nil {
 		return fmt.Errorf("editor is unavailable")
 	}
-	if e.paste != nil || e.selectionMove != nil || len(e.unresolvedSubmissions) != 0 {
+	if e.localWork != nil || e.paste != nil || e.selectionMove != nil || len(e.unresolvedSubmissions) != 0 {
 		return fmt.Errorf("cannot change edit work budget while an edit is active")
 	}
 	if budget == nil {

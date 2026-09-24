@@ -16,7 +16,7 @@ func (e *Editor) RotateSelection(area util.Bounds, z int, clockwise bool) (util.
 	if e.collaborationErr != nil {
 		return area, e.collaborationErr
 	}
-	if e.executor == nil || e.selectionMove != nil || len(e.pendingChanges) != 0 {
+	if !e.CanStartMapEdit() {
 		return area, fmt.Errorf("finish the current edit before rotating")
 	}
 	plan, err := editing.Rotate(e.dmm, area, z, clockwise, e.app.PathsFilter().IsVisiblePath)

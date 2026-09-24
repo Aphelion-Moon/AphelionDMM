@@ -16,7 +16,7 @@ func (e *Editor) MirrorSelection(area util.Bounds, z int, axis editing.MirrorAxi
 	if e.collaborationErr != nil {
 		return area, e.collaborationErr
 	}
-	if e.executor == nil || e.selectionMove != nil || len(e.pendingChanges) != 0 {
+	if !e.CanStartMapEdit() {
 		return area, fmt.Errorf("finish the current edit before mirroring")
 	}
 	plan, err := editing.Mirror(e.dmm, area, z, axis, e.app.PathsFilter().IsVisiblePath)

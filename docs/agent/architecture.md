@@ -156,6 +156,16 @@ retains full history and has a measurement-backed scaling investigation in the
 
 The UI thread remains the only owner of OpenGL/ImGui work. Applied operations produce immutable render invalidations that are scheduled onto the UI thread.
 
+The editor's `localWork` owner admits one expensive unshared edit at a time.
+Local paste composes its footprint and submits on a worker; large captured local
+edits and undo/redo share that owner. Publication installs one render chunk at a
+time with a frame budget that includes geometry refresh. Save, queries, recovery,
+and conflicting mutations wait until publication finishes. The displayed revision
+advances only after all tiles are installed. Area boundaries and chunk layer
+membership update from touched tiles instead of rescanning the map. A single
+chunk can exceed the time budget; generic legacy target enumeration/capture and
+network snapshot installation still require separate scheduling work.
+
 Clipboard and stamp placement retain ToolGrab's lifecycle but use an isolated
 payload, pose and renderer presentation. Translation changes the anchor without
 capturing tiles, building operations, interning prefabs, or rebuilding base chunks.

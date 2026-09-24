@@ -88,12 +88,19 @@ func (p *PlacementPayload) ValidateTarget(target util.Point, maxX, maxY, level i
 // BuildPlacementChanges touches only the selected footprint. The lookup must
 // refer to one owned revision; the executor revalidates all before-values.
 func (p *PlacementPayload) BuildPlacementChanges(ctx context.Context, target util.Point, policy PastePolicy, visible func(string) bool, lookup func(model.Coord) (model.TileState, bool)) ([]model.TileChange, error) {
-	changes := make([]model.TileChange, 0, len(p.Tiles))
+	changes := make([]model.TileChange, 0, min(1024, len(p.Tiles)))
 	for _, tile := range p.Tiles {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		local := util.Point{X: tile.Coord.X - 1, Y: tile.Coord.Y - 1}
+		writes := false
+		for c, intent := range p.Intents[local] {
+			writes = writes || policy.Writes(Channel(c), intent)
+		}
+		if !writes {
+			continue
+		}
 		coord := model.Coord{X: target.X + local.X, Y: target.Y + local.Y, Z: target.Z}
 		before, ok := lookup(coord)
 		if !ok {

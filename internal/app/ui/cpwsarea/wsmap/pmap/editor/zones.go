@@ -24,7 +24,8 @@ var zoneDirs = map[util.Point]int{
 }
 
 func (e *Editor) updateAreasZones() {
-	type coords map[util.Point]bool
+	// APHELION EDIT CHANGE - AREA DELTAS - ORIGINAL: type coords map[util.Point]bool
+	type coords = map[util.Point]bool
 
 	areas := make(map[string]coords)
 
@@ -63,4 +64,14 @@ func (e *Editor) updateAreasZones() {
 	}
 
 	e.areasZones = areaZones
+	// APHELION EDIT ADDITION START - AREA DELTAS
+	e.areaIndexes = make(map[string]*areaIndex, len(areas))
+	for i, zone := range areaZones {
+		index := &areaIndex{zone: i, members: areas[zone.Name], borders: make(map[util.Point]int, len(zone.Borders))}
+		for n, border := range zone.Borders {
+			index.borders[border.Coord] = n
+		}
+		e.areaIndexes[zone.Name] = index
+	}
+	// APHELION EDIT ADDITION END
 }

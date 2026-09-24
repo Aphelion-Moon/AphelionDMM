@@ -29,6 +29,7 @@ func New(dmm *dmmap.Dmm, level int) *Level {
 
 // Update updates current level chunks data.
 // If tilesToUpdate is not nil, then only chunks with provided tiles will be updated.
+/* APHELION EDIT REMOVAL START - INCREMENTAL CHUNKS
 func (l *Level) Update(dmm *dmmap.Dmm, tilesToUpdate []util.Point) {
 	if tilesToUpdate != nil {
 		// Store a slice of updated chunks to avoid multiple updates for the same chunk area.
@@ -59,10 +60,12 @@ func (l *Level) Update(dmm *dmmap.Dmm, tilesToUpdate []util.Point) {
 	l.createChunksLayers()
 }
 
+APHELION EDIT REMOVAL END */
 func findChunkBounds(x, y int) util.Point {
 	return util.Point{X: findChunkBound(x), Y: findChunkBound(y)}
 }
 
+/* APHELION EDIT REMOVAL START - INCREMENTAL CHUNKS
 func findChunkBound(value int) int {
 	bound := 1
 	for {
@@ -73,11 +76,22 @@ func findChunkBound(value int) int {
 	}
 }
 
+APHELION EDIT REMOVAL END */
+// APHELION EDIT ADDITION START - INCREMENTAL CHUNKS
+func findChunkBound(value int) int { return 1 + (max(1, value)-1)/(chunk.Size+1)*(chunk.Size+1) }
+
+// APHELION EDIT ADDITION END
+
 // Method collects layers for every unit in every chunk.
 func (l *Level) createChunksLayers() {
 	chunksByLayers := make(map[float32][]*chunk.Chunk, len(l.ChunksByLayers))
 	for _, c := range l.Chunks {
 		for chunkLayer := range c.UnitsByLayers {
+			// APHELION EDIT ADDITION START - INCREMENTAL CHUNKS
+			if len(c.UnitsByLayers[chunkLayer]) == 0 {
+				continue
+			}
+			// APHELION EDIT ADDITION END
 			chunksByLayers[chunkLayer] = append(chunksByLayers[chunkLayer], c)
 		}
 	}
@@ -87,6 +101,9 @@ func (l *Level) createChunksLayers() {
 	for layer := range chunksByLayers {
 		if len(chunksByLayers[layer]) > 0 {
 			layers = append(layers, layer)
+			// APHELION EDIT ADDITION START - INCREMENTAL CHUNKS
+			sortChunks(chunksByLayers[layer])
+			// APHELION EDIT ADDITION END
 		}
 	}
 	sort.Slice(layers, func(i, j int) bool { return layers[i] < layers[j] })

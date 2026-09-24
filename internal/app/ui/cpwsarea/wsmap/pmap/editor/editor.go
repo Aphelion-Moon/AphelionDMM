@@ -39,6 +39,9 @@ type Editor struct {
 	flickInstance []overlay.FlickInstance
 
 	areasZones []AreaZone
+	// APHELION EDIT ADDITION START - AREA DELTAS
+	areaIndexes map[string]*areaIndex
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	selectionMove           *editing.Move
 	selectionMoveGeneration uint64
@@ -46,6 +49,7 @@ type Editor struct {
 	paste                   *pasteSession
 	// APHELION EDIT ADDITION START - BYTE-BOUNDED EDIT WORK
 	workBudget *resources.Budget
+	localWork  *localWork
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - REPEAT TRANSFORM

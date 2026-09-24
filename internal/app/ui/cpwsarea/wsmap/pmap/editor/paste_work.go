@@ -446,6 +446,69 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 		p.intent = nil
 		return
 	}
+	if local, ok := e.executor.(localEditExecutor); ok && !e.sessionOwned {
+		// All mutation entry points are fenced by localWork, so this model map
+		// remains read-only until preparation has relinquished it to publication.
+		base, payload, policy, visible := e.authoritativeTiles, p.payload, p.policy, p.visible
+		generation := e.attachmentGeneration
+		p.phase = pasteResolving
+		e.retainPasteCommit(p)
+		err := e.startLocalWork(local, true, 1024, func(ctx context.Context, reservation *resources.Reservation) ([]model.TileChange, error) {
+			bytes := uint64(1024)
+			for _, tile := range payload.Tiles {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				coord := model.Coord{X: target.X + tile.Coord.X - 1, Y: target.Y + tile.Coord.Y - 1, Z: target.Z}
+				intent := payload.Intents[util.Point{X: tile.Coord.X - 1, Y: tile.Coord.Y - 1}]
+				writes := false
+				for c, channel := range intent {
+					if policy.Writes(editing.Channel(c), channel) {
+						writes = true
+						bytes = addWorkBytes(bytes, localTileBytes(model.TileState{Prefabs: channel.Data}))
+					}
+				}
+				if writes {
+					bytes = addWorkBytes(bytes, localTileBytes(base[coord]))
+				}
+			}
+			if bytes > ^uint64(0)/8 {
+				bytes = ^uint64(0)
+			} else {
+				bytes *= 8
+			}
+			if err := reservation.Resize(bytes); err != nil {
+				return nil, err
+			}
+			return payload.BuildPlacementChanges(ctx, target, policy, visible, func(coord model.Coord) (model.TileState, bool) { state, ok := base[coord]; return state, ok })
+		}, func(accepted engine.LocalAcceptance, backward []model.TileChange, err error) {
+			defer e.finishPasteCommit(p)
+			if generation != e.attachmentGeneration || e.paste != p {
+				return
+			}
+			if err != nil {
+				p.err = err
+				p.intent = nil
+				p.phase = pasteReady
+				if len(accepted.Changes) > 0 {
+					e.collaborationErr = err
+					e.reportCollaborationError("Unable to display accepted paste", err)
+				}
+				return
+			}
+			if len(accepted.Changes) > 0 {
+				e.pushLocalCommandOwned(local, "Paste Tiles", accepted.Changes, backward, p.selectionOutcome)
+			}
+			e.finishPaste(p, len(accepted.Changes) > 0)
+		})
+		if err != nil {
+			e.finishPasteCommit(p)
+			p.err = err
+			p.intent = nil
+			p.phase = pasteReady
+		}
+		return
+	}
 	changes, err := p.payload.BuildPlacementChanges(context.Background(), target, p.policy, p.visible, func(coord model.Coord) (model.TileState, bool) {
 		state, ok := e.authoritativeTiles[coord]
 		return state, ok
@@ -460,44 +523,6 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 		return
 	}
 	execution, generation := e.executor, e.attachmentGeneration
-	if local, ok := execution.(localEditExecutor); ok && !e.sessionOwned {
-		version, err := local.LocalVersion(context.Background())
-		if err != nil {
-			p.err = err
-			p.intent = nil
-			return
-		}
-		if version.Revision != e.authoritative.Revision {
-			p.err = fmt.Errorf("local authority changed before paste")
-			p.intent = nil
-			return
-		}
-		p.phase = pasteResolving
-		e.retainPasteCommit(p)
-		go func() {
-			accepted, err := local.ApplyLocal(context.Background(), engine.LocalRequest{Version: version, Changes: changes})
-			e.app.RunLater(func() {
-				defer e.finishPasteCommit(p)
-				if generation != e.attachmentGeneration || e.paste != p {
-					return
-				}
-				if err != nil {
-					p.phase = pasteReady
-					p.err = err
-					p.intent = nil
-					return
-				}
-				if err = e.installLocalAcceptance(accepted, true); err != nil {
-					e.collaborationErr = err
-					e.reportCollaborationError("Unable to display accepted paste", err)
-					return
-				}
-				e.pushLocalCommand(local, "Paste Tiles", accepted.Changes, p.selectionOutcome)
-				e.finishPaste(p, true)
-			})
-		}()
-		return
-	}
 	// Session hashing/snapshot work occurs only at the real commit boundary.
 	p.phase = pasteResolving
 	e.retainPasteCommit(p)

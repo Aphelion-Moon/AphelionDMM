@@ -6,7 +6,7 @@ package editor
 // Queries wait for unfinished gestures so previews cannot become action targets
 // or cause a full query rebuild on every drag frame.
 func (e *Editor) MapViewVersion() (generation uint64, ready bool) {
-	return e.mapViewGeneration, !e.mapViewClosed && e.selectionMove == nil && !e.pasteBlocksCommittedView() && len(e.pendingChanges) == 0
+	return e.mapViewGeneration, !e.mapViewClosed && e.localWork == nil && e.selectionMove == nil && !e.pasteBlocksCommittedView() && len(e.pendingChanges) == 0
 }
 
 // CanStartMapEdit rejects new independent actions while another gesture or a
