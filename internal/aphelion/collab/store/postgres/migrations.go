@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	postgresSchemaVersion = 3
+	postgresSchemaVersion = 4
 	migrationLockID       = 0x415048454c494f4e
 )
 
@@ -21,6 +21,9 @@ var hostedRegistrySchema string
 
 //go:embed schema/003_export_checkpoints.sql
 var exportCheckpointsSchema string
+
+//go:embed schema/004_versioned_transactions.sql
+var versionedTransactionsSchema string
 
 func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	transaction, err := pool.Begin(ctx)
@@ -63,6 +66,14 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		if _, err := transaction.Exec(ctx, "INSERT INTO collaboration_schema_migrations(version) VALUES(3)"); err != nil {
 			return fmt.Errorf("record export checkpoints schema: %w", err)
+		}
+	}
+	if version == 0 {
+		if _, err := transaction.Exec(ctx, versionedTransactionsSchema); err != nil {
+			return fmt.Errorf("apply versioned transactions PostgreSQL schema: %w", err)
+		}
+		if _, err := transaction.Exec(ctx, "INSERT INTO collaboration_schema_migrations(version) VALUES(4)"); err != nil {
+			return fmt.Errorf("record versioned transactions PostgreSQL schema: %w", err)
 		}
 	}
 	if err := transaction.Commit(ctx); err != nil {

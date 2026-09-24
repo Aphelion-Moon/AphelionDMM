@@ -36,9 +36,10 @@ type Config struct {
 }
 
 type Store struct {
-	mutex  sync.RWMutex
-	pool   *pgxpool.Pool
-	closed bool
+	mutex         sync.RWMutex
+	pool          *pgxpool.Pool
+	schemaVersion int
+	closed        bool
 }
 
 func Open(ctx context.Context, config Config) (*Store, error) {
@@ -82,7 +83,12 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 		pool.Close()
 		return nil, err
 	}
-	return &Store{pool: pool}, nil
+	var schemaVersion int
+	if err := pool.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM collaboration_schema_migrations").Scan(&schemaVersion); err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("read PostgreSQL schema version: %w", err)
+	}
+	return &Store{pool: pool, schemaVersion: schemaVersion}, nil
 }
 
 func (store *Store) Ready(ctx context.Context) error {
@@ -136,6 +142,10 @@ func (store *Store) Create(ctx context.Context, snapshot model.Snapshot) error {
 }
 
 func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation) error {
+	return store.append(ctx, accepted, nil, false)
+}
+
+func (store *Store) append(ctx context.Context, accepted model.AcceptedOperation, expectedMapHash *string, forceBulk bool) error {
 	store.mutex.RLock()
 	defer store.mutex.RUnlock()
 	if store.closed {
@@ -143,7 +153,7 @@ func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation
 	}
 	var err error
 	for attempt := 0; attempt < maxTransactionAttempts; attempt++ {
-		err = store.appendOnce(ctx, accepted)
+		err = store.appendOnce(ctx, accepted, expectedMapHash, forceBulk)
 		if err == nil || !IsRetryable(err) {
 			return err
 		}
@@ -154,23 +164,23 @@ func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation
 	return fmt.Errorf("append PostgreSQL operation after %d attempts: %w", maxTransactionAttempts, err)
 }
 
-func (store *Store) appendOnce(ctx context.Context, accepted model.AcceptedOperation) error {
+func (store *Store) appendOnce(ctx context.Context, accepted model.AcceptedOperation, expectedMapHash *string, forceBulk bool) error {
 	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
 	if err != nil {
 		return fmt.Errorf("begin PostgreSQL append: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(context.Background()) }()
-	prior, found, err := lookupOperation(ctx, transaction, accepted.DocumentID, accepted.OperationID)
+	prior, priorMapHash, found, err := lookupStoredOperation(ctx, transaction, store.schemaVersion, accepted.DocumentID, accepted.OperationID)
 	if err != nil {
 		return err
 	}
 	if found {
-		if reflect.DeepEqual(prior, accepted) {
+		if prior.Revision == accepted.Revision && (expectedMapHash == nil || priorMapHash == *expectedMapHash) && reflect.DeepEqual(prior, accepted) {
 			return nil
 		}
 		return fmt.Errorf("operation %q conflicts with stored revision %d", accepted.OperationID, prior.Revision)
 	}
-	state, err := loadRecovery(ctx, transaction, accepted.DocumentID, true)
+	state, err := loadRecovery(ctx, transaction, accepted.DocumentID, true, store.schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -192,12 +202,49 @@ func (store *Store) appendOnce(ctx context.Context, accepted model.AcceptedOpera
 	if err != nil {
 		return fmt.Errorf("hash PostgreSQL accepted revision: %w", err)
 	}
-	encoded, err := json.Marshal(accepted)
-	if err != nil {
-		return fmt.Errorf("encode PostgreSQL accepted operation: %w", err)
+	if expectedMapHash != nil && mapHash != *expectedMapHash {
+		return fmt.Errorf("transaction body map hash differs from verified accepted map")
 	}
-	if _, err := transaction.Exec(ctx, `INSERT INTO collaboration_operations(document_id, operation_id, revision, accepted, map_hash) VALUES($1, $2, $3, $4, $5)`, accepted.DocumentID, accepted.OperationID, accepted.Revision, encoded, mapHash); err != nil {
-		return fmt.Errorf("insert PostgreSQL operation: %w", err)
+	transactionVersion, err := readTransactionVersion(ctx, transaction, store.schemaVersion, accepted.DocumentID, false)
+	if err != nil {
+		return err
+	}
+	var encoded []byte
+	inline := false
+	if transactionVersion == collabstore.BulkTransactionVersion && !forceBulk {
+		encoded, inline, err = collabstore.MarshalAcceptedInline(accepted)
+		if err != nil {
+			return err
+		}
+	}
+	if transactionVersion == collabstore.BulkTransactionVersion && !inline {
+		header, headerData, headerErr := collabstore.MarshalAcceptedTransactionHeader(accepted, mapHash)
+		if headerErr != nil {
+			return headerErr
+		}
+		if _, err := transaction.Exec(ctx, `INSERT INTO collaboration_operations(document_id, operation_id, revision, accepted, map_hash, storage_version, change_count) VALUES($1, $2, $3, $4, $5, $6, $7)`, accepted.DocumentID, accepted.OperationID, accepted.Revision, headerData, mapHash, collabstore.BulkTransactionVersion, header.Count); err != nil {
+			return fmt.Errorf("insert PostgreSQL versioned operation header: %w", err)
+		}
+		digest, size, encodeErr := collabstore.EncodeStoredTransaction(ctx, header, accepted.Changes, func(index uint64, data []byte, chunkDigest string) error {
+			_, insertErr := transaction.Exec(ctx, `INSERT INTO collaboration_transaction_chunks(operation_id, chunk_index, data, chunk_digest) VALUES($1, $2, $3, $4)`, accepted.OperationID, int32(index), data, chunkDigest)
+			return insertErr
+		})
+		if encodeErr != nil {
+			return encodeErr
+		}
+		if _, err := transaction.Exec(ctx, `UPDATE collaboration_operations SET body_digest = $3, body_bytes = $4 WHERE document_id = $1 AND operation_id = $2`, accepted.DocumentID, accepted.OperationID, digest, size); err != nil {
+			return fmt.Errorf("finalize PostgreSQL transaction body: %w", err)
+		}
+	} else {
+		if encoded == nil {
+			encoded, err = json.Marshal(accepted)
+			if err != nil {
+				return fmt.Errorf("encode PostgreSQL accepted operation: %w", err)
+			}
+		}
+		if _, err := transaction.Exec(ctx, `INSERT INTO collaboration_operations(document_id, operation_id, revision, accepted, map_hash) VALUES($1, $2, $3, $4, $5)`, accepted.DocumentID, accepted.OperationID, accepted.Revision, encoded, mapHash); err != nil {
+			return fmt.Errorf("insert PostgreSQL operation: %w", err)
+		}
 	}
 	if _, err := transaction.Exec(ctx, `INSERT INTO collaboration_revision_hashes(document_id, revision, map_hash) VALUES($1, $2, $3)`, accepted.DocumentID, accepted.Revision, mapHash); err != nil {
 		return fmt.Errorf("insert PostgreSQL revision hash: %w", err)
@@ -239,7 +286,7 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) e
 		return fmt.Errorf("begin PostgreSQL snapshot: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(context.Background()) }()
-	state, err := loadRecovery(ctx, transaction, snapshot.DocumentID, true)
+	state, err := loadRecovery(ctx, transaction, snapshot.DocumentID, true, store.schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -297,7 +344,7 @@ func (store *Store) LookupOperation(ctx context.Context, documentID model.Docume
 	if store.closed {
 		return model.AcceptedOperation{}, false, collabstore.ErrStoreClosed
 	}
-	accepted, found, err := lookupOperation(ctx, store.pool, documentID, operationID)
+	accepted, _, found, err := lookupStoredOperation(ctx, store.pool, store.schemaVersion, documentID, operationID)
 	if err != nil || found {
 		return accepted, found, err
 	}
@@ -501,19 +548,6 @@ func scanExportCheckpoint(row pgx.Row) (model.ExportCheckpoint, bool, error) {
 		return model.ExportCheckpoint{}, false, fmt.Errorf("validate stored PostgreSQL export checkpoint: %w", err)
 	}
 	return checkpoint, true, nil
-}
-
-func lookupOperation(ctx context.Context, database queryer, documentID model.DocumentID, operationID model.OperationID) (model.AcceptedOperation, bool, error) {
-	var data []byte
-	err := database.QueryRow(ctx, `SELECT accepted FROM collaboration_operations WHERE document_id = $1 AND operation_id = $2`, documentID, operationID).Scan(&data)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return model.AcceptedOperation{}, false, nil
-	}
-	if err != nil {
-		return model.AcceptedOperation{}, false, fmt.Errorf("lookup PostgreSQL operation: %w", err)
-	}
-	accepted, err := decodeAccepted(data)
-	return accepted, true, err
 }
 
 func documentExists(ctx context.Context, database queryer, documentID model.DocumentID) (bool, error) {

@@ -34,6 +34,7 @@ func TestStampNetworkAcceptanceAndRejection(t *testing.T) {
 			if err := e.StartStamp(stamp, false); err != nil {
 				t.Fatal(err)
 			}
+			settlePastePreview(t, ws, app)
 			select {
 			case <-transport.sent:
 				t.Fatal("stamp preview submitted before confirmation")
@@ -52,6 +53,7 @@ func TestStampNetworkAcceptanceAndRejection(t *testing.T) {
 				receiveSelection(t, network, protocol.ServerOperationRejected, protocol.OperationRejectedPayload{OperationID: op.OperationID, Code: "precondition_failed", Message: "forced stamp rejection", Revision: before.Revision, MapHash: resizeHash(t, before)})
 			}
 			runSelectionJob(t, app)
+			settlePastePreview(t, ws, app)
 			e.ProcessCollaborationUpdates()
 			if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, document.Snapshot()) || app.commands.HasUndoV(e.Dmm().Path.Absolute) != accepted {
 				t.Fatal("stamp result diverged from authority or history")
@@ -66,12 +68,14 @@ func TestStampNetworkAcceptanceAndRejection(t *testing.T) {
 			app.commands.UndoV(e.Dmm().Path.Absolute)
 			acceptSelection(t, network, document, transport.next(t))
 			runSelectionJob(t, app)
+			settlePastePreview(t, ws, app)
 			if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) {
 				t.Fatal("network stamp undo changed original contents")
 			}
 			app.commands.RedoV(e.Dmm().Path.Absolute)
 			acceptSelection(t, network, document, transport.next(t))
 			runSelectionJob(t, app)
+			settlePastePreview(t, ws, app)
 			if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, after) {
 				t.Fatal("network stamp redo changed copied identities")
 			}
@@ -113,6 +117,7 @@ func TestStampRoundTripPreviewAndHistory(t *testing.T) {
 	if err := e.StartStamp(loaded, false); err != nil {
 		t.Fatal(err)
 	}
+	settlePastePreview(t, ws, app)
 	if !g.Placing() {
 		t.Fatal("stamp did not start a floating preview")
 	}
@@ -124,13 +129,16 @@ func TestStampRoundTripPreviewAndHistory(t *testing.T) {
 		t.Fatal("stamp reused source identity")
 	}
 	pressSelectionShortcut(glfw.KeyRightBracket)
+	settlePastePreview(t, ws, app)
 	pressSelectionShortcut(glfw.KeyEscape)
+	settlePastePreview(t, ws, app)
 	if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) {
 		t.Fatal("stamp cancellation failed to restore map")
 	}
 	if err := e.StartStamp(loaded, false); err != nil {
 		t.Fatal(err)
 	}
+	settlePastePreview(t, ws, app)
 	secondID := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2].StableID()
 	if secondID == copyID || secondID == i.StableID() {
 		t.Fatal("reused stamp retained pasted identities")
@@ -138,6 +146,7 @@ func TestStampRoundTripPreviewAndHistory(t *testing.T) {
 	if !g.ConfirmPlacement() {
 		t.Fatal("stamp preview did not confirm")
 	}
+	settlePastePreview(t, ws, app)
 	after := resizeSnapshot(t, e)
 	if after.Revision != before.Revision+1 || e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[0].StableID() != hidden {
 		t.Fatal("stamp changed hidden layer or committed more than once")
@@ -181,6 +190,7 @@ func TestStampRejectsBusyOrDifferentEnvironmentAndPreservesHiddenDestination(t *
 	if err := e.StartStamp(stamp, true); err != nil {
 		t.Fatal(err)
 	}
+	settlePastePreview(t, ws, app)
 	count := 0
 	for _, instance := range e.Dmm().GetTile(point).Instances() {
 		if instance.Prefab().Path() == "/obj/foo" {
@@ -200,7 +210,8 @@ func TestStampRejectsBusyOrDifferentEnvironmentAndPreservesHiddenDestination(t *
 		t.Fatal("capture accepted an uncommitted preview")
 	}
 	tools.Selected().(*tools.ToolGrab).CancelPlacement()
-	if !reflect.DeepEqual(e.Dmm(), &before) {
+	settlePastePreview(t, ws, app)
+	if !samePasteDisplay(t, before, e.Dmm()) {
 		t.Fatal("cancelled stamp changed original display")
 	}
 	e.BeginTileChange(point)

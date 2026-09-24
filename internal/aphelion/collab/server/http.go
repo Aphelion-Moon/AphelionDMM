@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"sdmm/internal/aphelion/collab/auth"
+	"sdmm/internal/aphelion/collab/bulktransport"
 	"sdmm/internal/aphelion/collab/compat"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
@@ -31,6 +32,9 @@ const (
 )
 
 type ServiceConfig struct {
+	BulkSpoolBytes                int64
+	BulkWorkingBytes              int64
+	BulkSpoolDirectory            string
 	Store                         SessionStore
 	Document                      DocumentConfig
 	Limits                        Limits
@@ -97,6 +101,7 @@ type desktopAuthHandoff struct {
 }
 
 type Service struct {
+	bulk              *bulktransport.Codec
 	config            ServiceConfig
 	context           context.Context
 	cancel            context.CancelFunc
@@ -120,6 +125,12 @@ type Service struct {
 }
 
 func NewService(config ServiceConfig) *Service {
+	if config.BulkSpoolBytes <= 0 {
+		config.BulkSpoolBytes = bulktransport.DefaultSpoolBytes
+	}
+	if config.BulkWorkingBytes <= 0 {
+		config.BulkWorkingBytes = bulktransport.DefaultWorkingBytes
+	}
 	if config.LaunchTokenTTL <= 0 {
 		config.LaunchTokenTTL = 2 * time.Minute
 	}
@@ -156,6 +167,7 @@ func NewService(config ServiceConfig) *Service {
 		config.Document.Telemetry = config.Telemetry
 	}
 	service := &Service{
+		bulk:              bulktransport.NewWithWorkingBudget(config.BulkSpoolDirectory, config.BulkSpoolBytes, config.BulkWorkingBytes),
 		config:            config,
 		context:           serviceContext,
 		cancel:            cancel,
@@ -331,6 +343,7 @@ func (service *Service) handleCreateSession(writer http.ResponseWriter, request 
 	var body struct {
 		Snapshot    model.Snapshot `json:"snapshot"`
 		DisplayName string         `json:"display_name,omitempty"`
+		BulkEdits   bool           `json:"bulk_edits,omitempty"`
 	}
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
@@ -364,8 +377,13 @@ func (service *Service) handleCreateSession(writer http.ResponseWriter, request 
 		writeError(writer, http.StatusUnauthorized, "unauthorized", "invalid or redeemed launch token")
 		return
 	}
-	owner, err := startOrRecoverDocument(service.context, body.Snapshot, service.store, service.documentConfig)
+	documentConfig := service.documentConfig
+	documentConfig.BulkEdits = body.BulkEdits || documentConfig.BulkEdits
+	owner, err := startOrRecoverDocument(service.context, body.Snapshot, service.store, documentConfig)
 	if err != nil {
+		if writeTransactionUpgradeError(writer, err) {
+			return
+		}
 		var recoveryError *RecoveryError
 		if errors.As(err, &recoveryError) {
 			service.setDocumentRecoveryError(recoveryError.DocumentID, recoveryError)

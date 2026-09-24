@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 //go:embed schema/001_initial.sql
 var initialSchema string
@@ -18,6 +18,9 @@ var revisionHashesSchema string
 //go:embed schema/003_export_checkpoints.sql
 var exportCheckpointsSchema string
 
+//go:embed schema/004_versioned_transactions.sql
+var versionedTransactionsSchema string
+
 func migrate(ctx context.Context, database *sql.DB) error {
 	var version int
 	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
@@ -26,6 +29,7 @@ func migrate(ctx context.Context, database *sql.DB) error {
 	if version > schemaVersion {
 		return fmt.Errorf("database schema version is %d, maximum supported is %d", version, schemaVersion)
 	}
+	newDatabase := version == 0
 	transaction, err := database.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin schema migration: %w", err)
@@ -44,6 +48,13 @@ func migrate(ctx context.Context, database *sql.DB) error {
 	if version < 3 {
 		if _, err := transaction.ExecContext(ctx, exportCheckpointsSchema); err != nil {
 			return fmt.Errorf("apply export checkpoints schema: %w", err)
+		}
+	}
+	// Existing databases remain on the legacy V1 representation until an
+	// explicit staged upgrade. A fresh database can safely start at V4.
+	if newDatabase {
+		if _, err := transaction.ExecContext(ctx, versionedTransactionsSchema); err != nil {
+			return fmt.Errorf("apply versioned transactions schema: %w", err)
 		}
 	}
 	if err := transaction.Commit(); err != nil {

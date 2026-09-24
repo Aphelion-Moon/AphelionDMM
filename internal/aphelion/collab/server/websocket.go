@@ -12,11 +12,13 @@ import (
 
 	"github.com/coder/websocket"
 
+	"sdmm/internal/aphelion/collab/bulktransport"
 	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 	collabstore "sdmm/internal/aphelion/collab/store"
 	collabtelemetry "sdmm/internal/aphelion/collab/telemetry"
+	"sdmm/internal/aphelion/collab/transaction"
 )
 
 const webSocketIOTimeout = 5 * time.Second
@@ -26,7 +28,7 @@ func (service *Service) handleWebSocket(writer http.ResponseWriter, request *htt
 		writeError(writer, http.StatusForbidden, "origin_rejected", "WebSocket origin is not allowed")
 		return
 	}
-	if !headerContains(request.Header.Values("Sec-WebSocket-Protocol"), WebSocketSubprotocol) {
+	if !headerContains(request.Header.Values("Sec-WebSocket-Protocol"), WebSocketSubprotocol) && !headerContains(request.Header.Values("Sec-WebSocket-Protocol"), protocol.BulkSubprotocol) {
 		writeError(writer, http.StatusBadRequest, "protocol_required", "WebSocket protocol version is required")
 		return
 	}
@@ -59,7 +61,7 @@ func (service *Service) handleWebSocket(writer http.ResponseWriter, request *htt
 	defer service.releaseConnection()
 
 	connection, err := websocket.Accept(writer, request, &websocket.AcceptOptions{
-		Subprotocols:    []string{WebSocketSubprotocol},
+		Subprotocols:    []string{protocol.BulkSubprotocol, WebSocketSubprotocol},
 		CompressionMode: websocket.CompressionDisabled,
 		// Origin was matched exactly against the configured allowlist before the upgrade.
 		InsecureSkipVerify: true,
@@ -129,7 +131,14 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		_ = connection.Close(websocket.StatusPolicyViolation, "session unavailable")
 		return fmt.Errorf("load joined session: unavailable")
 	}
-	durable, cancelDurable, err := service.hub.SubscribeDurable(auth.sessionID, service.limits.DurableQueueDepth)
+	if session.owner.bulkEdits {
+		if connection.Subprotocol() != protocol.BulkSubprotocol {
+			_ = connection.Close(websocket.StatusPolicyViolation, "bulk-edit-v2 required")
+			return fmt.Errorf("session requires bulk-edit-v2")
+		}
+		parent = context.WithValue(parent, bulkContextKey{}, bulkConnection{codec: service.bulk, canUpload: auth.principal.CanEdit()})
+	}
+	durable, cancelDurable, err := session.owner.subscribeSharedDurable(service.limits.DurableQueueDepth)
 	if err != nil {
 		return fmt.Errorf("subscribe durable operations: %w", err)
 	}
@@ -165,73 +174,93 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		MessageID:       "joined-" + decoded.Envelope.MessageID,
 		SessionID:       auth.sessionID,
 		Type:            protocol.ServerJoined,
-	}, protocol.JoinedPayload{DocumentID: snapshot.DocumentID, ActorID: auth.principal.ActorID(), Role: string(auth.principal.Role()), Revision: snapshot.Revision, MapHash: mapHash, PresenceIntervalMS: uint32(service.config.PresenceInterval / time.Millisecond), ResumptionToken: resumptionToken, ResumptionTokenExpiresAt: resumptionTokenExpiresAt}); err != nil {
+	}, protocol.JoinedPayload{BulkEdits: session.owner.bulkEdits, DocumentID: snapshot.DocumentID, ActorID: auth.principal.ActorID(), Role: string(auth.principal.Role()), Revision: snapshot.Revision, MapHash: mapHash, PresenceIntervalMS: uint32(service.config.PresenceInterval / time.Millisecond), ResumptionToken: resumptionToken, ResumptionTokenExpiresAt: resumptionTokenExpiresAt}); err != nil {
 		return fmt.Errorf("write joined message: %w", err)
 	}
-	loadContext := parent
-	finishLoad := func(error) {}
-	if service.telemetry != nil {
-		loadContext, finishLoad = service.telemetry.Store(parent, collabtelemetry.StoreLoad)
-	}
-	var retainedSnapshot model.Snapshot
-	var replay []model.AcceptedOperation
-	var replayHashes map[model.Revision]string
-	batchedReplay, hasBatchedReplay := service.store.(collabstore.ReplayStore)
-	if hasBatchedReplay {
-		retainedSnapshot, replay, replayHashes, err = batchedReplay.LoadReplay(loadContext, snapshot.DocumentID)
-	} else {
-		retainedSnapshot, replay, err = service.store.Load(loadContext, snapshot.DocumentID)
-	}
-	finishLoad(err)
-	if err != nil {
-		return fmt.Errorf("load reconnect replay: %w", err)
-	}
-	if join.AcknowledgedRevision < retainedSnapshot.Revision {
-		if err := writeServerEnvelope(parent, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "snapshot-required-" + decoded.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerSessionNotice}, protocol.SessionNoticePayload{Code: protocol.NoticeSnapshotRequired, Message: "authoritative snapshot is required before replay"}); err != nil {
-			return fmt.Errorf("write snapshot-required notice: %w", err)
+	if pages, ok := service.store.(collabstore.ReplayPageStore); ok {
+		replayContext := parent
+		finishReplay := func(error) {}
+		if service.telemetry != nil {
+			count := 0
+			if snapshot.Revision >= join.AcknowledgedRevision {
+				count = int(snapshot.Revision - join.AcknowledgedRevision)
+			}
+			replayContext, finishReplay = service.telemetry.Replay(parent, count)
 		}
-		_ = connection.Close(websocket.StatusServiceRestart, "snapshot required")
-		return nil
-	}
-	replayCount := 0
-	for _, accepted := range replay {
-		if accepted.Revision > join.AcknowledgedRevision && accepted.Revision <= snapshot.Revision {
-			replayCount++
+		err := service.writePagedReplay(replayContext, connection, pages, auth.sessionID, snapshot, join.AcknowledgedRevision, mapHash, decoded.Envelope.MessageID)
+		finishReplay(err)
+		if errors.Is(err, errReplayNeedsSnapshot) {
+			return nil
 		}
-	}
-	replayContext := parent
-	finishReplay := func(error) {}
-	if service.telemetry != nil {
-		replayContext, finishReplay = service.telemetry.Replay(parent, replayCount)
-	}
-	for _, accepted := range replay {
-		if accepted.Revision <= join.AcknowledgedRevision || accepted.Revision > snapshot.Revision {
-			continue
-		}
-		acceptedHash, found := replayHashes[accepted.Revision]
-		var hashErr error
-		if !hasBatchedReplay {
-			acceptedHash, found, hashErr = service.store.RevisionHash(replayContext, snapshot.DocumentID, accepted.Revision)
-		}
-		if hashErr != nil {
-			finishReplay(hashErr)
-			return fmt.Errorf("load replay hash at revision %d: %w", accepted.Revision, hashErr)
-		}
-		if !found {
-			err := fmt.Errorf("replay hash at revision %d is not retained", accepted.Revision)
-			finishReplay(err)
+		if err != nil {
 			return err
 		}
-		if err := writeServerEnvelope(replayContext, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "replay-" + string(accepted.OperationID), SessionID: auth.sessionID, Type: protocol.ServerOperationAccepted}, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: acceptedHash}); err != nil {
-			finishReplay(err)
-			return fmt.Errorf("write replay operation: %w", err)
+	} else {
+		loadContext := parent
+		finishLoad := func(error) {}
+		if service.telemetry != nil {
+			loadContext, finishLoad = service.telemetry.Store(parent, collabtelemetry.StoreLoad)
 		}
+		var retainedSnapshot model.Snapshot
+		var replay []model.AcceptedOperation
+		var replayHashes map[model.Revision]string
+		batchedReplay, hasBatchedReplay := service.store.(collabstore.ReplayStore)
+		if hasBatchedReplay {
+			retainedSnapshot, replay, replayHashes, err = batchedReplay.LoadReplay(loadContext, snapshot.DocumentID)
+		} else {
+			retainedSnapshot, replay, err = service.store.Load(loadContext, snapshot.DocumentID)
+		}
+		finishLoad(err)
+		if err != nil {
+			return fmt.Errorf("load reconnect replay: %w", err)
+		}
+		if join.AcknowledgedRevision < retainedSnapshot.Revision {
+			if err := writeServerEnvelope(parent, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "snapshot-required-" + decoded.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerSessionNotice}, protocol.SessionNoticePayload{Code: protocol.NoticeSnapshotRequired, Message: "authoritative snapshot is required before replay"}); err != nil {
+				return fmt.Errorf("write snapshot-required notice: %w", err)
+			}
+			_ = connection.Close(websocket.StatusServiceRestart, "snapshot required")
+			return nil
+		}
+		replayCount := 0
+		for _, accepted := range replay {
+			if accepted.Revision > join.AcknowledgedRevision && accepted.Revision <= snapshot.Revision {
+				replayCount++
+			}
+		}
+		replayContext := parent
+		finishReplay := func(error) {}
+		if service.telemetry != nil {
+			replayContext, finishReplay = service.telemetry.Replay(parent, replayCount)
+		}
+		for _, accepted := range replay {
+			if accepted.Revision <= join.AcknowledgedRevision || accepted.Revision > snapshot.Revision {
+				continue
+			}
+			acceptedHash, found := replayHashes[accepted.Revision]
+			var hashErr error
+			if !hasBatchedReplay {
+				acceptedHash, found, hashErr = service.store.RevisionHash(replayContext, snapshot.DocumentID, accepted.Revision)
+			}
+			if hashErr != nil {
+				finishReplay(hashErr)
+				return fmt.Errorf("load replay hash at revision %d: %w", accepted.Revision, hashErr)
+			}
+			if !found {
+				err := fmt.Errorf("replay hash at revision %d is not retained", accepted.Revision)
+				finishReplay(err)
+				return err
+			}
+			if err := writeServerEnvelope(replayContext, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "replay-" + string(accepted.OperationID), SessionID: auth.sessionID, Type: protocol.ServerOperationAccepted}, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: acceptedHash}); err != nil {
+				finishReplay(err)
+				return fmt.Errorf("write replay operation: %w", err)
+			}
+		}
+		if err := writeServerEnvelope(replayContext, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "replay-complete-" + decoded.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerReplayComplete}, protocol.ReplayCompletePayload{Revision: snapshot.Revision, MapHash: mapHash}); err != nil {
+			finishReplay(err)
+			return fmt.Errorf("write replay completion: %w", err)
+		}
+		finishReplay(nil)
 	}
-	if err := writeServerEnvelope(replayContext, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "replay-complete-" + decoded.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerReplayComplete}, protocol.ReplayCompletePayload{Revision: snapshot.Revision, MapHash: mapHash}); err != nil {
-		finishReplay(err)
-		return fmt.Errorf("write replay completion: %w", err)
-	}
-	finishReplay(nil)
 	participants := make([]protocol.ParticipantPresence, 0, len(presenceSnapshot))
 	for _, presence := range presenceSnapshot {
 		participants = append(participants, protocol.ParticipantPresence{ActorID: presence.ActorID, DisplayName: presence.DisplayName, Sequence: presence.Sequence, Cursor: presence.Cursor, Selection: presence.Selection, Status: presence.Status})
@@ -240,9 +269,15 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		return fmt.Errorf("write presence snapshot: %w", err)
 	}
 
-	incoming := make(chan protocol.DecodedClient)
+	incoming := make(chan incomingMessage)
 	readErrors := make(chan error, 1)
-	go readClientMessages(parent, connection, auth.sessionID, incoming, readErrors)
+	go func() {
+		readClientMessages(parent, connection, auth.sessionID, incoming, readErrors)
+		// A handler may be validating an edit while the reader observes EOF.
+		// Cancel it immediately rather than waiting for the handler's next select.
+		// Append reconciliation still uses its separate post-commit context.
+		cancelConnection()
+	}()
 	var reauthorization <-chan time.Time
 	var reauthorizationTicker *time.Ticker
 	if auth.hosted {
@@ -251,7 +286,8 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		reauthorization = reauthorizationTicker.C
 	}
 	sentRevision := snapshot.Revision
-	writeAccepted := func(accepted model.AcceptedOperation) error {
+	writeAccepted := func(event *durableEvent) error {
+		accepted := event.accepted
 		if accepted.Revision <= sentRevision {
 			return nil
 		}
@@ -323,11 +359,14 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 			if auth.hosted {
 				auth, err = service.reauthorizeHosted(parent, auth.hostedCredential, auth.sessionID)
 				if err != nil {
+					message.release()
 					_ = connection.Close(websocket.StatusPolicyViolation, "session authorization revoked")
 					return fmt.Errorf("reauthorize hosted message: %w", err)
 				}
 			}
-			if err := service.handleClientMessage(parent, connection, session, auth, message, flushThrough); err != nil {
+			err := service.handleClientMessage(parent, connection, session, auth, message.decoded, flushThrough)
+			message.release()
+			if err != nil {
 				return err
 			}
 		}
@@ -339,27 +378,57 @@ func (service *Service) validateJoinCompatibility(snapshot model.Snapshot) error
 	return err
 }
 
-func readClientMessages(ctx context.Context, connection *websocket.Conn, sessionID string, messages chan<- protocol.DecodedClient, readErrors chan<- error) {
+type incomingMessage struct {
+	decoded protocol.DecodedClient
+	release func()
+}
+
+func readClientMessages(ctx context.Context, connection *websocket.Conn, sessionID string, messages chan<- incomingMessage, readErrors chan<- error) {
 	for {
 		readContext, cancel := context.WithTimeout(ctx, 2*webSocketIOTimeout)
-		_, data, err := connection.Read(readContext)
+		kind, data, err := connection.Read(readContext)
 		cancel()
 		if err != nil {
 			readErrors <- err
 			return
 		}
-		message, err := protocol.DecodeClient(data)
+		var message protocol.DecodedClient
+		release := func() {}
+		if kind == websocket.MessageBinary {
+			codec := bulkCodec(ctx)
+			if codec == nil || !bulkUploadAllowed(ctx) {
+				err = fmt.Errorf("unnegotiated bulk submission")
+			} else {
+				h, op, lease, readErr := codec.ReadAdmitted(ctx, connection, data, 2*webSocketIOTimeout)
+				if lease != nil {
+					release = lease
+				}
+				err = readErr
+				if err == nil {
+					message, err = bulktransport.Submission(h, op)
+				}
+			}
+		} else {
+			message, err = protocol.DecodeClientForSession(data, bulkCodec(ctx) != nil)
+		}
 		if err != nil || message.Envelope.SessionID != sessionID {
+			release()
 			if err == nil {
 				err = fmt.Errorf("message session id does not match authenticated session")
 			}
-			_ = connection.Close(websocket.StatusPolicyViolation, "invalid client message")
+			var admission *transaction.AdmissionError
+			if errors.As(err, &admission) {
+				_ = connection.Close(websocket.StatusTryAgainLater, admission.Error())
+			} else {
+				_ = connection.Close(websocket.StatusPolicyViolation, "invalid client message")
+			}
 			readErrors <- err
 			return
 		}
 		select {
-		case messages <- message:
+		case messages <- incomingMessage{decoded: message, release: release}:
 		case <-ctx.Done():
+			release()
 			return
 		}
 	}
@@ -393,7 +462,7 @@ func (service *Service) handleClientMessage(ctx context.Context, connection *web
 		return nil
 	case protocol.ClientOperationSubmit:
 		submission := message.Payload.(*protocol.OperationSubmitPayload)
-		if len(submission.Operation.Changes) > service.limits.MaxOperationChanges {
+		if !session.owner.bulkEdits && len(submission.Operation.Changes) > service.limits.MaxOperationChanges {
 			current, snapshotErr := session.owner.Snapshot(ctx)
 			if snapshotErr != nil {
 				return fmt.Errorf("load limit rejection snapshot: %w", snapshotErr)
@@ -456,6 +525,13 @@ func (service *Service) handleClientMessage(ctx context.Context, connection *web
 		_, err := service.hub.Inverse(operationContext, auth.sessionID, auth.principal, inverse.OperationID)
 		finishOperation(err)
 		if err != nil {
+			var admission *transaction.AdmissionError
+			if errors.As(err, &admission) {
+				// Do not materialize the rejected inverse's target or a full
+				// conflict snapshot after working-memory admission has failed.
+				_ = connection.Close(websocket.StatusTryAgainLater, admission.Error())
+				return err
+			}
 			current, snapshotErr := session.owner.Snapshot(ctx)
 			if snapshotErr != nil {
 				return fmt.Errorf("load inverse rejection snapshot: %w", snapshotErr)
@@ -527,6 +603,30 @@ func headerContains(values []string, target string) bool {
 }
 
 func writeServerEnvelope(ctx context.Context, connection *websocket.Conn, envelope protocol.ServerEnvelope, payload any) error {
+	// Preserve a small JSON fast path; large transactions use streamed frames.
+	if codec := bulkCodec(ctx); codec != nil && envelope.Type == protocol.ServerOperationAccepted {
+		accepted, ok := payload.(protocol.OperationAcceptedPayload)
+		if !ok {
+			return fmt.Errorf("invalid bulk acceptance payload")
+		}
+		if len(envelope.MessageID) > protocol.MaxIdentifierBytes {
+			envelope.MessageID = fmt.Sprintf("response-%x", sha256.Sum256([]byte(envelope.MessageID)))
+		}
+		if len(accepted.Operation.Changes) > 64 {
+			return codec.Write(ctx, connection, bulktransport.AcceptanceHeader(envelope, accepted), accepted.Operation.Changes, webSocketIOTimeout)
+		}
+		data, err := marshalServerEnvelope(envelope, accepted)
+		if err != nil {
+			return err
+		}
+		if len(data) > protocol.MaxMessageBytes {
+			return codec.Write(ctx, connection, bulktransport.AcceptanceHeader(envelope, accepted), accepted.Operation.Changes, webSocketIOTimeout)
+		}
+	}
+	if rejection, ok := payload.(protocol.OperationRejectedPayload); ok && len(rejection.AuthoritativeValues) > protocol.MaxOperationChanges {
+		rejection.AuthoritativeValues = nil
+		payload = rejection
+	}
 	data, err := marshalServerEnvelope(envelope, payload)
 	if err != nil {
 		return err

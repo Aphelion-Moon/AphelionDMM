@@ -1,12 +1,69 @@
 package engine
 
 import (
+	"context"
 	"fmt"
+	"math"
 
 	"sdmm/internal/aphelion/collab/model"
 )
 
+// InverseWorkingBytes estimates transient inverse copies, validation, indexes
+// and publication before any operation-sized allocation. It does not account
+// for retained history, which is already resident. Call under document ownership.
+func (document *Document) InverseWorkingBytes(ctx context.Context, actor model.ActorID, targetID model.OperationID) (int64, error) {
+	target, exists := document.accepted[targetID]
+	if !exists {
+		return 0, document.reject(CodeOperationNotFound, fmt.Errorf("target operation %q was not accepted", targetID))
+	}
+	if target.ActorID != actor {
+		return 0, document.reject(CodeActorMismatch, fmt.Errorf("target operation belongs to actor %q", target.ActorID))
+	}
+	// Eight copies is deliberately conservative for detached mutable results
+	// and the owner/store/publication bridges. This is admission, not a heap meter.
+	const copies int64 = 8
+	bytes := int64(1 << 20)
+	add := func(count, size int64) bool {
+		if count < 0 || size < 0 || count > (math.MaxInt64/copies-bytes)/size {
+			return false
+		}
+		bytes += count * size
+		return true
+	}
+	if !add(int64(len(document.snapshot.Tiles)), 384) || !add(int64(len(document.accepted)), 256) {
+		return 0, fmt.Errorf("inverse working-memory estimate exceeds addressable capacity")
+	}
+	for _, change := range target.Changes {
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+		if !add(1, 512) {
+			return 0, fmt.Errorf("inverse working-memory estimate exceeds addressable capacity")
+		}
+		for _, state := range []model.TileState{change.Before, change.After} {
+			for _, prefab := range state.Prefabs {
+				if !add(1, 512) || !add(int64(len(prefab.Path)), 1) {
+					return 0, fmt.Errorf("inverse working-memory estimate exceeds addressable capacity")
+				}
+				for name, raw := range prefab.Vars {
+					if !add(1, 128) || !add(int64(len(name)), 1) || !add(int64(len(raw)), 1) {
+						return 0, fmt.Errorf("inverse working-memory estimate exceeds addressable capacity")
+					}
+				}
+			}
+		}
+	}
+	return bytes * copies, nil
+}
+
 func (document *Document) BuildInverse(actor model.ActorID, targetID model.OperationID, inverseID model.OperationID) (model.Operation, error) {
+	return document.BuildInverseContext(context.Background(), actor, targetID, inverseID)
+}
+
+func (document *Document) BuildInverseContext(ctx context.Context, actor model.ActorID, targetID model.OperationID, inverseID model.OperationID) (model.Operation, error) {
+	if err := ctx.Err(); err != nil {
+		return model.Operation{}, err
+	}
 	if err := actor.Validate(); err != nil {
 		return model.Operation{}, document.reject(CodeInvalidOperation, err)
 	}
@@ -30,9 +87,17 @@ func (document *Document) BuildInverse(actor model.ActorID, targetID model.Opera
 	changes := make([]model.TileChange, len(target.Changes))
 	tileIndexes := make(map[model.Coord]int, len(document.snapshot.Tiles))
 	for index, tile := range document.snapshot.Tiles {
+		if index&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return model.Operation{}, err
+			}
+		}
 		tileIndexes[tile.Coord] = index
 	}
 	for index, targetChange := range target.Changes {
+		if err := ctx.Err(); err != nil {
+			return model.Operation{}, err
+		}
 		currentIndex, exists := tileIndexes[targetChange.Coord]
 		current := model.TileState{}
 		if exists {
@@ -63,7 +128,7 @@ func (document *Document) BuildInverse(actor model.ActorID, targetID model.Opera
 	}, nil
 }
 
-func (document *Document) validateInverse(operation model.Operation) error {
+func (document *Document) validateInverseContext(ctx context.Context, operation model.Operation) error {
 	if operation.Kind != model.OperationKindInverse {
 		return nil
 	}
@@ -87,6 +152,9 @@ func (document *Document) validateInverse(operation model.Operation) error {
 		return document.reject(CodeInvalidOperation, fmt.Errorf("inverse change count is %d, want %d", len(operation.Changes), len(target.Changes)))
 	}
 	for index, change := range operation.Changes {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		targetChange := target.Changes[index]
 		if change.Coord != targetChange.Coord || !change.Before.Equal(targetChange.After) || !change.After.Equal(targetChange.Before) {
 			return document.reject(CodeInvalidOperation, fmt.Errorf("inverse change %d does not exactly reverse target", index))

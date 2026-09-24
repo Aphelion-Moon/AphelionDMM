@@ -215,7 +215,8 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 	}
 	request.Body = http.MaxBytesReader(writer, request.Body, service.limits.MaxSnapshotBodyBytes)
 	var body struct {
-		Snapshot model.Snapshot `json:"snapshot"`
+		Snapshot  model.Snapshot `json:"snapshot"`
+		BulkEdits bool           `json:"bulk_edits,omitempty"`
 	}
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
@@ -234,8 +235,13 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		writeError(writer, http.StatusInternalServerError, "internal", "identity initialization failed")
 		return
 	}
-	owner, err := startOrRecoverDocument(service.context, body.Snapshot, service.store, service.documentConfig)
+	documentConfig := service.documentConfig
+	documentConfig.BulkEdits = body.BulkEdits || documentConfig.BulkEdits
+	owner, err := startOrRecoverDocument(service.context, body.Snapshot, service.store, documentConfig)
 	if err != nil {
+		if writeTransactionUpgradeError(writer, err) {
+			return
+		}
 		var recoveryError *RecoveryError
 		if errors.As(err, &recoveryError) {
 			service.setDocumentRecoveryError(recoveryError.DocumentID, recoveryError)

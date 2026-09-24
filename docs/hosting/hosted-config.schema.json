@@ -36,7 +36,9 @@
       "required": ["max_connections", "max_operation_changes", "max_websocket_message_bytes", "max_http_body_bytes", "max_snapshot_body_bytes"],
       "properties": {
         "max_connections": { "type": "integer", "minimum": 1 },
-        "max_operation_changes": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "max_operation_changes": { "type": "integer", "minimum": 1, "maximum": 4096, "description": "Legacy JSON session limit; negotiated bulk sessions use byte admission instead." },
+        "bulk_spool_bytes": { "type": "integer", "minimum": 0, "description": "Shared bulk transaction spool budget in bytes. Zero selects the 512 MiB default." },
+        "bulk_working_bytes": { "type": "integer", "minimum": 0, "description": "Shared bulk transaction working-memory admission budget in bytes. Zero selects the 2 GiB default." },
         "max_websocket_message_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
         "max_http_body_bytes": { "type": "integer", "minimum": 1, "maximum": 1048576 },
         "max_snapshot_body_bytes": { "type": "integer", "minimum": 1, "maximum": 268435456 }

@@ -105,13 +105,18 @@ func (network *NetworkExecutor) Execute(ctx context.Context, operation model.Ope
 	network.publishLocked()
 	network.mutex.Unlock()
 
-	payload, err := json.Marshal(protocol.OperationSubmitPayload{Operation: operation})
-	if err != nil {
-		network.failPending(operation.OperationID, err)
-		return model.AcceptedOperation{}, err
+	if sender, ok := transport.(interface {
+		SendOperation(context.Context, string, model.Operation) error
+	}); ok {
+		err = sender.SendOperation(ctx, network.sessionID, operation)
+	} else {
+		var payload []byte
+		payload, err = json.Marshal(protocol.OperationSubmitPayload{Operation: operation})
+		if err == nil {
+			err = transport.Send(ctx, protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: string(operation.OperationID), SessionID: network.sessionID, Type: protocol.ClientOperationSubmit, Payload: payload})
+		}
 	}
-	envelope := protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: string(operation.OperationID), SessionID: network.sessionID, Type: protocol.ClientOperationSubmit, Payload: payload}
-	if err := transport.Send(ctx, envelope); err != nil {
+	if err != nil {
 		network.failPending(operation.OperationID, err)
 		return model.AcceptedOperation{}, err
 	}
@@ -162,8 +167,12 @@ func (network *NetworkExecutor) BuildInverse(ctx context.Context, targetID model
 		return model.Operation{}, err
 	}
 	changes := make([]model.TileChange, len(target.Changes))
+	states := indexTileStates(network.projection.Acknowledged)
 	for index, targetChange := range target.Changes {
-		current := tileStateAt(network.projection.Acknowledged, targetChange.Coord)
+		if err := ctx.Err(); err != nil {
+			return model.Operation{}, err
+		}
+		current := states[targetChange.Coord]
 		if !current.Equal(targetChange.After) {
 			return model.Operation{}, fmt.Errorf("accepted operation is no longer safely reversible at (%d,%d,%d)", targetChange.Coord.X, targetChange.Coord.Y, targetChange.Coord.Z)
 		}
@@ -354,14 +363,18 @@ func (network *NetworkExecutor) BuildConflictRebuild(ctx context.Context, operat
 		return model.Operation{}, err
 	}
 	changes := make([]model.TileChange, 0, len(conflict.Draft.Changes))
+	states := indexTileStates(network.projection.Acknowledged)
 	for _, draftChange := range conflict.Draft.Changes {
-		current := tileStateAt(network.projection.Acknowledged, draftChange.Coord)
+		if err := ctx.Err(); err != nil {
+			return model.Operation{}, err
+		}
+		current := states[draftChange.Coord]
 		if current.Equal(draftChange.After) {
 			continue
 		}
 		changes = append(changes, model.TileChange{
 			Coord:  draftChange.Coord,
-			Before: current,
+			Before: model.CloneTileState(current),
 			After:  model.CloneTileState(draftChange.After),
 		})
 	}
@@ -401,12 +414,7 @@ func (network *NetworkExecutor) Terminate(cause error) {
 }
 
 func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error {
-	data, err := json.Marshal(envelope)
-	if err != nil {
-		network.failAll(err)
-		return err
-	}
-	decoded, err := protocol.DecodeServer(data)
+	decoded, err := protocol.DecodeServerEnvelope(envelope)
 	if err != nil {
 		decodeErr := fmt.Errorf("decode network executor message: %w", err)
 		network.failAll(decodeErr)
@@ -564,11 +572,11 @@ func (network *NetworkExecutor) publishLocked() {
 	}
 }
 
-func tileStateAt(snapshot model.Snapshot, coord model.Coord) model.TileState {
+// Borrowed under the executor mutex; results are cloned before escaping.
+func indexTileStates(snapshot model.Snapshot) map[model.Coord]model.TileState {
+	states := make(map[model.Coord]model.TileState, len(snapshot.Tiles))
 	for _, tile := range snapshot.Tiles {
-		if tile.Coord == coord {
-			return model.CloneTileState(tile.State)
-		}
+		states[tile.Coord] = tile.State
 	}
-	return model.TileState{}
+	return states
 }

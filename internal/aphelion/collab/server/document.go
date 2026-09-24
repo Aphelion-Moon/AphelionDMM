@@ -12,10 +12,7 @@ import (
 	collabtelemetry "sdmm/internal/aphelion/collab/telemetry"
 )
 
-const (
-	documentRequestQueueSize  = 256
-	appendReconciliationLimit = 5 * time.Second
-)
+const documentRequestQueueSize = 256
 
 var ErrDocumentClosed = errors.New("document owner is closed")
 
@@ -28,12 +25,14 @@ const (
 )
 
 type request struct {
+	context   context.Context
 	kind      requestKind
 	operation model.Operation
 	actorID   model.ActorID
 	targetID  model.OperationID
 	inverseID model.OperationID
 	response  chan response
+	admit     func(int64) (func(), error)
 }
 
 type response struct {
@@ -41,9 +40,11 @@ type response struct {
 	snapshot  model.Snapshot
 	duplicate bool
 	err       error
+	release   func()
 }
 
 type DocumentOwner struct {
+	bulkEdits          bool
 	requests           chan request
 	done               chan struct{}
 	cancel             context.CancelFunc
@@ -51,6 +52,7 @@ type DocumentOwner struct {
 	snapshots          sync.WaitGroup
 	durableMutex       sync.Mutex
 	durableSubscribers map[uint64]chan model.AcceptedOperation
+	sharedSubscribers  map[uint64]chan *durableEvent
 	nextSubscriberID   uint64
 	durableClosed      bool
 }
@@ -77,15 +79,20 @@ func StartDocumentWithConfig(ctx context.Context, snapshot model.Snapshot, store
 		return nil, fmt.Errorf("create stored session: %w", err)
 	}
 	finishStore(nil)
+	config, err = configureDocumentTransactions(ctx, store, snapshot.DocumentID, config)
+	if err != nil {
+		return nil, err
+	}
 	return startDocument(ctx, document, store, config), nil
 }
 
 func startDocument(ctx context.Context, document *engine.Document, store SessionStore, config DocumentConfig) *DocumentOwner {
 	runContext, cancel := context.WithCancel(ctx)
 	owner := &DocumentOwner{
-		requests: make(chan request, documentRequestQueueSize),
-		done:     make(chan struct{}),
-		cancel:   cancel,
+		bulkEdits: config.BulkEdits,
+		requests:  make(chan request, documentRequestQueueSize),
+		done:      make(chan struct{}),
+		cancel:    cancel,
 	}
 	go owner.run(runContext, document, store, config)
 	return owner
@@ -111,6 +118,11 @@ func (owner *DocumentOwner) BuildInverse(ctx context.Context, actorID model.Acto
 	return result.accepted.Operation, err
 }
 
+func (owner *DocumentOwner) buildInverseAdmitted(ctx context.Context, actorID model.ActorID, targetID, inverseID model.OperationID, admit func(int64) (func(), error)) (model.Operation, func(), error) {
+	result, err := owner.request(ctx, request{kind: requestBuildInverse, actorID: actorID, targetID: targetID, inverseID: inverseID, admit: admit})
+	return result.accepted.Operation, result.release, err
+}
+
 func (owner *DocumentOwner) Close(ctx context.Context) error {
 	owner.closeOnce.Do(owner.cancel)
 	select {
@@ -123,6 +135,10 @@ func (owner *DocumentOwner) Close(ctx context.Context) error {
 }
 
 func (owner *DocumentOwner) request(ctx context.Context, value request) (response, error) {
+	if err := ctx.Err(); err != nil {
+		return response{}, err
+	}
+	value.context = ctx
 	value.response = make(chan response, 1)
 	select {
 	case owner.requests <- value:
@@ -130,6 +146,25 @@ func (owner *DocumentOwner) request(ctx context.Context, value request) (respons
 		return response{}, ErrDocumentClosed
 	case <-ctx.Done():
 		return response{}, ctx.Err()
+	}
+	if value.kind == requestSubmit || value.kind == requestBuildInverse {
+		// An enqueued submission owns its caller's admission lease until the
+		// document worker finishes. Cancellation still reaches validation and
+		// append, but an ambiguous commit must finish reconciliation before
+		// the caller releases memory that the worker is still using.
+		select {
+		case result := <-value.response:
+			return result, result.err
+		case <-owner.done:
+			// A completed inverse may own a lease. Transfer its response even
+			// when shutdown races with completion, so its caller can release it.
+			select {
+			case result := <-value.response:
+				return result, result.err
+			default:
+			}
+			return response{}, ErrDocumentClosed
+		}
 	}
 	select {
 	case result := <-value.response:
@@ -182,7 +217,14 @@ func (owner *DocumentOwner) run(ctx context.Context, document *engine.Document, 
 		case request := <-owner.requests:
 			switch request.kind {
 			case requestSubmit:
-				accepted, err := submit(ctx, document, store, request.operation, config.Telemetry)
+				submitCtx, cancel := context.WithCancel(request.context)
+				stop := context.AfterFunc(ctx, cancel)
+				if ctx.Err() != nil {
+					cancel()
+				}
+				accepted, err := submit(submitCtx, document, store, request.operation, config)
+				stop()
+				cancel()
 				if err == nil {
 					document = accepted.document
 					if !accepted.duplicate {
@@ -197,8 +239,23 @@ func (owner *DocumentOwner) run(ctx context.Context, document *engine.Document, 
 			case requestSnapshot:
 				request.response <- response{snapshot: document.Snapshot()}
 			case requestBuildInverse:
-				operation, err := document.BuildInverse(request.actorID, request.targetID, request.inverseID)
-				request.response <- response{accepted: model.AcceptedOperation{Operation: operation}, err: err}
+				var release func()
+				if request.admit != nil {
+					bytes, err := document.InverseWorkingBytes(request.context, request.actorID, request.targetID)
+					if err == nil {
+						release, err = request.admit(bytes)
+					}
+					if err != nil {
+						request.response <- response{err: err}
+						continue
+					}
+				}
+				operation, err := document.BuildInverseContext(request.context, request.actorID, request.targetID, request.inverseID)
+				if err != nil && release != nil {
+					release()
+					release = nil
+				}
+				request.response <- response{accepted: model.AcceptedOperation{Operation: operation}, release: release, err: err}
 			default:
 				request.response <- response{err: fmt.Errorf("unsupported document request %d", request.kind)}
 			}
@@ -236,7 +293,8 @@ type submitResult struct {
 	duplicate bool
 }
 
-func submit(ctx context.Context, document *engine.Document, store SessionStore, operation model.Operation, observability *collabtelemetry.Telemetry) (submitResult, error) {
+func submit(ctx context.Context, document *engine.Document, store SessionStore, operation model.Operation, config DocumentConfig) (submitResult, error) {
+	observability := config.Telemetry
 	prior, exists, err := store.LookupOperation(ctx, operation.DocumentID, operation.OperationID)
 	if err != nil {
 		return submitResult{}, err
@@ -249,11 +307,11 @@ func submit(ctx context.Context, document *engine.Document, store SessionStore, 
 		return submitResult{operation: prior, document: reconciled, duplicate: true}, nil
 	}
 	candidate := document.Clone()
-	accepted, err := candidate.Apply(operation, time.Now().UTC())
+	accepted, err := candidate.ApplyContext(ctx, operation, time.Now().UTC())
 	if err != nil {
 		return submitResult{}, err
 	}
-	if err := validateOperationDelivery(accepted); err != nil {
+	if err := validateDocumentDelivery(accepted, config.BulkEdits); err != nil {
 		return submitResult{}, err
 	}
 	storeContext := ctx
@@ -263,7 +321,7 @@ func submit(ctx context.Context, document *engine.Document, store SessionStore, 
 	}
 	if appendErr := store.Append(storeContext, accepted); appendErr != nil {
 		finishStore(appendErr)
-		reconciliationContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), appendReconciliationLimit)
+		reconciliationContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), config.reconciliationTimeout())
 		defer cancel()
 		prior, exists, lookupErr := store.LookupOperation(reconciliationContext, operation.DocumentID, operation.OperationID)
 		if lookupErr != nil {

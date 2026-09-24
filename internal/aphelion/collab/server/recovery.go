@@ -61,6 +61,10 @@ func RecoverDocumentWithConfig(ctx context.Context, documentID model.DocumentID,
 	if err != nil {
 		return nil, err
 	}
+	config, err = configureDocumentTransactions(ctx, store, documentID, config)
+	if err != nil {
+		return nil, err
+	}
 	return startDocument(ctx, document, store, config), nil
 }
 

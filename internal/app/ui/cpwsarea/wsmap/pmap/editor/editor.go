@@ -3,6 +3,9 @@ package editor
 import (
 	"sdmm/internal/aphelion/collab/executor"
 	"sdmm/internal/aphelion/collab/model"
+	// APHELION EDIT ADDITION START - BYTE-BOUNDED EDIT WORK
+	"sdmm/internal/aphelion/resources"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	"sdmm/internal/aphelion/editing"
 	// APHELION EDIT ADDITION END
@@ -40,6 +43,10 @@ type Editor struct {
 	selectionMove           *editing.Move
 	selectionMoveGeneration uint64
 	selectionOutcome        func(bool)
+	paste                   *pasteSession
+	// APHELION EDIT ADDITION START - BYTE-BOUNDED EDIT WORK
+	workBudget *resources.Budget
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - REPEAT TRANSFORM
 	repeatTransforms editing.TransformRepeat
@@ -130,6 +137,9 @@ func New(app app, attachedMap attachedMap, dmm *dmmap.Dmm) *Editor {
 		app:  app,
 		pMap: attachedMap,
 		dmm:  dmm,
+		// APHELION EDIT ADDITION START - BYTE-BOUNDED EDIT WORK
+		workBudget: resources.DefaultBudget(),
+		// APHELION EDIT ADDITION END
 	}
 	// APHELION EDIT ADDITION START - COLLABORATION
 	e.history = app.CommandStorage().Bind(dmm.Path.Absolute)

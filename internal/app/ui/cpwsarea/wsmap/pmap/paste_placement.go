@@ -24,6 +24,9 @@ func (p *PaneMap) showPastePlacementControls() {
 		return
 	}
 	w.TextWrapped("Paste: move the cursor; [ / ] rotate, H / V mirror. Click or Enter places; Esc cancels.").Build()
+	if progress := p.editor.PastePlacementProgress(); progress != "" {
+		w.TextWrapped(progress).Build()
+	}
 	if err := g.PlacementError(); err != nil {
 		w.TextWrapped(err.Error()).Build()
 	}

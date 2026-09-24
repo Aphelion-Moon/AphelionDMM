@@ -2,14 +2,16 @@ package model
 
 import (
 	"reflect"
+	"slices"
 	"sort"
 )
 
 // SameOperation compares submitted intent independent of tile ordering and
 // empty collection representations. All identity and precondition fields count.
 func SameOperation(left, right Operation) bool {
-	left, right = CloneOperation(left), CloneOperation(right)
-	leftChanges, rightChanges := left.Changes, right.Changes
+	// Only tile ordering changes below. Before/after payloads stay borrowed and
+	// read-only, avoiding two full copies of a potentially whole-level edit.
+	leftChanges, rightChanges := slices.Clone(left.Changes), slices.Clone(right.Changes)
 	left.Changes, right.Changes = nil, nil
 	if !reflect.DeepEqual(left, right) || len(leftChanges) != len(rightChanges) {
 		return false

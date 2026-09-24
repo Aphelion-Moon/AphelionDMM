@@ -14,32 +14,48 @@ import (
 
 	"github.com/coder/websocket"
 
+	"sdmm/internal/aphelion/collab/bulktransport"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
+	"sdmm/internal/aphelion/collab/transaction"
 )
 
 const collaborationSubprotocol = "apheliondmm.collaboration.v1"
+const transportKeepaliveNonce = "aphelion-transport-keepalive"
 
 var ErrTransportNotConnected = errors.New("collaboration transport is not connected")
 
 type TransportConfig struct {
-	DurableQueueSize int
-	DialTimeout      time.Duration
-	WriteTimeout     time.Duration
+	BulkSpoolBytes     int64
+	BulkWorkingBytes   int64
+	BulkSpoolDirectory string
+	DurableQueueSize   int
+	DialTimeout        time.Duration
+	WriteTimeout       time.Duration
+	KeepaliveInterval  time.Duration
 }
 
 type WebSocketTransport struct {
-	config TransportConfig
+	config      TransportConfig
+	bulk        *bulktransport.Codec
+	bulkEnabled bool
 
 	mutex       sync.RWMutex
 	connection  *websocket.Conn
 	cancel      context.CancelFunc
 	durable     chan protocol.ClientEnvelope
+	bulkWrites  chan bulkWrite
 	presence    chan protocol.ClientEnvelope
 	done        chan struct{}
 	terminalErr error
 	presenceMu  sync.Mutex
 	errorOnce   sync.Once
+}
+
+type bulkWrite struct {
+	context context.Context
+	body    *transaction.Body
+	result  chan error
 }
 
 func NewWebSocketTransport(config TransportConfig) *WebSocketTransport {
@@ -52,7 +68,16 @@ func NewWebSocketTransport(config TransportConfig) *WebSocketTransport {
 	if config.WriteTimeout <= 0 {
 		config.WriteTimeout = 5 * time.Second
 	}
-	return &WebSocketTransport{config: config}
+	if config.KeepaliveInterval <= 0 {
+		config.KeepaliveInterval = 3 * time.Second
+	}
+	if config.BulkSpoolBytes <= 0 {
+		config.BulkSpoolBytes = bulktransport.DefaultSpoolBytes
+	}
+	if config.BulkWorkingBytes <= 0 {
+		config.BulkWorkingBytes = bulktransport.DefaultWorkingBytes
+	}
+	return &WebSocketTransport{config: config, bulk: bulktransport.NewWithWorkingBudget(config.BulkSpoolDirectory, config.BulkSpoolBytes, config.BulkWorkingBytes)}
 }
 
 func (transport *WebSocketTransport) Connect(ctx context.Context, request protocol.JoinRequest, receive func(protocol.ServerEnvelope)) error {
@@ -76,7 +101,7 @@ func (transport *WebSocketTransport) Connect(ctx context.Context, request protoc
 	dialContext, cancelDial := context.WithTimeout(ctx, transport.config.DialTimeout)
 	connection, response, err := websocket.Dial(dialContext, websocketURL, &websocket.DialOptions{
 		HTTPHeader:   http.Header{"Authorization": []string{"Bearer " + request.Token}, "Origin": []string{request.Origin}},
-		Subprotocols: []string{collaborationSubprotocol},
+		Subprotocols: []string{protocol.BulkSubprotocol, collaborationSubprotocol},
 	})
 	cancelDial()
 	if err != nil {
@@ -97,6 +122,7 @@ func (transport *WebSocketTransport) Connect(ctx context.Context, request protoc
 	transport.connection = connection
 	transport.cancel = cancelConnection
 	transport.durable = make(chan protocol.ClientEnvelope, transport.config.DurableQueueSize)
+	transport.bulkWrites = make(chan bulkWrite)
 	transport.presence = make(chan protocol.ClientEnvelope, 1)
 	transport.done = make(chan struct{})
 	transport.mutex.Unlock()
@@ -122,7 +148,7 @@ func (transport *WebSocketTransport) Connect(ctx context.Context, request protoc
 	}()
 	go func() {
 		defer workers.Done()
-		transport.writeLoop(connectionContext, connection)
+		transport.writeLoop(connectionContext, connection, request.SessionID)
 	}()
 	go func() {
 		workers.Wait()
@@ -136,12 +162,14 @@ func (transport *WebSocketTransport) Connect(ctx context.Context, request protoc
 }
 
 func (transport *WebSocketTransport) Send(ctx context.Context, message protocol.ClientEnvelope) error {
-	data, err := json.Marshal(message)
-	if err != nil {
+	transport.mutex.RLock()
+	message.BulkSession = transport.bulkEnabled
+	transport.mutex.RUnlock()
+	if _, err := protocol.DecodeClientEnvelope(message); err != nil {
 		return err
 	}
-	if _, err := protocol.DecodeClient(data); err != nil {
-		return err
+	if message.BulkOperation != nil {
+		return transport.SendOperation(ctx, message.SessionID, *message.BulkOperation)
 	}
 	transport.mutex.RLock()
 	durable, presence, done := transport.durable, transport.presence, transport.done
@@ -209,26 +237,82 @@ func (transport *WebSocketTransport) Wait(ctx context.Context) error {
 
 func (transport *WebSocketTransport) readLoop(ctx context.Context, connection *websocket.Conn, receive func(protocol.ServerEnvelope)) {
 	for {
-		_, data, err := connection.Read(ctx)
+		kind, data, err := connection.Read(ctx)
 		if err != nil {
 			transport.finish(err)
 			return
 		}
-		decoded, err := protocol.DecodeServer(data)
+		var decoded protocol.DecodedServer
+		release := func() {}
+		if kind == websocket.MessageBinary {
+			transport.mutex.RLock()
+			enabled := transport.bulkEnabled
+			transport.mutex.RUnlock()
+			if !enabled {
+				transport.finish(fmt.Errorf("unnegotiated bulk acceptance"))
+				return
+			}
+			h, op, lease, readErr := transport.bulk.ReadAdmitted(ctx, connection, data, transport.config.WriteTimeout)
+			if lease != nil {
+				release = lease
+			}
+			err = readErr
+			if err == nil {
+				decoded, err = bulktransport.Acceptance(h, op)
+			}
+		} else {
+			transport.mutex.RLock()
+			enabled := transport.bulkEnabled
+			transport.mutex.RUnlock()
+			decoded, err = protocol.DecodeServerForSession(data, enabled)
+		}
 		if err != nil {
+			release()
 			transport.finish(fmt.Errorf("decode server envelope: %w", err))
 			return
 		}
-		receive(decoded.Envelope)
+		if joined, ok := decoded.Payload.(*protocol.JoinedPayload); ok {
+			if joined.BulkEdits && connection.Subprotocol() != protocol.BulkSubprotocol {
+				transport.finish(ErrIncompatibleProtocol)
+				return
+			}
+			transport.mutex.Lock()
+			transport.bulkEnabled = joined.BulkEdits
+			transport.mutex.Unlock()
+		}
+		if pong, ok := decoded.Payload.(*protocol.PongPayload); !ok || decoded.Envelope.Type != protocol.ServerPong || pong.Nonce != transportKeepaliveNonce {
+			receive(decoded.Envelope)
+		}
+		release()
 	}
 }
 
-func (transport *WebSocketTransport) writeLoop(ctx context.Context, connection *websocket.Conn) {
+func (transport *WebSocketTransport) writeLoop(ctx context.Context, connection *websocket.Conn, sessionID string) {
+	keepalive := time.NewTicker(transport.config.KeepaliveInterval)
+	defer keepalive.Stop()
+	payload, _ := json.Marshal(protocol.PingPayload{Nonce: transportKeepaliveNonce})
+	heartbeat := protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "transport-keepalive", SessionID: sessionID, Type: protocol.ClientPing, Payload: payload}
 	for {
 		select {
 		case <-ctx.Done():
 			transport.finish(ctx.Err())
 			return
+		case request := <-transport.bulkWrites:
+			// Whole bodies stay contiguous; a heartbeat never splits their frames.
+			writeCtx, cancel := context.WithCancel(request.context)
+			stop := context.AfterFunc(ctx, cancel)
+			if ctx.Err() != nil {
+				cancel()
+			}
+			err := transport.bulk.WriteBody(writeCtx, connection, request.body, transport.config.WriteTimeout)
+			stop()
+			cancel()
+			_ = request.body.Close()
+			request.result <- err
+			if err != nil {
+				transport.finish(err)
+				return
+			}
 		case message := <-transport.durable:
 			if err := transport.write(ctx, connection, message); err != nil {
 				transport.finish(err)
@@ -239,11 +323,19 @@ func (transport *WebSocketTransport) writeLoop(ctx context.Context, connection *
 				transport.finish(err)
 				return
 			}
+		case <-keepalive.C:
+			if err := transport.write(ctx, connection, heartbeat); err != nil {
+				transport.finish(err)
+				return
+			}
 		}
 	}
 }
 
 func (transport *WebSocketTransport) write(ctx context.Context, connection *websocket.Conn, message protocol.ClientEnvelope) error {
+	if message.BulkOperation != nil {
+		return transport.bulk.Write(ctx, connection, bulktransport.SubmissionHeader(message), message.BulkOperation.Changes, transport.config.WriteTimeout)
+	}
 	data, err := json.Marshal(message)
 	if err != nil {
 		return err
@@ -251,6 +343,59 @@ func (transport *WebSocketTransport) write(ctx context.Context, connection *webs
 	writeContext, cancel := context.WithTimeout(ctx, transport.config.WriteTimeout)
 	defer cancel()
 	return connection.Write(writeContext, websocket.MessageText, data)
+}
+
+// SendOperation preserves the legacy wire contract unless the joined session
+// explicitly requires bulk-edit-v2. Queue ownership is detached from the caller.
+func (transport *WebSocketTransport) SendOperation(ctx context.Context, sessionID string, operation model.Operation) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	transport.mutex.RLock()
+	enabled := transport.bulkEnabled
+	writes, done := transport.bulkWrites, transport.done
+	transport.mutex.RUnlock()
+	envelope := protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: string(operation.OperationID), SessionID: sessionID, Type: protocol.ClientOperationSubmit}
+	if !enabled || len(operation.Changes) <= 64 {
+		data, err := json.Marshal(protocol.OperationSubmitPayload{Operation: operation})
+		if err != nil {
+			return err
+		}
+		envelope.Payload = data
+		if !enabled || len(data)+1024 <= protocol.MaxMessageBytes {
+			return transport.Send(ctx, envelope)
+		}
+	}
+	if writes == nil || done == nil {
+		return ErrTransportNotConnected
+	}
+	envelope.Payload = nil
+	envelope.BulkOperation = &operation
+	if _, err := protocol.DecodeClientEnvelope(envelope); err != nil {
+		return err
+	}
+	body, err := transport.bulk.Prepare(ctx, bulktransport.SubmissionHeader(envelope), operation.Changes)
+	if err != nil {
+		return err
+	}
+	request := bulkWrite{context: ctx, body: body, result: make(chan error, 1)}
+	select {
+	case writes <- request: // Writer now owns body cleanup, including cancellation.
+	case <-ctx.Done():
+		_ = body.Close()
+		return ctx.Err()
+	case <-done:
+		_ = body.Close()
+		return transport.result()
+	}
+	select {
+	case err := <-request.result:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-done:
+		return transport.result()
+	}
 }
 
 func (transport *WebSocketTransport) finish(err error) {

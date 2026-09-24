@@ -41,7 +41,7 @@ func (local *Local) Execute(ctx context.Context, operation model.Operation) (mod
 		return model.AcceptedOperation{}, err
 	}
 	operation.ActorID = local.actor
-	return local.document.Apply(operation, local.now().UTC())
+	return local.document.ApplyContext(ctx, operation, local.now().UTC())
 }
 
 func (local *Local) BuildInverse(ctx context.Context, target model.OperationID) (model.Operation, error) {
@@ -57,7 +57,7 @@ func (local *Local) BuildInverse(ctx context.Context, target model.OperationID) 
 	if err != nil {
 		return model.Operation{}, fmt.Errorf("build local inverse: %w", err)
 	}
-	return local.document.BuildInverse(local.actor, target, inverseID)
+	return local.document.BuildInverseContext(ctx, local.actor, target, inverseID)
 }
 
 func (local *Local) Snapshot(ctx context.Context) (model.Snapshot, error) {

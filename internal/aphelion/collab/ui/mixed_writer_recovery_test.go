@@ -79,7 +79,10 @@ func TestSlowWritersRecoverAfterInitialOfferWindow(t *testing.T) {
 
 func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshotFallback, slowConsumer bool, holdUntilOffers int32) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	// This is a convergence/fault fixture, not a latency benchmark. Race
+	// instrumentation and SQLite history verification can exceed twenty seconds
+	// on a supported workstation; keep the workload and exact outcome checks.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	scenario, err := loadscenario.GenerateConcurrent(loadscenario.ConcurrentConfig{Config: loadscenario.Config{
 		Seed: 20260920, Clients: 1, Operations: 800, MaxX: 832, MaxY: 1, TargetOperationsPerSecond: 40,
@@ -247,9 +250,16 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 			gate.armed.Store(true)
 			waitWriterSignal(t, ctx, gate.blocked)
 		}
-		// Count from both blocked writes. Twelve further accepted events exceed
-		// each eight-entry durable queue even with an event held by its writer.
-		blockedRevision := owner.Status().Revision
+		// The owner's UI projection can lag durable SQLite state. Use a fresh
+		// authoritative server snapshot so backlog accumulated before this test
+		// observes both blocked writes does not count toward queue overflow.
+		blockedSnapshot, err := owner.fetchSnapshot(ctx, invitation)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Twelve further accepted events exceed each eight-entry durable queue
+		// even with an event held by its writer.
+		blockedRevision := blockedSnapshot.Revision
 		waitWriterCondition(t, ctx, func() bool { return owner.Status().Revision >= blockedRevision+12 })
 		for _, gate := range gates {
 			gate.unblock()

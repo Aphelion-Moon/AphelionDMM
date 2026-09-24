@@ -7,10 +7,24 @@ import (
 )
 
 type DocumentConfig struct {
-	SnapshotOperationThreshold int
-	SnapshotInterval           time.Duration
-	OnSnapshotError            func(error)
-	Telemetry                  *collabtelemetry.Telemetry
+	BulkEdits bool
+	// AppendReconciliationTimeout bounds resolving an ambiguous durable append
+	// independently of the caller's upload or connection lifetime.
+	AppendReconciliationTimeout time.Duration
+	SnapshotOperationThreshold  int
+	SnapshotInterval            time.Duration
+	OnSnapshotError             func(error)
+	Telemetry                   *collabtelemetry.Telemetry
+}
+
+func (config DocumentConfig) reconciliationTimeout() time.Duration {
+	if config.AppendReconciliationTimeout > 0 {
+		return config.AppendReconciliationTimeout
+	}
+	if config.BulkEdits {
+		return 2 * time.Minute
+	}
+	return 5 * time.Second
 }
 
 type EmbeddedConfig struct {

@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"sort"
@@ -9,6 +10,8 @@ import (
 	"sdmm/internal/aphelion/collab/model"
 )
 
+// MaxTileChanges is the legacy v1 transport count, retained for legacy-session
+// adapters. The operation engine is bounded by the document's valid coordinates.
 const MaxTileChanges = 4096
 
 type Document struct {
@@ -39,15 +42,28 @@ func NewDocument(snapshot model.Snapshot) (*Document, error) {
 }
 
 func (document *Document) Apply(operation model.Operation, acceptedAt time.Time) (model.AcceptedOperation, error) {
+	return document.ApplyContext(context.Background(), operation, acceptedAt)
+}
+
+func (document *Document) ApplyContext(ctx context.Context, operation model.Operation, acceptedAt time.Time) (model.AcceptedOperation, error) {
+	if err := ctx.Err(); err != nil {
+		return model.AcceptedOperation{}, err
+	}
 	if operation.DocumentID != document.snapshot.DocumentID {
 		return model.AcceptedOperation{}, document.reject(CodeWrongDocument, fmt.Errorf("document id is %q, want %q", operation.DocumentID, document.snapshot.DocumentID))
 	}
 	if accepted, exists := document.accepted[operation.OperationID]; exists {
+		if !model.SameOperation(accepted.Operation, operation) {
+			return model.AcceptedOperation{}, document.reject(CodeInvalidOperation, fmt.Errorf("operation identity already names different content"))
+		}
 		return model.CloneAcceptedOperation(accepted), nil
 	}
 
-	normalized, candidate, candidateHash, err := document.validate(operation)
+	normalized, candidate, candidateHash, err := document.validateContext(ctx, operation)
 	if err != nil {
+		return model.AcceptedOperation{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return model.AcceptedOperation{}, err
 	}
 
@@ -60,7 +76,9 @@ func (document *Document) Apply(operation model.Operation, acceptedAt time.Time)
 	document.snapshot = candidate
 	document.mapHash = candidateHash
 	document.hashes[candidate.Revision] = candidateHash
-	document.accepted[accepted.OperationID] = model.CloneAcceptedOperation(accepted)
+	// normalized was detached during validation and never escapes without a
+	// clone. History and candidate tiles may therefore share immutable payloads.
+	document.accepted[accepted.OperationID] = accepted
 	if accepted.InverseOf != nil {
 		document.inverted[*accepted.InverseOf] = accepted.OperationID
 	}
@@ -92,6 +110,10 @@ func (document *Document) Clone() *Document {
 }
 
 func (document *Document) validate(operation model.Operation) (model.Operation, model.Snapshot, string, error) {
+	return document.validateContext(context.Background(), operation)
+}
+
+func (document *Document) validateContext(ctx context.Context, operation model.Operation) (model.Operation, model.Snapshot, string, error) {
 	if operation.ProtocolVersion != model.ProtocolVersion {
 		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("protocol version is %d, want %d", operation.ProtocolVersion, model.ProtocolVersion))
 	}
@@ -128,11 +150,15 @@ func (document *Document) validate(operation model.Operation) (model.Operation, 
 	if operation.Kind == model.OperationKindTileChange && operation.InverseOf != nil {
 		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("forward tile change cannot name inverse target"))
 	}
-	if len(operation.Changes) == 0 || len(operation.Changes) > MaxTileChanges {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("tile change count is %d, want 1 through %d", len(operation.Changes), MaxTileChanges))
+	cellCount, err := document.snapshot.CellCount()
+	if err != nil || len(operation.Changes) == 0 || len(operation.Changes) > cellCount {
+		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("tile change count is %d, want 1 through document cell count %d", len(operation.Changes), cellCount))
 	}
 
-	normalized := model.CloneOperation(operation)
+	normalized, err := cloneOperationContext(ctx, operation)
+	if err != nil {
+		return model.Operation{}, model.Snapshot{}, "", err
+	}
 	sort.Slice(normalized.Changes, func(left int, right int) bool {
 		if normalized.Changes[left].Coord.Z != normalized.Changes[right].Coord.Z {
 			return normalized.Changes[left].Coord.Z < normalized.Changes[right].Coord.Z
@@ -142,7 +168,7 @@ func (document *Document) validate(operation model.Operation) (model.Operation, 
 		}
 		return normalized.Changes[left].Coord.X < normalized.Changes[right].Coord.X
 	})
-	if err := document.validateInverse(normalized); err != nil {
+	if err := document.validateInverseContext(ctx, normalized); err != nil {
 		return model.Operation{}, model.Snapshot{}, "", err
 	}
 
@@ -154,6 +180,9 @@ func (document *Document) validate(operation model.Operation) (model.Operation, 
 	}
 	seen := make(map[model.Coord]struct{}, len(normalized.Changes))
 	for _, change := range normalized.Changes {
+		if err := ctx.Err(); err != nil {
+			return model.Operation{}, model.Snapshot{}, "", err
+		}
 		if _, exists := seen[change.Coord]; exists {
 			return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("duplicate change coordinate (%d,%d,%d)", change.Coord.X, change.Coord.Y, change.Coord.Z))
 		}
@@ -171,10 +200,10 @@ func (document *Document) validate(operation model.Operation) (model.Operation, 
 			return model.Operation{}, model.Snapshot{}, "", document.reject(CodePreconditionFailed, fmt.Errorf("tile precondition failed at (%d,%d,%d)", change.Coord.X, change.Coord.Y, change.Coord.Z))
 		}
 		if exists {
-			candidate.Tiles[index].State = model.CloneTileState(change.After)
+			candidate.Tiles[index].State = change.After
 		} else {
 			tileIndexes[change.Coord] = len(candidate.Tiles)
-			candidate.Tiles = append(candidate.Tiles, model.Tile{Coord: change.Coord, State: model.CloneTileState(change.After)})
+			candidate.Tiles = append(candidate.Tiles, model.Tile{Coord: change.Coord, State: change.After})
 		}
 	}
 
@@ -183,6 +212,22 @@ func (document *Document) validate(operation model.Operation) (model.Operation, 
 		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("validate resulting map: %w", err))
 	}
 	return normalized, candidate, candidateHash, nil
+}
+
+func cloneOperationContext(ctx context.Context, source model.Operation) (model.Operation, error) {
+	owned := source
+	if source.InverseOf != nil {
+		id := *source.InverseOf
+		owned.InverseOf = &id
+	}
+	owned.Changes = make([]model.TileChange, len(source.Changes))
+	for i, change := range source.Changes {
+		if err := ctx.Err(); err != nil {
+			return model.Operation{}, err
+		}
+		owned.Changes[i] = model.TileChange{Coord: change.Coord, Before: model.CloneTileState(change.Before), After: model.CloneTileState(change.After)}
+	}
+	return owned, nil
 }
 
 func (document *Document) reject(code Code, cause error) *Rejection {

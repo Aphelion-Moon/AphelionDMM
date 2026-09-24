@@ -44,6 +44,22 @@ func TestLoadHostedConfigAcceptsStrictValidConfiguration(t *testing.T) {
 	}
 }
 
+func TestHostedBulkResourceBudgetsAreOperatorConfigured(t *testing.T) {
+	data := strings.Replace(validHostedYAML, "limits:\n", "limits:\n  bulk_spool_bytes: 1073741824\n  bulk_working_bytes: 4294967296\n", 1)
+	config, err := LoadHostedConfig(strings.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.Limits.BulkSpoolBytes != 1<<30 || config.Limits.BulkWorkingBytes != 4<<30 {
+		t.Fatal("bulk budget configuration was lost")
+	}
+	for _, field := range []string{"bulk_spool_bytes", "bulk_working_bytes"} {
+		if _, err := LoadHostedConfig(strings.NewReader(strings.Replace(validHostedYAML, "limits:\n", "limits:\n  "+field+": -1\n", 1))); err == nil {
+			t.Fatal("negative resource budget accepted")
+		}
+	}
+}
+
 func TestLoadHostedConfigRequiresHTTPSOIDCRedirectURL(t *testing.T) {
 	tests := []string{
 		strings.Replace(validHostedYAML, "  redirect_url: \"https://maps.example.test/v1/auth/complete\"\n", "", 1),

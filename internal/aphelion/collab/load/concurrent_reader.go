@@ -23,12 +23,12 @@ type concurrentPeer struct {
 func readConcurrentPeer(ctx context.Context, peerIndex int, peers []*concurrentPeer, metrics *concurrentMeasurements, notify chan<- struct{}) error {
 	projection := client.NewProjection(metrics.scenario.Initial)
 	for {
-		_, data, err := peers[peerIndex].connection.Read(ctx)
+		kind, data, err := peers[peerIndex].connection.Read(ctx)
 		received := time.Now() // Network receipt precedes decoding and client application.
 		if err != nil {
 			return err
 		}
-		message, err := protocol.DecodeServer(data)
+		message, err := decodeLoadEnvelope(ctx, peers[peerIndex].connection, kind, data)
 		if err != nil {
 			return err
 		}

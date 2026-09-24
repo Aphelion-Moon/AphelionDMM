@@ -187,7 +187,8 @@ func TestDocumentApplyReturnsOriginalResultForDuplicate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Apply() error = %v", err)
 	}
-	operation.Changes = nil
+	// Only an exact retry is idempotent. Altered content with the same ID is
+	// covered by TestWholeLevelAlteredRetryRejected.
 	second, err := document.Apply(operation, time.Unix(2, 0))
 	if err != nil {
 		t.Fatalf("duplicate Apply() error = %v", err)

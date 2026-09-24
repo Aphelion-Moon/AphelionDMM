@@ -54,7 +54,7 @@ func (state State) Check(path string) error {
 	if err != nil {
 		return fmt.Errorf("open save destination %q: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	fileInfo, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("inspect open save destination %q: %w", path, err)
@@ -102,7 +102,7 @@ func Capture(path string) (State, error) {
 	if err != nil {
 		return State{}, fmt.Errorf("open destination %q: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	reader := NewReader(file)
 	if _, err := io.Copy(io.Discard, reader); err != nil {
 		return State{}, fmt.Errorf("read destination %q: %w", path, err)

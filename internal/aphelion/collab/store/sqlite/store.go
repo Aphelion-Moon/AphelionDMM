@@ -24,11 +24,12 @@ import (
 const minimumSQLiteVersion = "3.51.3"
 
 type Store struct {
-	mutex    sync.RWMutex
-	database *sql.DB
-	version  string
-	closed   bool
-	recovery recoveryCache
+	mutex         sync.RWMutex
+	database      *sql.DB
+	version       string
+	schemaVersion int
+	closed        bool
+	recovery      recoveryCache
 }
 
 func Open(path string) (*Store, error) {
@@ -69,7 +70,12 @@ func Open(path string) (*Store, error) {
 		_ = database.Close()
 		return nil, err
 	}
-	return &Store{database: database, version: version}, nil
+	var schemaVersion int
+	if err := database.QueryRowContext(ctx, "PRAGMA user_version").Scan(&schemaVersion); err != nil {
+		_ = database.Close()
+		return nil, fmt.Errorf("read SQLite schema version: %w", err)
+	}
+	return &Store{database: database, version: version, schemaVersion: schemaVersion}, nil
 }
 
 func (store *Store) Version() string {
@@ -124,6 +130,10 @@ func (store *Store) Create(ctx context.Context, snapshot model.Snapshot) error {
 }
 
 func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation) error {
+	return store.append(ctx, accepted, nil, false)
+}
+
+func (store *Store) append(ctx context.Context, accepted model.AcceptedOperation, expectedMapHash *string, forceBulk bool) error {
 	store.mutex.RLock()
 	defer store.mutex.RUnlock()
 	if store.closed {
@@ -138,13 +148,27 @@ func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation
 	}
 	defer func() { _ = transaction.Rollback() }()
 	var priorData []byte
-	err = transaction.QueryRowContext(ctx, "SELECT accepted FROM operations WHERE document_id = ? AND operation_id = ?", accepted.DocumentID, accepted.OperationID).Scan(&priorData)
+	var priorRevision model.Revision
+	var priorVersion = collabstore.LegacyTransactionVersion
+	var priorDigest, priorMapHash sql.NullString
+	var priorBodyBytes, priorChangeCount sql.NullInt64
+	if store.schemaVersion >= 4 {
+		err = transaction.QueryRowContext(ctx, "SELECT accepted, revision, storage_version, body_digest, body_bytes, change_count, map_hash FROM operations WHERE document_id = ? AND operation_id = ?", accepted.DocumentID, accepted.OperationID).Scan(&priorData, &priorRevision, &priorVersion, &priorDigest, &priorBodyBytes, &priorChangeCount, &priorMapHash)
+	} else {
+		err = transaction.QueryRowContext(ctx, "SELECT accepted, revision FROM operations WHERE document_id = ? AND operation_id = ?", accepted.DocumentID, accepted.OperationID).Scan(&priorData, &priorRevision)
+	}
 	if err == nil {
-		prior, decodeErr := decodeAccepted(priorData)
+		var prior model.AcceptedOperation
+		var decodeErr error
+		if store.schemaVersion >= 4 {
+			prior, decodeErr = readStoredAccepted(ctx, transaction, accepted.DocumentID, accepted.OperationID, priorRevision, priorMapHash.String, priorData, priorVersion, priorDigest, priorBodyBytes, priorChangeCount)
+		} else {
+			prior, decodeErr = decodeAccepted(priorData)
+		}
 		if decodeErr != nil {
 			return decodeErr
 		}
-		if !reflect.DeepEqual(prior, accepted) {
+		if priorRevision != accepted.Revision || (expectedMapHash != nil && (!priorMapHash.Valid || priorMapHash.String != *expectedMapHash)) || !reflect.DeepEqual(prior, accepted) {
 			return fmt.Errorf("operation %q conflicts with stored revision %d", accepted.OperationID, prior.Revision)
 		}
 		return nil
@@ -153,7 +177,7 @@ func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation
 		return fmt.Errorf("lookup duplicate operation: %w", err)
 	}
 	var encodedBytes int
-	state, err := readRecovery(ctx, transaction, accepted.DocumentID, &encodedBytes)
+	state, err := readRecovery(ctx, transaction, accepted.DocumentID, &encodedBytes, store.schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -172,12 +196,52 @@ func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation
 	if err != nil {
 		return fmt.Errorf("hash accepted revision: %w", err)
 	}
-	encoded, err := json.Marshal(accepted)
-	if err != nil {
-		return fmt.Errorf("encode accepted operation: %w", err)
+	if expectedMapHash != nil && mapHash != *expectedMapHash {
+		return fmt.Errorf("transaction body map hash differs from verified accepted map")
 	}
-	if _, err := transaction.ExecContext(ctx, "INSERT INTO operations(document_id, operation_id, revision, accepted, map_hash) VALUES(?, ?, ?, ?, ?)", accepted.DocumentID, accepted.OperationID, accepted.Revision, encoded, mapHash); err != nil {
-		return fmt.Errorf("insert operation: %w", err)
+	var encoded []byte
+	var bodyBytes int64
+	transactionVersion, versionErr := readTransactionVersion(ctx, transaction, store.schemaVersion, accepted.DocumentID)
+	if versionErr != nil {
+		return versionErr
+	}
+	inline := false
+	if transactionVersion == collabstore.BulkTransactionVersion && !forceBulk {
+		encoded, inline, err = collabstore.MarshalAcceptedInline(accepted)
+		if err != nil {
+			return err
+		}
+	}
+	if transactionVersion == collabstore.BulkTransactionVersion && !inline {
+		header, headerData, headerErr := collabstore.MarshalAcceptedTransactionHeader(accepted, mapHash)
+		if headerErr != nil {
+			return headerErr
+		}
+		encoded = headerData
+		if _, err := transaction.ExecContext(ctx, "INSERT INTO operations(document_id, operation_id, revision, accepted, map_hash, storage_version, change_count) VALUES(?, ?, ?, ?, ?, ?, ?)", accepted.DocumentID, accepted.OperationID, accepted.Revision, encoded, mapHash, collabstore.BulkTransactionVersion, header.Count); err != nil {
+			return fmt.Errorf("insert versioned operation header: %w", err)
+		}
+		digest, size, encodeErr := collabstore.EncodeStoredTransaction(ctx, header, accepted.Changes, func(index uint64, data []byte, chunkDigest string) error {
+			_, insertErr := transaction.ExecContext(ctx, "INSERT INTO transaction_chunks(document_id, operation_id, chunk_index, data, chunk_digest) VALUES(?, ?, ?, ?, ?)", accepted.DocumentID, accepted.OperationID, int64(index), data, chunkDigest)
+			return insertErr
+		})
+		if encodeErr != nil {
+			return encodeErr
+		}
+		bodyBytes = size
+		if _, err := transaction.ExecContext(ctx, "UPDATE operations SET body_digest = ?, body_bytes = ? WHERE document_id = ? AND operation_id = ?", digest, size, accepted.DocumentID, accepted.OperationID); err != nil {
+			return fmt.Errorf("finalize versioned operation body: %w", err)
+		}
+	} else {
+		if encoded == nil {
+			encoded, err = json.Marshal(accepted)
+			if err != nil {
+				return fmt.Errorf("encode accepted operation: %w", err)
+			}
+		}
+		if _, err := transaction.ExecContext(ctx, "INSERT INTO operations(document_id, operation_id, revision, accepted, map_hash) VALUES(?, ?, ?, ?, ?)", accepted.DocumentID, accepted.OperationID, accepted.Revision, encoded, mapHash); err != nil {
+			return fmt.Errorf("insert operation: %w", err)
+		}
 	}
 	if _, err := transaction.ExecContext(ctx, "INSERT INTO revision_hashes(document_id, revision, map_hash) VALUES(?, ?, ?)", accepted.DocumentID, accepted.Revision, mapHash); err != nil {
 		return fmt.Errorf("insert revision hash: %w", err)
@@ -188,7 +252,11 @@ func (store *Store) Append(ctx context.Context, accepted model.AcceptedOperation
 	state.Operations = append(state.Operations, model.CloneAcceptedOperation(accepted))
 	state.Hashes[accepted.Revision] = mapHash
 	state.HeadRevision, state.HeadHash = accepted.Revision, mapHash
-	encodedBytes += len(encoded) + len(accepted.OperationID) + 2*len(mapHash) + 16
+	if bodyBytes > int64(recoveryCacheBytes) || int64(encodedBytes)+bodyBytes > int64(recoveryCacheBytes) {
+		encodedBytes = recoveryCacheBytes + 1
+	} else {
+		encodedBytes += len(encoded) + int(bodyBytes) + len(accepted.OperationID) + 2*len(mapHash) + 16
+	}
 	store.recovery.retain(state, document, encodedBytes)
 	return nil
 }
@@ -229,7 +297,7 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) e
 		return fmt.Errorf("begin snapshot: %w", err)
 	}
 	defer func() { _ = transaction.Rollback() }()
-	state, err := loadRecovery(ctx, transaction, snapshot.DocumentID)
+	state, err := readRecovery(ctx, transaction, snapshot.DocumentID, nil, store.schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -303,9 +371,25 @@ func (store *Store) LookupOperation(ctx context.Context, documentID model.Docume
 		return model.AcceptedOperation{}, false, err
 	}
 	var data []byte
-	err := store.database.QueryRowContext(ctx, "SELECT accepted FROM operations WHERE document_id = ? AND operation_id = ?", documentID, operationID).Scan(&data)
+	var revision model.Revision
+	var mapHash string
+	var storageVersion = collabstore.LegacyTransactionVersion
+	var digest sql.NullString
+	var bodyBytes, changeCount sql.NullInt64
+	var err error
+	if store.schemaVersion >= 4 {
+		err = store.database.QueryRowContext(ctx, "SELECT accepted, revision, map_hash, storage_version, body_digest, body_bytes, change_count FROM operations WHERE document_id = ? AND operation_id = ?", documentID, operationID).Scan(&data, &revision, &mapHash, &storageVersion, &digest, &bodyBytes, &changeCount)
+	} else {
+		err = store.database.QueryRowContext(ctx, "SELECT accepted FROM operations WHERE document_id = ? AND operation_id = ?", documentID, operationID).Scan(&data)
+	}
 	if err == nil {
-		accepted, decodeErr := decodeAccepted(data)
+		var accepted model.AcceptedOperation
+		var decodeErr error
+		if store.schemaVersion >= 4 {
+			accepted, decodeErr = readStoredAccepted(ctx, store.database, documentID, operationID, revision, mapHash, data, storageVersion, digest, bodyBytes, changeCount)
+		} else {
+			accepted, decodeErr = decodeAccepted(data)
+		}
 		return accepted, true, decodeErr
 	}
 	if !errors.Is(err, sql.ErrNoRows) {

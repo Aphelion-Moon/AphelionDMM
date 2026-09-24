@@ -52,12 +52,26 @@ func verifyIndependentRecoveryOffers(t *testing.T, ctx context.Context, owner, s
 			recovered <- observation{err: fmt.Errorf("socket never blocked: %w", ctx.Err())}
 			return
 		}
+		owner.mutex.Lock()
+		invitation := Invitation{BaseURL: owner.baseURL, Origin: owner.origin, SessionID: owner.sessionID, Token: owner.administrationToken}
+		owner.mutex.Unlock()
+		blockedSnapshot, err := owner.fetchSnapshot(ctx, invitation)
+		if err != nil {
+			recovered <- observation{err: fmt.Errorf("read authoritative revision after socket blocked: %w", err)}
+			return
+		}
+		if blockedSnapshot.Revision+12 > model.Revision(scenario.ExpectedAccepted) {
+			recovered <- observation{err: fmt.Errorf("slow socket blocked too late to exercise durable queue overflow at revision %d", blockedSnapshot.Revision)}
+			return
+		}
 		ticker := time.NewTicker(5 * time.Millisecond)
 		defer ticker.Stop()
 		// Twelve accepted events exceed the eight-entry queue even if the
-		// blocked write already removed one event. This controls only failure
-		// injection; the producer's absolute schedules never wait on this loop.
-		for owner.Status().Revision < 12 {
+		// blocked write already removed one event. Count only authoritative
+		// edits published after the write actually blocked; Status may lag the
+		// server head while a SQLite workload is running. This controls only
+		// failure injection; the producer's absolute schedules never wait here.
+		for owner.Status().Revision < blockedSnapshot.Revision+12 {
 			select {
 			case <-ticker.C:
 			case <-ctx.Done():
@@ -90,7 +104,9 @@ func verifyIndependentRecoveryOffers(t *testing.T, ctx context.Context, owner, s
 		t.Fatal(encodeErr)
 	}
 	t.Logf("independently scheduled load result: %s", encoded)
-	if err != nil || !result.GatePassed || result.ScheduledOperations != scenario.Config.Operations || result.StartedOperations != scenario.Config.Operations || result.SentOperations != scenario.Config.Operations || result.AcceptedOperations != scenario.ExpectedAccepted || result.RejectedOperations != scenario.ExpectedRejected || result.AppliedDeliveries != scenario.ExpectedAccepted*scenario.Config.Clients || result.UnresolvedOperations != 0 || result.UnsentBacklog != 0 || result.PresenceSent != result.PresencePlanned {
+	// Presence is intentionally coalesced under backpressure. Every offered
+	// update must be accounted for, while durable operations must all be sent.
+	if err != nil || !result.GatePassed || result.ScheduledOperations != scenario.Config.Operations || result.StartedOperations != scenario.Config.Operations || result.SentOperations != scenario.Config.Operations || result.AcceptedOperations != scenario.ExpectedAccepted || result.RejectedOperations != scenario.ExpectedRejected || result.AppliedDeliveries != scenario.ExpectedAccepted*scenario.Config.Clients || result.UnresolvedOperations != 0 || result.UnsentBacklog != 0 || result.PresenceSent+result.PresenceCoalesced != result.PresencePlanned {
 		t.Fatalf("independent load did not account for all offers: %v", err)
 	}
 	select {

@@ -96,6 +96,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 	limits.MaxHTTPBodyBytes = config.Limits.MaxHTTPBodyBytes
 	limits.MaxSnapshotBodyBytes = config.Limits.MaxSnapshotBodyBytes
 	service := server.NewService(server.ServiceConfig{
+		BulkSpoolBytes: config.Limits.BulkSpoolBytes, BulkWorkingBytes: config.Limits.BulkWorkingBytes,
 		Store: store, Limits: limits, AllowedOrigins: []string{config.PublicOrigin}, Build: build, Revision: revision,
 		HostedAuth: authentication, HostedLogin: authentication, HostedRegistry: store,
 		Telemetry: observability,

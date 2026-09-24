@@ -79,7 +79,8 @@ func Make(x, y int, i *dmminstance.Instance, iconSize int) Unit {
 
 func parseColor(p *dmmprefab.Prefab) (r, g, b, a float32) {
 	// Default rgba is white.
-	r, g, b, a = 1, 1, 1, 1
+	// APHELION EDIT CHANGE - RENDER ALPHA - ORIGINAL: r, g, b, a = 1, 1, 1, 1
+	r, g, b = 1, 1, 1
 	if color, _ := p.Vars().Text("color"); color != "" {
 		r, g, b, _ = util.ParseColor(color).RGBA()
 		/* APHELION EDIT REMOVAL START - RENDER ALPHA

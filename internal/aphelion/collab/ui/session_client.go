@@ -118,7 +118,7 @@ func (client *SessionClient) CreateNamed(ctx context.Context, baseURL, launchTok
 	if displayName == "" || len(displayName) > protocol.MaxDisplayNameBytes {
 		return Invitation{}, fmt.Errorf("collaboration owner display name is invalid")
 	}
-	body, err := json.Marshal(map[string]any{"snapshot": snapshot, "display_name": displayName})
+	body, err := json.Marshal(map[string]any{"snapshot": snapshot, "display_name": displayName, "bulk_edits": true})
 	if err != nil {
 		return Invitation{}, err
 	}
@@ -214,89 +214,166 @@ func (client *SessionClient) Join(ctx context.Context, invitation Invitation) er
 		client.recordConnectionFailure(machine, err)
 		return err
 	}
-	transport := client.newTransport()
-	var routeMutex sync.Mutex
-	var network *collabclient.NetworkExecutor
-	ready := make(chan model.Revision, 1)
-	errorsFound := make(chan error, 1)
-	receive := func(envelope protocol.ServerEnvelope) {
-		decoded, decodeErr := decodeServerEnvelope(envelope)
-		if decodeErr != nil {
-			nonBlockingError(errorsFound, decodeErr)
-			return
+	administrationToken := invitation.Token
+	joinToken := invitation.Token
+	var transport sessionTransport
+	var joinedNetwork *collabclient.NetworkExecutor
+	var synchronizedRevision model.Revision
+	var joinedTransportEnded <-chan error
+	var cancelJoinedTransportWait context.CancelFunc
+	maxSnapshotFallbacks := client.config.Reconnect.MaxAttempts
+	if maxSnapshotFallbacks <= 0 {
+		maxSnapshotFallbacks = 8
+	}
+	snapshotFallbacks := 0
+	refreshSnapshot := func() error {
+		client.mutex.Lock()
+		retryToken := client.resumptionToken
+		retryExpiry := client.resumptionExpiresAt
+		client.mutex.Unlock()
+		if retryToken == "" || (!retryExpiry.IsZero() && !client.config.Now().Before(retryExpiry)) {
+			return collabclient.ErrAuthenticationDenied
 		}
-		routeMutex.Lock()
-		defer routeMutex.Unlock()
-		switch decoded.Envelope.Type {
-		case protocol.ServerJoined:
-			payload := decoded.Payload.(*protocol.JoinedPayload)
-			if payload.DocumentID != snapshot.DocumentID {
-				nonBlockingError(errorsFound, fmt.Errorf("joined document does not match fetched snapshot"))
-				return
-			}
-			network, decodeErr = collabclient.NewNetworkExecutor(transport, snapshot, payload.ActorID, invitation.SessionID)
+		retryInvitation := Invitation{BaseURL: invitation.BaseURL, Origin: invitation.Origin, SessionID: invitation.SessionID, Token: retryToken}
+		freshSnapshot, snapshotErr := client.fetchSnapshot(ctx, retryInvitation)
+		if snapshotErr != nil {
+			return snapshotErr
+		}
+		snapshot = freshSnapshot
+		joinToken = retryToken
+		return nil
+	}
+
+joinAttempts:
+	for {
+		attemptTransport := client.newTransport()
+		attemptSnapshot := snapshot
+		var routeMutex sync.Mutex
+		var network *collabclient.NetworkExecutor
+		ready := make(chan model.Revision, 1)
+		errorsFound := make(chan error, 1)
+		snapshotRequired := make(chan struct{}, 1)
+		receive := func(envelope protocol.ServerEnvelope) {
+			decoded, decodeErr := decodeServerEnvelope(envelope)
 			if decodeErr != nil {
 				nonBlockingError(errorsFound, decodeErr)
 				return
 			}
-			client.recordJoined(machine, payload)
-		case protocol.ServerOperationAccepted, protocol.ServerOperationRejected:
-			if network == nil {
-				nonBlockingError(errorsFound, fmt.Errorf("received operation before joined message"))
-				return
+			routeMutex.Lock()
+			defer routeMutex.Unlock()
+			switch decoded.Envelope.Type {
+			case protocol.ServerJoined:
+				payload := decoded.Payload.(*protocol.JoinedPayload)
+				if payload.DocumentID != attemptSnapshot.DocumentID {
+					nonBlockingError(errorsFound, fmt.Errorf("joined document does not match fetched snapshot"))
+					return
+				}
+				network, decodeErr = collabclient.NewNetworkExecutor(attemptTransport, attemptSnapshot, payload.ActorID, invitation.SessionID)
+				if decodeErr != nil {
+					nonBlockingError(errorsFound, decodeErr)
+					return
+				}
+				client.recordJoined(machine, payload)
+			case protocol.ServerOperationAccepted, protocol.ServerOperationRejected:
+				if network == nil {
+					nonBlockingError(errorsFound, fmt.Errorf("received operation before joined message"))
+					return
+				}
+				if receiveErr := network.Receive(envelope); receiveErr != nil {
+					nonBlockingError(errorsFound, receiveErr)
+					_ = attemptTransport.Close(websocket.StatusInternalError, "collaboration integrity fault")
+					return
+				}
+				client.recordOperation(machine, network, decoded.Envelope.Type)
+			case protocol.ServerReplayComplete:
+				if network == nil {
+					nonBlockingError(errorsFound, fmt.Errorf("received replay completion before joined message"))
+					return
+				}
+				payload := decoded.Payload.(*protocol.ReplayCompletePayload)
+				current, snapshotErr := network.Snapshot(context.Background())
+				currentHash, hashErr := current.Hash()
+				if snapshotErr != nil || hashErr != nil || current.Revision != payload.Revision || currentHash != payload.MapHash {
+					nonBlockingError(errorsFound, fmt.Errorf("replay completion does not match client revision"))
+					return
+				}
+				select {
+				case ready <- payload.Revision:
+				default:
+				}
+			case protocol.ServerPresenceSnapshot:
+				client.recordPresenceSnapshot(decoded.Payload.(*protocol.PresenceSnapshotPayload))
+			case protocol.ServerPresenceUpdate:
+				client.recordPresenceUpdate(decoded.Payload.(*protocol.ServerPresenceUpdatePayload))
+			case protocol.ServerSessionNotice:
+				payload := decoded.Payload.(*protocol.SessionNoticePayload)
+				if payload.Code == protocol.NoticeSnapshotRequired {
+					select {
+					case snapshotRequired <- struct{}{}:
+					default:
+					}
+				}
 			}
-			if receiveErr := network.Receive(envelope); receiveErr != nil {
-				nonBlockingError(errorsFound, receiveErr)
-				_ = transport.Close(websocket.StatusInternalError, "collaboration integrity fault")
-				return
-			}
-			client.recordOperation(machine, network, decoded.Envelope.Type)
-		case protocol.ServerReplayComplete:
-			if network == nil {
-				nonBlockingError(errorsFound, fmt.Errorf("received replay completion before joined message"))
-				return
-			}
-			payload := decoded.Payload.(*protocol.ReplayCompletePayload)
-			current, snapshotErr := network.Snapshot(context.Background())
-			currentHash, hashErr := current.Hash()
-			if snapshotErr != nil || hashErr != nil || current.Revision != payload.Revision || currentHash != payload.MapHash {
-				nonBlockingError(errorsFound, fmt.Errorf("replay completion does not match client revision"))
-				return
-			}
-			select {
-			case ready <- payload.Revision:
-			default:
-			}
-		case protocol.ServerPresenceSnapshot:
-			client.recordPresenceSnapshot(decoded.Payload.(*protocol.PresenceSnapshotPayload))
-		case protocol.ServerPresenceUpdate:
-			client.recordPresenceUpdate(decoded.Payload.(*protocol.ServerPresenceUpdatePayload))
 		}
-	}
-	administrationToken := invitation.Token
-	if err := transport.Connect(ctx, protocol.JoinRequest{BaseURL: invitation.BaseURL, Origin: invitation.Origin, Token: invitation.Token, SessionID: invitation.SessionID, AcknowledgedRevision: snapshot.Revision}, receive); err != nil {
-		client.recordConnectionFailure(machine, err)
-		return err
-	}
-	invitation.Token = ""
-	var synchronizedRevision model.Revision
-	select {
-	case synchronizedRevision = <-ready:
-	case joinErr := <-errorsFound:
-		_ = transport.Close(websocket.StatusPolicyViolation, "join failed")
-		client.recordConnectionFailure(machine, joinErr)
-		return joinErr
-	case <-ctx.Done():
-		_ = transport.Close(websocket.StatusGoingAway, "join canceled")
-		client.recordConnectionFailure(machine, ctx.Err())
-		return ctx.Err()
-	}
-	routeMutex.Lock()
-	joinedNetwork := network
-	routeMutex.Unlock()
-	if joinedNetwork == nil {
-		_ = transport.Close(websocket.StatusInternalError, "join incomplete")
-		return fmt.Errorf("collaboration join completed without an executor")
+		if err := attemptTransport.Connect(ctx, protocol.JoinRequest{BaseURL: invitation.BaseURL, Origin: invitation.Origin, Token: joinToken, SessionID: invitation.SessionID, AcknowledgedRevision: attemptSnapshot.Revision}, receive); err != nil {
+			client.recordConnectionFailure(machine, err)
+			return err
+		}
+		joinToken = ""
+		invitation.Token = ""
+		waitContext, cancelWait := context.WithCancel(context.Background())
+		transportEnded := make(chan error, 1)
+		go func() { transportEnded <- attemptTransport.Wait(waitContext) }()
+		fallbackRequired := false
+		var joinErr error
+		select {
+		case synchronizedRevision = <-ready:
+		case joinErr = <-errorsFound:
+		case <-snapshotRequired:
+			fallbackRequired = true
+		case transportErr := <-transportEnded:
+			synchronizedRevision, fallbackRequired, joinErr = initialJoinOutcomeOnTransportEnd(ready, errorsFound, snapshotRequired, transportErr, transportEnded)
+		case <-ctx.Done():
+			cancelWait()
+			_ = attemptTransport.Close(websocket.StatusGoingAway, "join canceled")
+			client.recordConnectionFailure(machine, ctx.Err())
+			return ctx.Err()
+		}
+		if fallbackRequired {
+			cancelWait()
+			_ = attemptTransport.Close(websocket.StatusGoingAway, "snapshot refresh required")
+			if snapshotFallbacks >= maxSnapshotFallbacks {
+				joinErr = fmt.Errorf("initial join exhausted %d snapshot refresh attempts", maxSnapshotFallbacks)
+				client.recordConnectionFailure(machine, joinErr)
+				return joinErr
+			}
+			snapshotFallbacks++
+			if err := refreshSnapshot(); err != nil {
+				client.recordConnectionFailure(machine, err)
+				return err
+			}
+			continue
+		}
+		if joinErr != nil {
+			cancelWait()
+			_ = attemptTransport.Close(websocket.StatusPolicyViolation, "join failed")
+			client.recordConnectionFailure(machine, joinErr)
+			return joinErr
+		}
+		routeMutex.Lock()
+		joinedNetwork = network
+		routeMutex.Unlock()
+		if joinedNetwork == nil {
+			cancelWait()
+			_ = attemptTransport.Close(websocket.StatusInternalError, "join incomplete")
+			joinErr := fmt.Errorf("collaboration join completed without an executor")
+			client.recordConnectionFailure(machine, joinErr)
+			return joinErr
+		}
+		transport = attemptTransport
+		joinedTransportEnded = transportEnded
+		cancelJoinedTransportWait = cancelWait
+		break joinAttempts
 	}
 	client.mutex.Lock()
 	client.transport = transport
@@ -310,8 +387,40 @@ func (client *SessionClient) Join(ctx context.Context, invitation Invitation) er
 	client.mutex.Unlock()
 	client.recordSynchronized(machine, synchronizedRevision)
 	joined = true
-	go client.monitorTransport(machine, transport, joinedNetwork)
+	go func() {
+		transportErr := <-joinedTransportEnded
+		cancelJoinedTransportWait()
+		client.monitorTransportResult(machine, transport, joinedNetwork, transportErr)
+	}()
 	return nil
+}
+
+func initialJoinOutcomeOnTransportEnd(ready <-chan model.Revision, errorsFound <-chan error, snapshotRequired <-chan struct{}, transportErr error, transportEnded chan error) (model.Revision, bool, error) {
+	select {
+	case <-snapshotRequired:
+		return 0, true, nil
+	default:
+	}
+	select {
+	case joinErr := <-errorsFound:
+		if joinErr != nil {
+			return 0, false, joinErr
+		}
+	default:
+	}
+	select {
+	case revision := <-ready:
+		// The select above already removed this result from the buffered channel.
+		// Replay can complete just as the socket closes, so Join may still succeed;
+		// put the result back for the established transport monitor to process.
+		transportEnded <- transportErr
+		return revision, false, nil
+	default:
+	}
+	if transportErr == nil {
+		transportErr = collabclient.ErrTransportNotConnected
+	}
+	return 0, false, transportErr
 }
 
 func (client *SessionClient) Leave(context.Context) error {
@@ -753,6 +862,10 @@ func (client *SessionClient) recordConnectionFailure(machine *collabclient.State
 
 func (client *SessionClient) monitorTransport(machine *collabclient.StateMachine, transport sessionTransport, network *collabclient.NetworkExecutor) {
 	err := transport.Wait(context.Background())
+	client.monitorTransportResult(machine, transport, network, err)
+}
+
+func (client *SessionClient) monitorTransportResult(machine *collabclient.StateMachine, transport sessionTransport, network *collabclient.NetworkExecutor, err error) {
 	client.mutex.Lock()
 	current := client.machine == machine && client.transport == transport && client.network == network
 	client.mutex.Unlock()
@@ -1035,11 +1148,7 @@ func decodeLimited(reader io.Reader, value any) error {
 }
 
 func decodeServerEnvelope(envelope protocol.ServerEnvelope) (protocol.DecodedServer, error) {
-	data, err := json.Marshal(envelope)
-	if err != nil {
-		return protocol.DecodedServer{}, err
-	}
-	return protocol.DecodeServer(data)
+	return protocol.DecodeServerEnvelope(envelope)
 }
 
 func nonBlockingError(destination chan<- error, err error) {

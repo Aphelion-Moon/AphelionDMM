@@ -200,9 +200,10 @@ func validatePresenceSelection(selection *protocol.PresenceSelection) error {
 	if selection.Min.Z != selection.Max.Z || selection.Min.X > selection.Max.X || selection.Min.Y > selection.Max.Y {
 		return fmt.Errorf("presence selection bounds must be normalized on one level")
 	}
-	tileCount := int64(selection.Max.X-selection.Min.X+1) * int64(selection.Max.Y-selection.Min.Y+1)
-	if tileCount > protocol.MaxPresenceSelectionTiles {
-		return fmt.Errorf("presence selection has %d tiles, maximum is %d", tileCount, protocol.MaxPresenceSelectionTiles)
+	// Wire decoders retain the v1 area cap. The shared manager stores only a
+	// bounding box, so V2 selections are bounded by valid map dimensions.
+	if selection.Max.X > model.MaxMapDimension || selection.Max.Y > model.MaxMapDimension || selection.Max.Z > model.MaxMapDimension {
+		return fmt.Errorf("presence selection exceeds supported map dimensions")
 	}
 	return nil
 }

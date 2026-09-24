@@ -11,26 +11,30 @@ import (
 )
 
 type MemoryStore struct {
-	mutex          sync.RWMutex
-	closed         bool
-	sessions       map[model.DocumentID]model.Snapshot
-	operations     map[model.DocumentID][]model.AcceptedOperation
-	accepted       map[model.DocumentID]map[model.OperationID]model.AcceptedOperation
-	documents      map[model.DocumentID]*engine.Document
-	hashes         map[model.DocumentID]map[model.Revision]string
-	checkpoints    map[model.DocumentID]map[model.CheckpointID]model.ExportCheckpoint
-	checkpointKeys map[model.DocumentID]map[string]model.CheckpointID
+	mutex               sync.RWMutex
+	closed              bool
+	sessions            map[model.DocumentID]model.Snapshot
+	operations          map[model.DocumentID][]model.AcceptedOperation
+	accepted            map[model.DocumentID]map[model.OperationID]model.AcceptedOperation
+	documents           map[model.DocumentID]*engine.Document
+	hashes              map[model.DocumentID]map[model.Revision]string
+	checkpoints         map[model.DocumentID]map[model.CheckpointID]model.ExportCheckpoint
+	checkpointKeys      map[model.DocumentID]map[string]model.CheckpointID
+	transactionVersions map[model.DocumentID]int
+	revisionHeads       map[model.DocumentID]model.Revision
 }
 
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
-		sessions:       make(map[model.DocumentID]model.Snapshot),
-		operations:     make(map[model.DocumentID][]model.AcceptedOperation),
-		accepted:       make(map[model.DocumentID]map[model.OperationID]model.AcceptedOperation),
-		documents:      make(map[model.DocumentID]*engine.Document),
-		hashes:         make(map[model.DocumentID]map[model.Revision]string),
-		checkpoints:    make(map[model.DocumentID]map[model.CheckpointID]model.ExportCheckpoint),
-		checkpointKeys: make(map[model.DocumentID]map[string]model.CheckpointID),
+		sessions:            make(map[model.DocumentID]model.Snapshot),
+		operations:          make(map[model.DocumentID][]model.AcceptedOperation),
+		accepted:            make(map[model.DocumentID]map[model.OperationID]model.AcceptedOperation),
+		documents:           make(map[model.DocumentID]*engine.Document),
+		hashes:              make(map[model.DocumentID]map[model.Revision]string),
+		checkpoints:         make(map[model.DocumentID]map[model.CheckpointID]model.ExportCheckpoint),
+		checkpointKeys:      make(map[model.DocumentID]map[string]model.CheckpointID),
+		transactionVersions: make(map[model.DocumentID]int),
+		revisionHeads:       make(map[model.DocumentID]model.Revision),
 	}
 }
 
@@ -61,7 +65,54 @@ func (store *MemoryStore) Create(ctx context.Context, snapshot model.Snapshot) e
 	store.hashes[snapshot.DocumentID] = map[model.Revision]string{snapshot.Revision: mapHash}
 	store.checkpoints[snapshot.DocumentID] = make(map[model.CheckpointID]model.ExportCheckpoint)
 	store.checkpointKeys[snapshot.DocumentID] = make(map[string]model.CheckpointID)
+	store.transactionVersions[snapshot.DocumentID] = LegacyTransactionVersion
+	store.revisionHeads[snapshot.DocumentID] = snapshot.Revision
 	return nil
+}
+
+func (store *MemoryStore) ConfigureTransactions(ctx context.Context, documentID model.DocumentID, version int) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if version != LegacyTransactionVersion && version != BulkTransactionVersion {
+		return ErrUnsupportedTransactionVersion
+	}
+	store.mutex.Lock()
+	defer store.mutex.Unlock()
+	if store.closed {
+		return ErrStoreClosed
+	}
+	if _, exists := store.sessions[documentID]; !exists {
+		return ErrSessionMissing
+	}
+	current := store.transactionVersions[documentID]
+	if current == 0 {
+		current = LegacyTransactionVersion
+	}
+	if version < current {
+		return ErrTransactionDowngrade
+	}
+	store.transactionVersions[documentID] = version
+	return nil
+}
+
+func (store *MemoryStore) TransactionVersion(ctx context.Context, documentID model.DocumentID) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	store.mutex.RLock()
+	defer store.mutex.RUnlock()
+	if store.closed {
+		return 0, ErrStoreClosed
+	}
+	version, exists := store.transactionVersions[documentID]
+	if !exists {
+		return 0, ErrSessionMissing
+	}
+	if version == 0 {
+		return LegacyTransactionVersion, nil
+	}
+	return version, nil
 }
 
 func (store *MemoryStore) Append(ctx context.Context, accepted model.AcceptedOperation) error {
@@ -103,6 +154,7 @@ func (store *MemoryStore) Append(ctx context.Context, accepted model.AcceptedOpe
 	store.accepted[accepted.DocumentID][accepted.OperationID] = cloned
 	store.documents[accepted.DocumentID] = candidate
 	store.hashes[accepted.DocumentID][accepted.Revision] = mapHash
+	store.revisionHeads[accepted.DocumentID] = accepted.Revision
 	return nil
 }
 

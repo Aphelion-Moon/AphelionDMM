@@ -154,7 +154,7 @@ func (client *SessionClient) CreateHosted(ctx context.Context, snapshot model.Sn
 	if err != nil {
 		return Invitation{}, err
 	}
-	body, err := json.Marshal(map[string]any{"snapshot": snapshot})
+	body, err := json.Marshal(map[string]any{"snapshot": snapshot, "bulk_edits": true})
 	if err != nil {
 		return Invitation{}, err
 	}

@@ -1,11 +1,16 @@
 package dmminstance
 
 import (
+	// APHELION EDIT ADDITION START - THREAD-SAFE INSTANCE IDS
+	"sync/atomic"
+	// APHELION EDIT ADDITION END
+
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/util"
 )
 
-var id uint64
+// APHELION EDIT CHANGE - THREAD-SAFE INSTANCE IDS - ORIGINAL: var id uint64
+var id atomic.Uint64
 
 type Instance struct {
 	id     uint64
@@ -64,9 +69,12 @@ func (i Instance) Prefab() *dmmprefab.Prefab {
 }
 
 func New(coord util.Point, prefab *dmmprefab.Prefab) *Instance {
+	/* APHELION EDIT REMOVAL START - THREAD-SAFE INSTANCE IDS
 	id++
+	APHELION EDIT REMOVAL END */
 	return &Instance{
-		id,
+		// APHELION EDIT CHANGE - THREAD-SAFE INSTANCE IDS - ORIGINAL: id,
+		id.Add(1),
 		coord,
 		prefab,
 		// APHELION EDIT ADDITION START - COLLABORATION

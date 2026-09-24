@@ -52,19 +52,23 @@ const (
 )
 
 type ClientEnvelope struct {
-	ProtocolVersion uint16          `json:"protocol_version"`
-	MessageID       string          `json:"message_id"`
-	SessionID       string          `json:"session_id"`
-	Type            ClientType      `json:"type"`
-	Payload         json.RawMessage `json:"payload"`
+	BulkSession     bool             `json:"-"`
+	BulkOperation   *model.Operation `json:"-"`
+	ProtocolVersion uint16           `json:"protocol_version"`
+	MessageID       string           `json:"message_id"`
+	SessionID       string           `json:"session_id"`
+	Type            ClientType       `json:"type"`
+	Payload         json.RawMessage  `json:"payload"`
 }
 
 type ServerEnvelope struct {
-	ProtocolVersion uint16          `json:"protocol_version"`
-	MessageID       string          `json:"message_id"`
-	SessionID       string          `json:"session_id"`
-	Type            ServerType      `json:"type"`
-	Payload         json.RawMessage `json:"payload"`
+	BulkSession     bool                      `json:"-"`
+	BulkAccepted    *OperationAcceptedPayload `json:"-"`
+	ProtocolVersion uint16                    `json:"protocol_version"`
+	MessageID       string                    `json:"message_id"`
+	SessionID       string                    `json:"session_id"`
+	Type            ServerType                `json:"type"`
+	Payload         json.RawMessage           `json:"payload"`
 }
 
 type DecodedClient struct {
@@ -115,6 +119,7 @@ type PingPayload struct {
 }
 
 type JoinedPayload struct {
+	BulkEdits                bool             `json:"bulk_edits,omitempty"`
 	DocumentID               model.DocumentID `json:"document_id"`
 	ActorID                  model.ActorID    `json:"actor_id"`
 	Role                     string           `json:"role"`
@@ -175,6 +180,10 @@ func AllServerTypes() []MessageType {
 }
 
 func DecodeClient(data []byte) (DecodedClient, error) {
+	return DecodeClientForSession(data, false)
+}
+
+func DecodeClientForSession(data []byte, bulk bool) (DecodedClient, error) {
 	if len(data) > MaxMessageBytes {
 		return DecodedClient{}, fmt.Errorf("client message is %d bytes, maximum is %d", len(data), MaxMessageBytes)
 	}
@@ -208,13 +217,18 @@ func DecodeClient(data []byte) (DecodedClient, error) {
 	if err := decodeStrict(envelope.Payload, payload); err != nil {
 		return DecodedClient{}, fmt.Errorf("decode %s payload: %w", envelope.Type, err)
 	}
-	if err := validateClientPayload(payload); err != nil {
+	if err := validateClientPayload(payload, bulk); err != nil {
 		return DecodedClient{}, fmt.Errorf("validate %s payload: %w", envelope.Type, err)
 	}
+	envelope.BulkSession = bulk
 	return DecodedClient{Envelope: envelope, Payload: payload}, nil
 }
 
 func DecodeServer(data []byte) (DecodedServer, error) {
+	return DecodeServerForSession(data, false)
+}
+
+func DecodeServerForSession(data []byte, bulk bool) (DecodedServer, error) {
 	if len(data) > MaxMessageBytes {
 		return DecodedServer{}, fmt.Errorf("server message is %d bytes, maximum is %d", len(data), MaxMessageBytes)
 	}
@@ -250,9 +264,10 @@ func DecodeServer(data []byte) (DecodedServer, error) {
 	if err := decodeStrict(envelope.Payload, payload); err != nil {
 		return DecodedServer{}, fmt.Errorf("decode %s payload: %w", envelope.Type, err)
 	}
-	if err := validateServerPayload(payload); err != nil {
+	if err := validateServerPayload(payload, bulk); err != nil {
 		return DecodedServer{}, fmt.Errorf("validate %s payload: %w", envelope.Type, err)
 	}
+	envelope.BulkSession = bulk
 	return DecodedServer{Envelope: envelope, Payload: payload}, nil
 }
 
@@ -266,7 +281,7 @@ func validateEnvelope(version uint16, messageID, sessionID string) error {
 	return validateIdentifier("session id", sessionID)
 }
 
-func validateClientPayload(payload any) error {
+func validateClientPayload(payload any, bulk bool) error {
 	switch value := payload.(type) {
 	case *JoinPayload:
 		return validateIdentifier("join token", value.JoinToken)
@@ -281,7 +296,7 @@ func validateClientPayload(payload any) error {
 		if value.Cursor != nil && (value.Cursor.X < 1 || value.Cursor.Y < 1 || value.Cursor.Z < 1) {
 			return fmt.Errorf("cursor coordinates must be positive")
 		}
-		if err := validatePresenceSelection(value.Selection); err != nil {
+		if err := validatePresenceSelection(value.Selection, bulk); err != nil {
 			return err
 		}
 		return validateIdentifier("status", value.Status)
@@ -299,7 +314,7 @@ func validateClientPayload(payload any) error {
 	}
 }
 
-func validateServerPayload(payload any) error {
+func validateServerPayload(payload any, bulk bool) error {
 	switch value := payload.(type) {
 	case *JoinedPayload:
 		if err := value.DocumentID.Validate(); err != nil {
@@ -370,13 +385,13 @@ func validateServerPayload(payload any) error {
 			return fmt.Errorf("presence snapshot has %d participants, maximum is %d", len(value.Participants), MaxPresenceParticipants)
 		}
 		for index := range value.Participants {
-			if err := validatePresence(&value.Participants[index]); err != nil {
+			if err := validatePresence(&value.Participants[index], bulk); err != nil {
 				return fmt.Errorf("participant %d: %w", index, err)
 			}
 		}
 		return nil
 	case *ServerPresenceUpdatePayload:
-		return validatePresence(value)
+		return validatePresence(value, bulk)
 	case *SessionNoticePayload:
 		if err := validateIdentifier("notice code", value.Code); err != nil {
 			return err
@@ -390,6 +405,10 @@ func validateServerPayload(payload any) error {
 }
 
 func validateOperation(operation model.Operation) error {
+	return validateOperationLimit(operation, MaxOperationChanges)
+}
+
+func validateOperationLimit(operation model.Operation, maximum int) error {
 	if operation.ProtocolVersion != model.ProtocolVersion {
 		return fmt.Errorf("operation protocol version is %d, want %d", operation.ProtocolVersion, model.ProtocolVersion)
 	}
@@ -411,8 +430,8 @@ func validateOperation(operation model.Operation) error {
 	if operation.Kind != model.OperationKindTileChange && operation.Kind != model.OperationKindInverse {
 		return fmt.Errorf("unsupported operation kind %q", operation.Kind)
 	}
-	if len(operation.Changes) == 0 || len(operation.Changes) > MaxOperationChanges {
-		return fmt.Errorf("operation change count is %d, want 1..%d", len(operation.Changes), MaxOperationChanges)
+	if len(operation.Changes) == 0 || len(operation.Changes) > maximum {
+		return fmt.Errorf("operation change count is %d, want 1..%d", len(operation.Changes), maximum)
 	}
 	for index, change := range operation.Changes {
 		if change.Coord.X < 1 || change.Coord.Y < 1 || change.Coord.Z < 1 {
@@ -430,7 +449,7 @@ func validateOperation(operation model.Operation) error {
 	return nil
 }
 
-func validatePresence(value *ParticipantPresence) error {
+func validatePresence(value *ParticipantPresence, bulk bool) error {
 	if err := value.ActorID.Validate(); err != nil {
 		return err
 	}
@@ -443,13 +462,13 @@ func validatePresence(value *ParticipantPresence) error {
 	if value.Cursor != nil && (value.Cursor.X < 1 || value.Cursor.Y < 1 || value.Cursor.Z < 1) {
 		return fmt.Errorf("cursor coordinates must be positive")
 	}
-	if err := validatePresenceSelection(value.Selection); err != nil {
+	if err := validatePresenceSelection(value.Selection, bulk); err != nil {
 		return err
 	}
 	return validateIdentifier("status", value.Status)
 }
 
-func validatePresenceSelection(selection *PresenceSelection) error {
+func validatePresenceSelection(selection *PresenceSelection, bulk bool) error {
 	if selection == nil {
 		return nil
 	}
@@ -459,8 +478,11 @@ func validatePresenceSelection(selection *PresenceSelection) error {
 	if selection.Min.Z != selection.Max.Z || selection.Min.X > selection.Max.X || selection.Min.Y > selection.Max.Y {
 		return fmt.Errorf("selection bounds must be normalized on one level")
 	}
+	if selection.Max.X > model.MaxMapDimension || selection.Max.Y > model.MaxMapDimension || selection.Max.Z > model.MaxMapDimension {
+		return fmt.Errorf("selection coordinates exceed supported map dimensions")
+	}
 	tileCount := int64(selection.Max.X-selection.Min.X+1) * int64(selection.Max.Y-selection.Min.Y+1)
-	if tileCount > MaxPresenceSelectionTiles {
+	if !bulk && tileCount > MaxPresenceSelectionTiles {
 		return fmt.Errorf("selection has %d tiles, maximum is %d", tileCount, MaxPresenceSelectionTiles)
 	}
 	return nil

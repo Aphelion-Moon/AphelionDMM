@@ -212,6 +212,7 @@ func New(app App, dmm *dmmap.Dmm) *PaneMap {
 func (p *PaneMap) Process() {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	p.editor.ProcessCollaborationUpdates()
+	p.editor.ProcessPasteWork()
 	// APHELION EDIT ADDITION END
 
 	// Enforce a focus to the current window if the canvas was touched.
@@ -257,6 +258,9 @@ func (p *PaneMap) Process() {
 
 func (p *PaneMap) Dispose() {
 	// APHELION EDIT ADDITION START - SELECTION STAMPS
+	if p.stamp != nil {
+		p.stamp.Close()
+	}
 	p.stamp = nil
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - CLOSED MAP TOOL OWNERSHIP

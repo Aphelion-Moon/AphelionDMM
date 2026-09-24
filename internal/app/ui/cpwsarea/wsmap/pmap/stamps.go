@@ -8,7 +8,6 @@ import (
 
 	"github.com/SpaiR/imgui-go"
 	native "github.com/sqweek/dialog"
-	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/editing/stamps"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/app/ui/dialog"
@@ -30,14 +29,13 @@ func (p *PaneMap) OpenStamps() {
 			return false
 		}
 		g := tools.Selected().(*tools.ToolGrab)
-		a := g.Bounds()
-		return !g.Placing() && (a.X2-a.X1+1)*(a.Y2-a.Y1+1) <= engine.MaxTileChanges
+		return !g.Placing()
 	}
 	d := &stampDialog{
 		stamp: p.stamp, canCapture: canCapture, canPlace: current,
 		capture: func(name string) (*stamps.Stamp, error) {
 			if !canCapture() {
-				return nil, fmt.Errorf("select up to %d tiles on this map and finish pending edits first", engine.MaxTileChanges)
+				return nil, fmt.Errorf("select tiles on this map and finish pending edits first")
 			}
 			return p.editor.CaptureStamp(name, tools.SelectedTiles())
 		},
@@ -117,6 +115,9 @@ func (d *stampDialog) Process() {
 }
 
 func (d *stampDialog) setStamp(s *stamps.Stamp) {
+	if d.stamp != nil && d.stamp != s {
+		d.stamp.Close()
+	}
 	d.stamp, d.allowDifferent = s, false
 	d.environmentMatches = d.matches(s)
 	d.remember(s)

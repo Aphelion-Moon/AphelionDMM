@@ -68,7 +68,11 @@ func (t *ToolGrab) HasSelectedArea() bool {
 func (t *ToolGrab) Reset() {
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	if t.placement != nil {
-		t.placement.owner.FinishSelectionMove(t.placement.move, true)
+		if t.placement.controller != nil {
+			t.placement.controller.CancelPastePlacement()
+		} else if t.placement.move != nil {
+			t.placement.owner.FinishSelectionMove(t.placement.move, true)
+		}
 		t.placement = nil
 	}
 	// APHELION EDIT ADDITION END

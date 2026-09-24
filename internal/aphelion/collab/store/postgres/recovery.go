@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"sdmm/internal/aphelion/collab/engine"
@@ -23,7 +24,7 @@ func (store *Store) LoadRecovery(ctx context.Context, documentID model.DocumentI
 		return engine.RecoveryState{}, err
 	}
 	defer func() { _ = transaction.Rollback(context.Background()) }()
-	state, err := loadRecovery(ctx, transaction, documentID, false)
+	state, err := loadRecovery(ctx, transaction, documentID, false, store.schemaVersion)
 	if err != nil {
 		return engine.RecoveryState{}, err
 	}
@@ -33,7 +34,11 @@ func (store *Store) LoadRecovery(ctx context.Context, documentID model.DocumentI
 	return state, nil
 }
 
-func loadRecovery(ctx context.Context, database queryer, documentID model.DocumentID, lock bool) (engine.RecoveryState, error) {
+func loadRecovery(ctx context.Context, database queryer, documentID model.DocumentID, lock bool, schemaVersions ...int) (engine.RecoveryState, error) {
+	schemaVersion := 3
+	if len(schemaVersions) != 0 {
+		schemaVersion = schemaVersions[0]
+	}
 	var state engine.RecoveryState
 	var data []byte
 	var revision model.Revision
@@ -72,28 +77,85 @@ func loadRecovery(ctx context.Context, database queryer, documentID model.Docume
 	if err != nil {
 		return state, err
 	}
-	rows, err = database.Query(ctx, "SELECT operation_id, revision, accepted, map_hash FROM collaboration_operations WHERE document_id = $1 ORDER BY revision", documentID)
+	operationQuery := "SELECT operation_id, revision, accepted, map_hash FROM collaboration_operations WHERE document_id = $1 ORDER BY revision"
+	if schemaVersion >= 4 {
+		operationQuery = "SELECT operation_id, revision, accepted, map_hash, storage_version, body_digest, body_bytes, change_count FROM collaboration_operations WHERE document_id = $1 ORDER BY revision"
+	}
+	rows, err = database.Query(ctx, operationQuery, documentID)
 	if err != nil {
 		return state, err
 	}
-	defer rows.Close()
+	type operationRow struct {
+		operationID model.OperationID
+		revision    model.Revision
+		data        []byte
+		hash        string
+		version     int
+		digest      *string
+		bodyBytes   *int64
+		changeCount *int64
+		resultIndex int
+	}
+	var versionedRows []operationRow
 	for rows.Next() {
 		var operationID model.OperationID
 		var hash string
+		var storageVersion = collabstore.LegacyTransactionVersion
+		var bodyDigest *string
+		var bodyBytes, changeCount *int64
+		if schemaVersion >= 4 {
+			if err := rows.Scan(&operationID, &revision, &data, &hash, &storageVersion, &bodyDigest, &bodyBytes, &changeCount); err != nil {
+				rows.Close()
+				return state, err
+			}
+			hash = strings.TrimSpace(hash)
+			if storageVersion == collabstore.LegacyTransactionVersion {
+				accepted, err := readStoredAccepted(ctx, database, documentID, operationID, revision, hash, data, storageVersion, bodyDigest, bodyBytes, changeCount)
+				if err != nil {
+					rows.Close()
+					return state, err
+				}
+				if accepted.DocumentID != documentID || accepted.OperationID != operationID || accepted.Revision != revision || hash != state.Hashes[revision] {
+					rows.Close()
+					return state, fmt.Errorf("stored operation identity/revision/hash differs from row/ledger")
+				}
+				state.Operations = append(state.Operations, accepted)
+				continue
+			}
+			resultIndex := len(state.Operations)
+			state.Operations = append(state.Operations, model.AcceptedOperation{})
+			versionedRows = append(versionedRows, operationRow{operationID, revision, append([]byte(nil), data...), hash, storageVersion, bodyDigest, bodyBytes, changeCount, resultIndex})
+			continue
+		}
 		if err := rows.Scan(&operationID, &revision, &data, &hash); err != nil {
+			rows.Close()
 			return state, err
 		}
 		accepted, err := decodeAccepted(data)
 		if err != nil {
+			rows.Close()
 			return state, err
 		}
 		if accepted.DocumentID != documentID || accepted.OperationID != operationID || accepted.Revision != revision || hash != state.Hashes[revision] {
+			rows.Close()
 			return state, fmt.Errorf("stored operation identity/revision/hash differs from row/ledger")
 		}
 		state.Operations = append(state.Operations, accepted)
 	}
-	if err := rows.Err(); err != nil {
-		return state, err
+	rowsErr := rows.Err()
+	rows.Close()
+	if rowsErr != nil {
+		return state, rowsErr
+	}
+	for _, row := range versionedRows {
+		accepted, err := readStoredAccepted(ctx, database, documentID, row.operationID, row.revision, row.hash, row.data, row.version, row.digest, row.bodyBytes, row.changeCount)
+		if err != nil {
+			return state, err
+		}
+		if accepted.DocumentID != documentID || accepted.OperationID != row.operationID || accepted.Revision != row.revision || row.hash != state.Hashes[row.revision] {
+			return state, fmt.Errorf("stored operation identity/revision/hash differs from row/ledger")
+		}
+		state.Operations[row.resultIndex] = accepted
 	}
 	return state, nil
 }

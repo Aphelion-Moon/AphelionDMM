@@ -11,11 +11,19 @@ import (
 )
 
 type grabPlacement struct {
-	owner editor
-	move  *editing.Move
-	last  util.Point
-	err   error
-	valid bool
+	owner      editor
+	move       *editing.Move
+	controller pastePlacementController
+	last       util.Point
+	err        error
+	valid      bool
+}
+
+type pastePlacementController interface {
+	UpdatePastePlacement(util.Point) (util.Bounds, bool, error)
+	ConfirmPastePlacement() bool
+	CancelPastePlacement()
+	PastePlacementClosed() bool
 }
 
 func (t *ToolGrab) Placing() bool { return t.placement != nil }
@@ -32,19 +40,46 @@ func (t *ToolGrab) StartPlacement(owner editor, move *editing.Move, coord util.P
 	t.UpdatePlacement(coord)
 }
 
+func (t *ToolGrab) StartPreparedPlacement(owner editor, coord util.Point) bool {
+	controller, ok := owner.(pastePlacementController)
+	if !ok {
+		return false
+	}
+	t.Reset()
+	t.placement = &grabPlacement{owner: owner, controller: controller}
+	t.UpdatePlacement(coord)
+	return true
+}
+
 func (t *ToolGrab) UpdatePlacement(coord util.Point) {
 	p := t.placement
 	if p == nil {
+		return
+	}
+	if p.controller != nil {
+		if p.controller.PastePlacementClosed() || ed != p.owner {
+			t.Reset()
+			return
+		}
+		p.last = coord
+		area, ready, err := p.controller.UpdatePastePlacement(coord)
+		p.err, p.valid = err, ready
+		if ready {
+			t.fillStart = util.Point{X: int(area.X1), Y: int(area.Y1), Z: coord.Z}
+			t.fillArea, t.fillAreaInit = area, area
+		}
 		return
 	}
 	if p.move.Closed() {
 		t.Reset()
 		return
 	}
-	if p.last == coord {
+	if p.last == coord && p.controller == nil {
 		return
 	}
-	p.last, p.valid = coord, false
+	if p.controller == nil {
+		p.last, p.valid = coord, false
+	}
 	if coord.Z != p.move.Level() {
 		p.err = fmt.Errorf("paste target must be on the selected level")
 		return
@@ -61,14 +96,16 @@ func (t *ToolGrab) UpdatePlacement(coord util.Point) {
 
 func (t *ToolGrab) ConfirmPlacement() bool {
 	p := t.placement
-	if p == nil || !p.valid || p.move.Closed() || ed != p.owner {
+	if p == nil || !p.valid || ed != p.owner || p.move != nil && p.move.Closed() || p.controller != nil && p.controller.PastePlacementClosed() {
 		return false
 	}
 	// The observer is bound to the originating editor. A later selection has a
 	// different history token and cannot be cleared by this operation's outcome.
 	t.placement = nil
 	t.mode = tSelectModeMoveArea
-	t.stopMoveArea()
+	if p.move != nil {
+		t.stopMoveArea()
+	}
 	history := editing.NewSelectionHistory(t.fillArea)
 	t.selectionHistory = history
 	changed := func(applied bool) {
@@ -76,7 +113,17 @@ func (t *ToolGrab) ConfirmPlacement() bool {
 			t.Reset()
 		}
 	}
-	action := func() error { p.owner.FinishSelectionMove(p.move, false); return nil }
+	action := func() error {
+		if p.controller != nil {
+			if !p.controller.ConfirmPastePlacement() {
+				return fmt.Errorf("paste proposal is no longer ready")
+			}
+			t.initTiles = nil // Materialize selected coordinates only when consumed.
+			return nil
+		}
+		p.owner.FinishSelectionMove(p.move, false)
+		return nil
+	}
 	if observer, ok := p.owner.(selectionTransformObserver); ok {
 		_ = observer.TrackSelectionTransform(changed, action)
 	} else {
@@ -87,6 +134,12 @@ func (t *ToolGrab) ConfirmPlacement() bool {
 
 func (t *ToolGrab) CancelPlacement() {
 	if t.Placing() {
+		if t.placement.controller != nil {
+			t.placement.controller.CancelPastePlacement()
+			t.placement = nil
+			t.Reset()
+			return
+		}
 		t.Reset()
 	}
 }
@@ -95,7 +148,12 @@ func (t *ToolGrab) processPlacement() {
 	if !t.Placing() {
 		return
 	}
-	if t.placement.move.Closed() || ed != t.placement.owner {
+	if t.placement.controller != nil {
+		if t.placement.controller.PastePlacementClosed() || ed != t.placement.owner {
+			t.Reset()
+			return
+		}
+	} else if t.placement.move == nil || t.placement.move.Closed() || ed != t.placement.owner {
 		t.Reset()
 		return
 	}

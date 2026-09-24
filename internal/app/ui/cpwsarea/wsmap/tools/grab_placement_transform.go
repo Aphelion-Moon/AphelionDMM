@@ -11,15 +11,34 @@ type pasteTransformer interface {
 	TransformPastePlacement(*editing.Move, editing.PlacementTransform, util.Point) (util.Bounds, error)
 }
 
+type preparedPasteTransformer interface {
+	TransformPreparedPastePlacement(editing.PlacementTransform) error
+}
+
 func (t *ToolGrab) CanTransformPlacement(owner editor, z int) bool {
 	p := t.placement
-	return p != nil && p.owner == owner && ed == owner && !p.move.Closed() && p.move.Level() == z
+	if p == nil || p.owner != owner || ed != owner {
+		return false
+	}
+	if p.controller != nil {
+		return !p.controller.PastePlacementClosed() && p.last.Z == z
+	}
+	return p.move != nil && !p.move.Closed() && p.move.Level() == z
 }
 
 func (t *ToolGrab) TransformPlacement(transform editing.PlacementTransform) error {
 	p := t.placement
 	if p == nil || !t.CanTransformPlacement(p.owner, p.last.Z) {
 		return fmt.Errorf("no active paste placement")
+	}
+	if p.controller != nil {
+		owner, ok := p.owner.(preparedPasteTransformer)
+		if !ok {
+			return fmt.Errorf("editor does not support asynchronous paste transforms")
+		}
+		err := owner.TransformPreparedPastePlacement(transform)
+		p.err, p.valid = err, false
+		return err
 	}
 	owner, ok := p.owner.(pasteTransformer)
 	if !ok {

@@ -166,9 +166,12 @@ func TestRepeatTransformRotatesFloatingPasteWithoutCommitting(t *testing.T) {
 	clipboard := app.Clipboard().Buffer().Buffer[0].Copy()
 	ws.Map().CanvasState().SetMousePosition(32, 32, 1)
 	e.TilePasteSelected()
+	settlePastePreview(t, ws, app)
 	id := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2].StableID()
 	pressSelectionShortcut(glfw.KeyRightBracket)
+	settlePastePreview(t, ws, app)
 	pressSelectionShortcut(glfw.KeyF4)
+	settlePastePreview(t, ws, app)
 	if !g.Placing() || g.Bounds() != (util.Bounds{X1: 2, Y1: 2, X2: 3, Y2: 2}) {
 		t.Fatal("repeat failed to transform floating paste", g.Bounds())
 	}
@@ -180,6 +183,7 @@ func TestRepeatTransformRotatesFloatingPasteWithoutCommitting(t *testing.T) {
 		t.Fatal("repeat committed preview or altered clipboard")
 	}
 	pressSelectionShortcut(glfw.KeyEnter)
+	settlePastePreview(t, ws, app)
 	if resizeSnapshot(t, e).Revision != before.Revision+1 {
 		t.Fatal("paste confirmation did not make exactly one operation")
 	}

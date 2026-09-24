@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 
-	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
@@ -15,8 +14,8 @@ import (
 // Preview's shift is relative to (1,1) on z. Each destination must fit in full.
 // Unlike a move, source coordinates are metadata and never cleared in the map.
 func NewPlacement(m *dmmap.Dmm, source []dmmap.Tile, z int, visible func(string) bool, capture func(util.Point) error, regenerate func(*dmmap.Tile), release func(util.Point)) (*Move, error) {
-	if m == nil || visible == nil || capture == nil || z < 1 || z > m.MaxZ || len(source) == 0 || len(source) > engine.MaxTileChanges {
-		return nil, fmt.Errorf("paste requires 1 through %d tiles on a valid map level", engine.MaxTileChanges)
+	if m == nil || visible == nil || capture == nil || z < 1 || z > m.MaxZ || len(source) == 0 {
+		return nil, fmt.Errorf("paste requires a nonempty selection on a valid map level")
 	}
 	minX, minY, maxX, maxY := source[0].Coord.X, source[0].Coord.Y, source[0].Coord.X, source[0].Coord.Y
 	seen := make(map[util.Point]struct{}, len(source))

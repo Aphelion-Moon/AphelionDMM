@@ -323,6 +323,10 @@ components:
       properties:
         snapshot: { $ref: '#/components/schemas/Snapshot' }
         display_name: { type: string, minLength: 1, maxLength: 128, default: Owner }
+        bulk_edits:
+          type: boolean
+          default: false
+          description: Require bulk-edit-v2 for every participant for this session's lifetime. Retained documents keep their stored transaction capability; upgrading existing storage requires explicit staged migration.
     CreateSessionResponse:
       type: object
       additionalProperties: false

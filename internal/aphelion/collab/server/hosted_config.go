@@ -48,6 +48,8 @@ type HostedOIDC struct {
 }
 
 type HostedLimits struct {
+	BulkSpoolBytes           int64 `yaml:"bulk_spool_bytes,omitempty"`
+	BulkWorkingBytes         int64 `yaml:"bulk_working_bytes,omitempty"`
 	MaxConnections           int   `yaml:"max_connections"`
 	MaxOperationChanges      int   `yaml:"max_operation_changes"`
 	MaxWebSocketMessageBytes int64 `yaml:"max_websocket_message_bytes"`
@@ -119,6 +121,9 @@ func (config *HostedConfig) validate() error {
 	}
 	if config.Limits.MaxConnections <= 0 || config.Limits.MaxOperationChanges <= 0 || config.Limits.MaxOperationChanges > protocol.MaxOperationChanges {
 		return fmt.Errorf("hosted connection and operation limits are invalid")
+	}
+	if config.Limits.BulkSpoolBytes < 0 || config.Limits.BulkWorkingBytes < 0 {
+		return fmt.Errorf("bulk spool and working budgets must be nonnegative byte counts; zero uses the default")
 	}
 	if config.Limits.MaxWebSocketMessageBytes <= 0 || config.Limits.MaxWebSocketMessageBytes > protocol.MaxMessageBytes {
 		return fmt.Errorf("hosted WebSocket message limit is invalid")

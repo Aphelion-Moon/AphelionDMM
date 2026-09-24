@@ -211,7 +211,14 @@ func (hub *Hub) Inverse(ctx context.Context, sessionID string, principal Princip
 	if err != nil {
 		return model.AcceptedOperation{}, err
 	}
-	operation, err := owner.BuildInverse(ctx, member.ActorID(), targetID, inverseID)
+	var admit func(int64) (func(), error)
+	if codec := bulkCodec(ctx); codec != nil {
+		admit = codec.ReserveWorking
+	}
+	operation, release, err := owner.buildInverseAdmitted(ctx, member.ActorID(), targetID, inverseID, admit)
+	if release != nil {
+		defer release()
+	}
 	if err != nil {
 		return model.AcceptedOperation{}, err
 	}

@@ -2,7 +2,19 @@ asyncapi: 3.0.0
 info:
   title: AphelionDMM Collaboration Stream API
   version: 1.0.0
-  description: Bounded JSON durable-operation and lossy-presence stream. Compression is disabled in protocol version 1.
+  description: Bounded JSON durable-operation and lossy-presence stream, with negotiated bulk-edit-v2 transaction frames. Compression is disabled.
+x-bulk-edit-v2:
+  subprotocol: apheliondmm.collaboration.bulk-edit-v2
+  negotiation: Required at join for the entire lifetime of a bulk session, even before its first edit. Legacy sessions retain their existing JSON contract. Canonical map hash, stable IDs, and operation protocol version remain unchanged.
+  frames:
+    begin: Binary byte 1 followed by a strict JSON object containing positive size in bytes and lowercase SHA256 digest of the complete transaction body. At most 1024 bytes including the tag.
+    chunk: Binary byte 2 followed by an unsigned 64-bit big-endian sequential index starting at zero, then 1 through 65536 body bytes.
+    finish: Single binary byte 3. Length, ordering and digest must verify before decoding or committing the operation.
+  body: UTF-8 JSON header of at most 16384 bytes including its newline, followed by exactly count JSON TileChange records separated by newlines. Header version is 2; kind is operation_submit or operation_accepted; session_id and message_id identify the envelope; operation contains metadata with an empty changes field. Acceptance additionally carries revision, accepted_at and map_hash. Invalid UTF-8, trailing records and unknown fields are rejected.
+  authority: Frames are never independent durable operations. One completed body has one operation ID, one accepted document revision and one actor-scoped inverse. Authentication and session capability precede spool allocation; the server derives actor identity from its authenticated principal.
+  resources: A connection uploads one body at a time. Server-owned private spools use shared configured byte admission, strict frame deadlines and cleanup on cancellation or disconnect. Decoded bulk edits retain an aggregate working-budget reservation of 16 times verified body bytes through processing. This is conservative accounting, not a heap measurement. Admission failures close with status 1013 and required/available budget bytes before mutation. Paths never cross the wire. Small edits may use ordinary JSON envelopes.
+  cancellation: Incomplete input changes no durable state. After commit, disconnection does not undo the edit; reconnect and exact operation-ID retry resolve the durable outcome.
+  presence: The selection remains a compact inclusive bounding box. Bulk sessions permit whole-level selections within valid map dimensions; the v1 4096-tile area cap remains only for legacy sessions.
 servers:
   loopback:
     host: 127.0.0.1
@@ -120,6 +132,7 @@ components:
       additionalProperties: false
       required: [document_id, actor_id, role, revision, map_hash, presence_interval_ms, resumption_token, resumption_token_expires_at]
       properties:
+        bulk_edits: { type: boolean, default: false, description: Every participant in this session must negotiate bulk-edit-v2. }
         document_id: { type: string, minLength: 1, maxLength: 128 }
         actor_id: { type: string, minLength: 1, maxLength: 128 }
         role: { type: string, enum: [viewer, editor, owner] }
@@ -154,4 +167,4 @@ components:
       properties:
         min: { $ref: '#/components/schemas/Coord' }
         max: { $ref: '#/components/schemas/Coord' }
-      description: Normalized same-level inclusive bounds capped at 4096 tiles.
+      description: Normalized same-level inclusive bounds. Legacy sessions cap selection area at 4096 tiles; bulk-edit-v2 sessions permit whole-level selections within valid map dimensions.

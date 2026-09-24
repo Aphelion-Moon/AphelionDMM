@@ -37,6 +37,7 @@ func (owner *DocumentOwner) subscribeDurable(buffer int) (<-chan model.AcceptedO
 func (owner *DocumentOwner) publishDurable(accepted model.AcceptedOperation) {
 	owner.durableMutex.Lock()
 	defer owner.durableMutex.Unlock()
+	owner.publishSharedDurable(accepted)
 	for id, subscriber := range owner.durableSubscribers {
 		select {
 		case subscriber <- model.CloneAcceptedOperation(accepted):
@@ -51,6 +52,10 @@ func (owner *DocumentOwner) closeDurable() {
 	owner.durableMutex.Lock()
 	defer owner.durableMutex.Unlock()
 	owner.durableClosed = true
+	for id, subscriber := range owner.sharedSubscribers {
+		close(subscriber)
+		delete(owner.sharedSubscribers, id)
+	}
 	for id, subscriber := range owner.durableSubscribers {
 		close(subscriber)
 		delete(owner.durableSubscribers, id)

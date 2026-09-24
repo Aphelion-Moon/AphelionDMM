@@ -2,9 +2,12 @@
 package editor
 
 import (
+	"context"
 	"fmt"
 	"sdmm/internal/aphelion/collab/mapadapter"
 	"sdmm/internal/aphelion/editing/stamps"
+	"sdmm/internal/aphelion/resources"
+	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/util"
 )
 
@@ -19,7 +22,7 @@ func (e *Editor) CaptureStamp(name string, coords []util.Point) (*stamps.Stamp, 
 	if err != nil {
 		return nil, err
 	}
-	return stamps.Capture(name, environmentHash, e.dmm, coords, e.app.PathsFilter())
+	return stamps.CaptureWithBudget(name, environmentHash, e.dmm, coords, e.app.PathsFilter(), e.editWorkBudget())
 }
 
 func (e *Editor) StampEnvironmentMatches(stamp *stamps.Stamp) bool {
@@ -44,7 +47,24 @@ func (e *Editor) StartStamp(stamp *stamps.Stamp, allowDifferentEnvironment bool)
 	if hash != stamp.EnvironmentHash() && !allowDifferentEnvironment {
 		return fmt.Errorf("stamp comes from a different environment; review and acknowledge before previewing")
 	}
-	return e.startPlacement(stamp.PasteData(e.app.PathsFilter(), e.app.LoadedEnvironment()))
+	lease, err := stamp.Acquire()
+	if err != nil {
+		return err
+	}
+	tileCount := lease.TileCount()
+	current := e.app.PathsFilter().Copy()
+	environment := e.app.LoadedEnvironment()
+	budget := e.editWorkBudget()
+	factory := func(ctx context.Context) ([]dmmap.Tile, func(string) bool, *resources.Reservation, error) {
+		data, reservation, err := lease.PasteData(ctx, &current, environment, budget)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		filter := data.Filter.Copy()
+		lease.Release()
+		return data.Buffer, filter.IsVisiblePath, reservation, nil
+	}
+	return e.startPlacementFromFactory(tileCount, factory, lease.Release)
 }
 
 // APHELION EDIT ADDITION END

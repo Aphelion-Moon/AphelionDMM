@@ -116,7 +116,7 @@ func concurrentTokens(ctx context.Context, client *http.Client, config RunConfig
 
 func connectConcurrentPeer(ctx context.Context, config RunConfig, token string, initial model.Snapshot) (*concurrentPeer, error) {
 	url := "ws" + strings.TrimPrefix(strings.TrimRight(config.Endpoint, "/"), "http") + "/v1/collaboration"
-	connection, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + token}, "Origin": []string{config.Origin}}, Subprotocols: []string{"apheliondmm.collaboration.v1"}})
+	connection, _, err := websocket.Dial(ctx, url, &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + token}, "Origin": []string{config.Origin}}, Subprotocols: []string{protocol.BulkSubprotocol, "apheliondmm.collaboration.v1"}})
 	if err != nil {
 		return nil, err
 	}
@@ -137,11 +137,11 @@ func connectConcurrentPeer(ctx context.Context, config RunConfig, token string, 
 	}
 	joined, replayed, presence := false, false, false
 	for !joined || !replayed || !presence {
-		_, data, err := connection.Read(ctx)
+		kind, data, err := connection.Read(ctx)
 		if err != nil {
 			return nil, err
 		}
-		message, err := protocol.DecodeServer(data)
+		message, err := decodeLoadEnvelope(ctx, connection, kind, data)
 		if err != nil {
 			return nil, err
 		}
