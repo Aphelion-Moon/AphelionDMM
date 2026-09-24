@@ -19,6 +19,9 @@ type Appearance struct {
 	Sprite     *dmicon.Sprite
 	Layer      float32
 	R, G, B, A float32
+	// WorldSpace anchors generated source contents to the map while a move's
+	// destination payload follows Presentation.Anchor. Coord is still zero-based.
+	WorldSpace bool
 }
 
 func PrepareAppearance(coord util.Point, instance *dmminstance.Instance, iconSize int) Appearance {
@@ -40,12 +43,14 @@ type Presentation struct {
 }
 
 type appearanceGroupKey struct {
-	layer float32
-	x, y  int
+	layer      float32
+	x, y       int
+	worldSpace bool
 }
 type appearanceGroup struct {
-	bounds  util.Bounds
-	sprites []Appearance
+	bounds     util.Bounds
+	sprites    []Appearance
+	worldSpace bool
 }
 
 func (p *Presentation) Add(a Appearance) {
@@ -56,10 +61,10 @@ func (p *Presentation) Add(a Appearance) {
 	if _, exists := p.groups[a.Layer]; !exists {
 		p.Layers = append(p.Layers, a.Layer)
 	}
-	key := appearanceGroupKey{layer: a.Layer, x: a.Coord.X / 32, y: a.Coord.Y / 32}
+	key := appearanceGroupKey{layer: a.Layer, x: a.Coord.X / 32, y: a.Coord.Y / 32, worldSpace: a.WorldSpace}
 	group := p.groupIndex[key]
 	if group == nil {
-		group = &appearanceGroup{bounds: a.Bounds}
+		group = &appearanceGroup{bounds: a.Bounds, worldSpace: a.WorldSpace}
 		p.groupIndex[key] = group
 		p.groups[a.Layer] = append(p.groups[a.Layer], group)
 	} else {
@@ -76,9 +81,16 @@ func (p *Presentation) Finish() {
 
 func (r *Render) SetPresentation(p *Presentation) { r.presentation = p }
 
+func (p *Presentation) groupTranslation(group *appearanceGroup) (float32, float32) {
+	if group.worldSpace {
+		return 0, 0
+	}
+	return float32((p.Anchor.X - 1) * p.IconSize), float32((p.Anchor.Y - 1) * p.IconSize)
+}
+
 func (p *Presentation) drawLayer(layer float32, view util.Bounds) {
-	dx, dy := float32((p.Anchor.X-1)*p.IconSize), float32((p.Anchor.Y-1)*p.IconSize)
 	for _, group := range p.groups[layer] {
+		dx, dy := p.groupTranslation(group)
 		if !dmicon.Cache.ExpandPendingBounds(group.bounds).Plus(dx, dy).ContainsV(view) {
 			continue
 		}
