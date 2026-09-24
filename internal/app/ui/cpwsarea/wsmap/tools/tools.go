@@ -219,6 +219,11 @@ func OnMouseMove() {
 
 func SelectedTiles() []util.Point {
 	if selectTool, ok := Selected().(*ToolGrab); ok {
+		// APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
+		if selectTool.HasSelectedArea() {
+			return selectTool.selectedCoordinates()
+		}
+		// APHELION EDIT ADDITION END
 		if len(selectTool.initTiles) > 0 {
 			tiles := make([]util.Point, 0, len(selectTool.initTiles))
 			for _, tile := range selectTool.initTiles {

@@ -28,11 +28,25 @@ type Dmi struct {
 	Image         image.Image
 	Texture       uint32
 	States        map[string]*State
+	// APHELION EDIT ADDITION START - ICON LIFETIME
+	disposed bool
+	// APHELION EDIT ADDITION END
 }
 
 func (d *Dmi) free() {
+	// APHELION EDIT ADDITION START - ICON LIFETIME
+	// Failed loads are negatively cached as nil. Texture retirement is queued
+	// once and remains on the graphics owner, after the current draw completes.
+	if d == nil || d.Texture == 0 || d.disposed {
+		return
+	}
+	d.disposed = true
+	// APHELION EDIT ADDITION END
 	window.RunLater(func() {
 		gl.DeleteTextures(1, &d.Texture)
+		// APHELION EDIT ADDITION START - ICON LIFETIME
+		d.Texture = 0
+		// APHELION EDIT ADDITION END
 	})
 }
 

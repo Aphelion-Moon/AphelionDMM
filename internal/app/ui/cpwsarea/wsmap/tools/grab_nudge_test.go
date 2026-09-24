@@ -16,7 +16,7 @@ func TestGrabNudgeUsesCurrentContentsAndKeepsSelection(t *testing.T) {
 	if e.commits != 1 || !g.Stale() || g.Bounds() != (util.Bounds{X1: 2, Y1: 1, X2: 2, Y2: 1}) {
 		t.Fatal("nudge did not commit once and move the selection")
 	}
-	if e.m.Tiles[1].Instances()[0].StableID() != id || g.initTiles[0].Coord.X != 2 {
+	if e.m.Tiles[1].Instances()[0].StableID() != id || g.selectedCoordinates()[0].X != 2 {
 		t.Fatal("nudge lost instance identity or selection coordinates")
 	}
 	// A subsequent mouse gesture starts from the nudged selection.

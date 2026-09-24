@@ -1,6 +1,9 @@
 package pmap
 
 import (
+	// APHELION EDIT ADDITION START - FLASH LIFETIME
+	"slices"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/canvas"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/overlay"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
@@ -71,26 +74,45 @@ func (p *PaneMap) processCanvasOverlayTools() {
 }
 
 func (p *PaneMap) processCanvasOverlayFlick() {
-	for idx, a := range p.editor.FlickAreas() {
+	// APHELION EDIT ADDITION START - FLASH LIFETIME
+	// Compact before drawing: a delayed frame may expire several entries at once.
+	// DeleteFunc also clears the backing tail so old instances can be collected.
+	now := imgui.Time()
+	p.editor.SetFlickAreas(slices.DeleteFunc(p.editor.FlickAreas(), func(a overlay.FlickArea) bool {
+		return now-a.Time >= flickDurationSec
+	}))
+	p.editor.SetFlickInstance(slices.DeleteFunc(p.editor.FlickInstance(), func(i overlay.FlickInstance) bool {
+		return now-i.Time >= flickDurationSec
+	}))
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - FLASH LIFETIME - ORIGINAL: for idx, a := range p.editor.FlickAreas() {
+	for _, a := range p.editor.FlickAreas() {
 		delta := imgui.Time() - a.Time
 		col := flickColor(overlay.ColorFlickTileFill, delta)
 
 		if delta < flickDurationSec {
 			p.PushAreaHover(a.Area, col, overlay.ColorEmpty)
-		} else {
+		}
+		/* APHELION EDIT REMOVAL START - FLASH LIFETIME
+		else {
 			p.editor.SetFlickAreas(append(p.editor.FlickAreas()[:idx], p.editor.FlickAreas()[idx+1:]...))
 		}
+		APHELION EDIT REMOVAL END */
 	}
 
-	for idx, i := range p.editor.FlickInstance() {
+	// APHELION EDIT CHANGE - FLASH LIFETIME - ORIGINAL: for idx, i := range p.editor.FlickInstance() {
+	for _, i := range p.editor.FlickInstance() {
 		delta := imgui.Time() - i.Time
 		col := flickColor(overlay.ColorFlickInstance, delta)
 
 		if delta < flickDurationSec {
 			p.PushUnitHighlight(i.Instance, col)
-		} else {
+		}
+		/* APHELION EDIT REMOVAL START - FLASH LIFETIME
+		else {
 			p.editor.SetFlickInstance(append(p.editor.FlickInstance()[:idx], p.editor.FlickInstance()[idx+1:]...))
 		}
+		APHELION EDIT REMOVAL END */
 	}
 }
 

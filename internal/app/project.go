@@ -217,6 +217,25 @@ func (a *app) loadMap(path string, workspace *workspace.Workspace) {
 	}
 	elapsed := time.Since(start).Milliseconds()
 	log.Printf("map [%s] parsed in [%d] ms", path, elapsed)
+	// APHELION EDIT ADDITION START - BACKUP FAILURE ISOLATION
+	backup, err := a.backupMap(path)
+	if err != nil {
+		log.Error().Err(err).Msg("map open aborted before installation")
+		dialog.Open(dialog.TypeCustom{
+			Title: "Unable to back up map",
+			Layout: w.Layout{
+				w.Text(fmt.Sprintf("The map was not opened because its recovery backup failed:\n%s", err)),
+				w.Button("Retry", func() {
+					imgui.CloseCurrentPopup()
+					window.RunLater(func() { a.loadMap(path, workspace) })
+				}),
+				w.SameLine(),
+				w.Button("Cancel", imgui.CloseCurrentPopup),
+			},
+		})
+		return
+	}
+	// APHELION EDIT ADDITION END
 
 	// Add map to the recent only if it is a part of the currently opened environment.
 	if slice.StrContains(a.AvailableMaps(), path) {
@@ -227,7 +246,8 @@ func (a *app) loadMap(path string, workspace *workspace.Workspace) {
 		log.Print("ignoring map path add to the recent, since it's an outside resource")
 	}
 
-	dmm, unknownPrefabs := dmmap.New(a.loadedEnvironment, data, a.backupMap(path))
+	// APHELION EDIT CHANGE - BACKUP FAILURE ISOLATION - ORIGINAL: dmm, unknownPrefabs := dmmap.New(a.loadedEnvironment, data, a.backupMap(path))
+	dmm, unknownPrefabs := dmmap.New(a.loadedEnvironment, data, backup)
 	if a.layout.WsArea.OpenMap(dmm, workspace) {
 		a.layout.Prefabs.Sync()
 
@@ -343,12 +363,18 @@ func (a *app) environmentName() string {
 	return ""
 }
 
-func (a *app) backupMap(path string) string {
+// APHELION EDIT CHANGE - BACKUP FAILURE ISOLATION - ORIGINAL: func (a *app) backupMap(path string) string {
+func (a *app) backupMap(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		/* APHELION EDIT REMOVAL START - BACKUP FAILURE ISOLATION
 		log.Print("unable to read map to backup:", path)
 		util.ShowErrorDialog("Unable to read map to backup: " + path)
 		os.Exit(1)
+		APHELION EDIT REMOVAL END */
+		// APHELION EDIT ADDITION START - BACKUP FAILURE ISOLATION
+		return "", fmt.Errorf("read map for backup: %w", err)
+		// APHELION EDIT ADDITION END
 	}
 
 	// format: backup/environment.dme/map.dmm/time.dmm
@@ -358,15 +384,26 @@ func (a *app) backupMap(path string) string {
 		time.Now().Format(util.TimeFormat) + ".dmm",
 	)
 
-	_ = os.MkdirAll(filepath.Dir(dst), os.ModePerm)
+	// APHELION EDIT ADDITION START - BACKUP FAILURE ISOLATION
+	// ORIGINAL: _ = os.MkdirAll(filepath.Dir(dst), os.ModePerm)
+	if err := os.MkdirAll(filepath.Dir(dst), os.ModePerm); err != nil {
+		return "", fmt.Errorf("create map backup directory: %w", err)
+	}
+	// APHELION EDIT ADDITION END
 
 	err = os.WriteFile(dst, data, os.ModePerm)
 	if err != nil {
+		/* APHELION EDIT REMOVAL START - BACKUP FAILURE ISOLATION
 		log.Print("unable to write map backup to a file:", dst)
 		util.ShowErrorDialog("Unable to write map backup to a file: " + path)
 		os.Exit(1)
+		APHELION EDIT REMOVAL END */
+		// APHELION EDIT ADDITION START - BACKUP FAILURE ISOLATION
+		return "", fmt.Errorf("write map backup: %w", err)
+		// APHELION EDIT ADDITION END
 	}
 	log.Print("map backup created:", dst)
 
-	return dst
+	// APHELION EDIT CHANGE - BACKUP FAILURE ISOLATION - ORIGINAL: return dst
+	return dst, nil
 }

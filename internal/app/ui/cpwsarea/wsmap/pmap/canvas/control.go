@@ -122,7 +122,8 @@ func (c *Control) processMouseScroll() {
 }
 
 func (c *Control) processMouseClick() {
-	c.clicked = imgui.IsMouseClicked(imgui.MouseButtonLeft | imgui.MouseButtonMiddle | imgui.MouseButtonRight)
+	// APHELION EDIT CHANGE - INPUT ROUTING - ORIGINAL: c.clicked = imgui.IsMouseClicked(imgui.MouseButtonLeft | imgui.MouseButtonMiddle | imgui.MouseButtonRight)
+	c.clicked = imgui.IsMouseClicked(imgui.MouseButtonLeft) || imgui.IsMouseClicked(imgui.MouseButtonMiddle) || imgui.IsMouseClicked(imgui.MouseButtonRight)
 	if c.active {
 		if imgui.IsMouseClicked(imgui.MouseButtonLeft) && c.onLmbClick != nil {
 			c.onLmbClick()

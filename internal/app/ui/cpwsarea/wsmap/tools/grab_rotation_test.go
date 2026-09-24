@@ -55,7 +55,8 @@ func TestGrabRotationUpdatesMoveSelectionOnlyOnSuccess(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if g.mode != tSelectModeMoveArea || len(g.initTiles) != 2 || g.initTiles[1].Coord != (util.Point{X: 1, Y: 2, Z: 1}) || g.fillAreaInit != g.fillArea {
+	coords := g.selectedCoordinates()
+	if g.mode != tSelectModeMoveArea || len(coords) != 2 || coords[1] != (util.Point{X: 1, Y: 2, Z: 1}) || g.fillAreaInit != g.fillArea {
 		t.Fatal("rotation left stale drag coordinates")
 	}
 }

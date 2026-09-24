@@ -310,7 +310,8 @@ func (t *ToolGrab) onStop(util.Point) {
 
 func (t *ToolGrab) stopSelectArea() {
 	t.mode = tSelectModeMoveArea
-	t.initTiles = collectTiles(ed.Dmm(), t.fillArea, t.fillStart.Z)
+	// APHELION EDIT CHANGE - SELECTION MEMBERSHIP - ORIGINAL: t.initTiles = collectTiles(ed.Dmm(), t.fillArea, t.fillStart.Z)
+	t.initTiles = nil
 	t.prevTiles = make(map[util.Point]dmmdata.Prefabs)
 }
 
@@ -321,7 +322,8 @@ func (t *ToolGrab) stopMoveArea() {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	t.initTiles = collectTiles(ed.Dmm(), t.fillArea, t.fillStart.Z)
+	// APHELION EDIT CHANGE - SELECTION MEMBERSHIP - ORIGINAL: t.initTiles = collectTiles(ed.Dmm(), t.fillArea, t.fillStart.Z)
+	t.initTiles = nil
 	t.fillAreaInit = t.fillArea
 }
 
@@ -342,3 +344,21 @@ func collectTiles(dmm *dmmap.Dmm, area util.Bounds, zLevel int) (tiles []dmmap.T
 	}
 	return tiles
 }
+
+// APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
+// Coordinates are selection geometry, independent of captured object contents.
+// Commands materialize their data from the current document when consumed.
+func (t *ToolGrab) selectedCoordinates() []util.Point {
+	if !t.HasSelectedArea() {
+		return nil
+	}
+	var points []util.Point
+	for x := int(t.fillArea.X1); x <= int(t.fillArea.X2); x++ {
+		for y := int(t.fillArea.Y1); y <= int(t.fillArea.Y2); y++ {
+			points = append(points, util.Point{X: x, Y: y, Z: t.fillStart.Z})
+		}
+	}
+	return points
+}
+
+// APHELION EDIT ADDITION END
