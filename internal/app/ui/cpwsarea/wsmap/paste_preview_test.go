@@ -116,7 +116,7 @@ func TestPastePreviewKeyboardConfirmationAndTextInput(t *testing.T) {
 	if g.Placing() || resizeSnapshot(t, e).Revision != 1 {
 		t.Fatal("bare Enter did not confirm paste through registry")
 	}
-	if !ws.Save() {
+	if !saveForTest(t, ws, app.jobs) {
 		t.Fatal("confirmed paste failed real workspace Save")
 	}
 }

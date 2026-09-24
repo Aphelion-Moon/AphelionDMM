@@ -25,6 +25,18 @@ func (e *Editor) EditStatus(gestureOwned bool) (message string, recovery, busy b
 		}
 		return "Unplaced preview is not included in saves.", false, false
 	}
+	if e.selectionMovePreview != nil {
+		if e.selectionMovePreview.err != nil {
+			return e.selectionMovePreview.err.Error(), false, false
+		}
+		if e.selectionMovePreview.preparing {
+			return "Preparing move preview…", false, true
+		}
+		if e.selectionMovePreview.phase == selectionMoveResolving {
+			return "Applying edit…", false, true
+		}
+		return "Unplaced preview is not included in saves.", false, false
+	}
 	if len(e.pendingChanges) != 0 && !gestureOwned && e.selectionMove == nil {
 		return "A retained edit is blocking Save.", true, false
 	}

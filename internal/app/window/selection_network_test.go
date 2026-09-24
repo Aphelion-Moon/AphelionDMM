@@ -237,7 +237,27 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 			grab.SelectArea([]util.Point{{X: 1, Y: 1, Z: 1}, {X: 3, Y: 2, Z: 1}})
 			origin := grab.Bounds()
 
-			frame := mouseWorkspaceFrame(t, ws, app.mouse)
+			rawFrame := mouseWorkspaceFrame(t, ws, app.mouse)
+			down, mouseX, mouseY := false, 1, 1
+			frame := func(pressed bool, x, y int) {
+				down, mouseX, mouseY = pressed, x, y
+				rawFrame(pressed, x, y)
+				for len(app.queued) != 0 {
+					<-app.queued
+				}
+			}
+			settle := func(ready func() bool) {
+				t.Helper()
+				deadline := time.Now().Add(3 * time.Second)
+				for !ready() {
+					if time.Now().After(deadline) {
+						t.Fatal("mouse move completion did not settle")
+					}
+					frame(down, mouseX, mouseY)
+					runtime.Gosched()
+				}
+			}
+			saveReady := func() bool { _, err := e.SaveSnapshot(context.Background()); return err == nil }
 			outcome := func(operation model.Operation, reject bool) {
 				t.Helper()
 				var payload any
@@ -259,11 +279,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 				if err := network.Receive(protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "mouse-verification", SessionID: "mouse-verification", Type: kind, Payload: data}); err != nil {
 					t.Fatal(err)
 				}
-				select {
-				case <-app.queued:
-				case <-time.After(3 * time.Second):
-					t.Fatal("completion not queued")
-				}
+				settle(saveReady)
 			}
 			frame(false, 1, 1)
 			frame(false, 1, 1)
@@ -274,43 +290,84 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 			rotated := grab.Bounds()
 			rotatedSnapshot := displaySnapshot()
 			rotatedHash := hash(rotatedSnapshot)
+			// Verify the submitted or retained operation against the original
+			// selected contents, including their exact identities and variables.
+			movedHash := func(operation model.Operation) string {
+				t.Helper()
+				recovered := model.CloneSnapshot(rotatedSnapshot)
+				for _, change := range operation.Changes {
+					found := false
+					for i, tile := range recovered.Tiles {
+						if tile.Coord == change.Coord {
+							if !tile.State.Equal(change.Before) {
+								t.Fatal("move lost rotated before-state")
+							}
+							recovered.Tiles[i].State = model.CloneTileState(change.After)
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Fatal("move targets unknown tile")
+					}
+				}
+				for _, source := range rotatedSnapshot.Tiles {
+					if !rotated.Contains(float32(source.Coord.X), float32(source.Coord.Y)) {
+						continue
+					}
+					destination := model.Coord{X: source.Coord.X + 1, Y: source.Coord.Y + 1, Z: source.Coord.Z}
+					found := false
+					for _, tile := range recovered.Tiles {
+						if tile.Coord == destination {
+							found = true
+							if !tile.State.Equal(source.State) {
+								t.Fatal("move lost exact selected contents")
+							}
+						}
+					}
+					if !found {
+						t.Fatal("move lost destination")
+					}
+				}
+				return hash(recovered)
+			}
 			frame(true, 1, 1)
 			frame(true, 1, 1)
 			if grab.Stale() {
 				t.Fatal("mouse press did not start Grab")
 			}
 			frame(true, 2, 2)
-			previewBounds, previewHash := grab.Bounds(), displayHash()
-			if previewBounds != rotated.Plus(1, 1) || previewHash == rotatedHash {
-				t.Fatal("mouse movement did not move the rectangular selection")
+			previewBounds := grab.Bounds()
+			var previewHash string // Exact confirmed contents become known at dispatch.
+			if previewBounds != rotated.Plus(1, 1) || displayHash() != rotatedHash {
+				t.Fatal("mouse movement failed to move the pose without mutating map data")
 			}
 			outcome(rotation, scenario.rejectRotation)
 			frame(true, 2, 2)
 			e.ProcessCollaborationUpdates()
-			if grab.Stale() || grab.Bounds() != previewBounds || displayHash() != previewHash {
+			if grab.Stale() || grab.Bounds() != previewBounds || !e.SelectionMovePreviewActive() {
 				t.Fatal("older outcome overwrote an open mouse preview")
 			}
-			if _, err := e.SaveSnapshot(context.Background()); err == nil {
-				t.Fatal("open mouse preview became saveable")
+			if saved, err := e.SaveSnapshot(context.Background()); err != nil || hash(saved) != hash(document.Snapshot()) {
+				t.Fatal("pure mouse preview blocked or changed committed Save state", err)
 			}
 			frame(false, 2, 2)
 			frame(false, 2, 2)
 			if !grab.Stale() {
 				t.Fatal("mouse release did not finish Grab")
 			}
+			settle(func() bool { return !e.SelectionMovePreviewActive() })
 			if scenario.rejectRotation {
 				// Its rotated before-state is now stale. The executor must retain
 				// this dependent drag as an unsent draft, without sending it.
-				select {
-				case <-app.queued:
-				case <-time.After(3 * time.Second):
-					t.Fatal("unsent drag completion not queued")
-				}
+				settle(saveReady)
 				if len(transport.sent) != 0 {
 					t.Fatal("stale dependent drag was sent")
 				}
 			} else {
-				outcome(transport.next(t), scenario.rejectMove)
+				move := transport.next(t)
+				previewHash = movedHash(move)
+				outcome(move, scenario.rejectMove)
 			}
 			frame(false, 2, 2)
 			e.ProcessCollaborationUpdates()
@@ -337,28 +394,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 				if conflicts[0].OperationID != rotation.OperationID || conflicts[1].Code != "submission_failed" {
 					t.Fatal("rejection lost operation provenance")
 				}
-				// Reconstruct the user's exact preview from the retained drag,
-				// proving that stable IDs and every changed tile survived rollback.
-				recovered := model.CloneSnapshot(rotatedSnapshot)
-				for _, change := range conflicts[1].Draft.Changes {
-					found := false
-					for i, tile := range recovered.Tiles {
-						if tile.Coord == change.Coord {
-							if !tile.State.Equal(change.Before) {
-								t.Fatal("draft lost rotated before-state")
-							}
-							recovered.Tiles[i].State = model.CloneTileState(change.After)
-							found = true
-							break
-						}
-					}
-					if !found {
-						t.Fatal("draft targets an unknown tile")
-					}
-				}
-				if hash(recovered) != previewHash {
-					t.Fatal("retained draft lost mouse preview contents")
-				}
+				movedHash(conflicts[1].Draft)
 				return
 			}
 			if scenario.rejectMove {
@@ -423,6 +459,8 @@ func mouseWorkspaceFrame(t *testing.T, ws *wsmap.WsMap, mouse func(uint, uint)) 
 		shortcut.BeginFrame()
 		imgui.NewFrame()
 		window.DrainFrameJobsForTest()
+		pane.Editor().ProcessCollaborationUpdates()
+		pane.Editor().ProcessPasteWork()
 		window.RunRepeatJobsForTest()
 		imgui.SetNextWindowPos(imgui.Vec2{})
 		imgui.SetNextWindowSize(imgui.Vec2{X: 128, Y: 128})

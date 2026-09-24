@@ -16,7 +16,11 @@ import (
 	"sdmm/internal/util"
 )
 
-type selectionTransport struct{ sent chan protocol.ClientEnvelope }
+type selectionTransport struct {
+	sent chan protocol.ClientEnvelope
+	ws   *WsMap
+	app  *selectionTestApp
+}
 
 func (*selectionTransport) Connect(context.Context, protocol.JoinRequest, func(protocol.ServerEnvelope)) error {
 	return nil
@@ -29,17 +33,25 @@ func (*selectionTransport) Close(websocket.StatusCode, string) error { return ni
 
 func (transport *selectionTransport) next(t *testing.T) model.Operation {
 	t.Helper()
-	select {
-	case envelope := <-transport.sent:
-		var payload protocol.OperationSubmitPayload
-		if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
-			t.Fatal(err)
+	deadline := time.NewTimer(3 * time.Second)
+	defer deadline.Stop()
+	for {
+		select {
+		case envelope := <-transport.sent:
+			var payload protocol.OperationSubmitPayload
+			if err := json.Unmarshal(envelope.Payload, &payload); err != nil {
+				t.Fatal(err)
+			}
+			return payload.Operation
+		case <-deadline.C:
+			t.Fatal("selection operation was not sent")
+		case job := <-transport.app.jobs:
+			job()
+		case <-time.After(time.Millisecond):
+			transport.ws.Map().Editor().ProcessCollaborationUpdates()
+			transport.ws.Map().Editor().ProcessPasteWork()
 		}
-		return payload.Operation
-	case <-time.After(3 * time.Second):
-		t.Fatal("selection operation was not sent")
 	}
-	return model.Operation{}
 }
 
 func selectionNetwork(t *testing.T, ws *WsMap) (*client.NetworkExecutor, *selectionTransport, *engine.Document) {
@@ -52,7 +64,9 @@ func selectionNetwork(t *testing.T, ws *WsMap) (*client.NetworkExecutor, *select
 	if err != nil {
 		t.Fatal(err)
 	}
-	transport := &selectionTransport{sent: make(chan protocol.ClientEnvelope, 8)}
+	app := ws.app.(*selectionTestApp)
+	app.network = true
+	transport := &selectionTransport{sent: make(chan protocol.ClientEnvelope, 8), ws: ws, app: app}
 	network, err := client.NewNetworkExecutor(transport, snapshot, actor, "selection-verification")
 	if err != nil {
 		t.Fatal(err)

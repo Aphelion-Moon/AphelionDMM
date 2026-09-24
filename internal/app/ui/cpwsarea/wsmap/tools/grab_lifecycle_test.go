@@ -19,8 +19,10 @@ import (
 
 type lifecycleEditor struct {
 	editor
-	m       *dmmap.Dmm
-	commits int
+	m             *dmmap.Dmm
+	commits       int
+	sourceDirs    []string
+	previewStates map[util.Point]dmmap.Instances
 }
 
 func (e *lifecycleEditor) Dmm() *dmmap.Dmm         { return e.m }
@@ -43,6 +45,49 @@ func (e *lifecycleEditor) FinishSelectionMove(move *editing.Move, cancel bool) {
 	if !cancel {
 		e.commits++
 	}
+}
+func (e *lifecycleEditor) BeginSelectionMovePreview(selection editing.Selection) (*editing.SelectionMove, error) {
+	e.sourceDirs = nil
+	e.previewStates = make(map[util.Point]dmmap.Instances, selection.Len())
+	for _, coord := range selection.Coordinates() {
+		var source dmmap.Instances
+		for _, instance := range e.m.GetTile(coord).Instances() {
+			e.sourceDirs = append(e.sourceDirs, instance.Prefab().Vars().ValueV("dir", ""))
+			copy := instance.Copy()
+			source = append(source, &copy)
+		}
+		e.previewStates[coord] = source
+	}
+	return editing.NewSelectionMove(selection)
+}
+func (e *lifecycleEditor) PreviewSelectionMovePreview(move *editing.SelectionMove, shift util.Point) (util.Bounds, error) {
+	area, _, err := move.Update(shift, e.m.MaxX, e.m.MaxY, move.Level())
+	return area, err
+}
+func (e *lifecycleEditor) FinishSelectionMovePreview(move *editing.SelectionMove, cancel bool) error {
+	move.Finish()
+	if !cancel {
+		shift := move.Shift()
+		union := make(map[util.Point]struct{}, len(e.previewStates)*2)
+		for source := range e.previewStates {
+			union[source] = struct{}{}
+			union[source.Plus(shift)] = struct{}{}
+		}
+		for coord := range union {
+			e.m.GetTile(coord).Set(nil)
+		}
+		for source, instances := range e.previewStates {
+			destination := source.Plus(shift)
+			for _, instance := range instances {
+				copy := instance.Copy()
+				copy.SetCoord(destination)
+				e.m.GetTile(destination).Set(append(e.m.GetTile(destination).Instances(), &copy))
+			}
+		}
+		e.commits++
+	}
+	e.previewStates = nil
+	return nil
 }
 
 func lifecycleFixture(t *testing.T) (*ToolGrab, *lifecycleEditor) {
@@ -69,16 +114,17 @@ func TestGrabMovePreservesIdentityAndPassedTile(t *testing.T) {
 	g, e := lifecycleFixture(t)
 	sourceID := e.m.Tiles[0].Instances()[0].StableID()
 	passedID := e.m.Tiles[1].Instances()[0].StableID()
+	before := e.m.Copy()
 	g.onStart(util.Point{X: 1, Y: 1, Z: 1})
 	g.onMove(util.Point{X: 2, Y: 1, Z: 1})
 	g.onMove(util.Point{X: 3, Y: 1, Z: 1})
-	if e.m.Tiles[2].Instances()[0].StableID() != sourceID {
-		t.Fatal("drag replaced the moved instance identity")
-	}
-	if e.m.Tiles[1].Instances()[0].StableID() != passedID {
-		t.Fatal("passing over a tile replaced its identity")
+	if !reflect.DeepEqual(e.m, &before) {
+		t.Fatal("ordinary Grab hover mutated committed map content")
 	}
 	g.onStop(util.Point{X: 3, Y: 1, Z: 1})
+	if e.commits != 1 || g.Bounds().X1 != 3 || e.m.Tiles[2].Instances()[0].StableID() != sourceID || e.m.Tiles[1].Instances()[0].StableID() != passedID {
+		t.Fatal("release did not retain the posed selection as one commit intent")
+	}
 }
 
 func TestGrabNewGestureDoesNotRestoreOldBackground(t *testing.T) {
@@ -86,14 +132,11 @@ func TestGrabNewGestureDoesNotRestoreOldBackground(t *testing.T) {
 	g.onStart(util.Point{X: 1, Y: 1, Z: 1})
 	g.onMove(util.Point{X: 2, Y: 1, Z: 1})
 	g.onMove(util.Point{X: 3, Y: 1, Z: 1})
-	g.onStop(util.Point{X: 3, Y: 1, Z: 1})
 	i := e.m.Tiles[1].Instances()[0]
 	i.SetPrefab(dmmprefab.New(0, i.Prefab().Path(), dmvars.Set(i.Prefab().Vars(), "marker", "remote")))
-	g.onStart(util.Point{X: 3, Y: 1, Z: 1})
-	g.onMove(util.Point{X: 4, Y: 1, Z: 1})
-	g.onStop(util.Point{X: 4, Y: 1, Z: 1})
+	g.onStop(util.Point{X: 3, Y: 1, Z: 1})
 	if got := e.m.Tiles[1].Instances()[0].Prefab().Vars().ValueV("marker", ""); got != "remote" {
-		t.Fatalf("new gesture restored stale background %s", got)
+		t.Fatalf("move release restored stale passed-over content %s", got)
 	}
 }
 
@@ -106,7 +149,7 @@ func TestGrabCancelRestoresPreview(t *testing.T) {
 	if !reflect.DeepEqual(e.m, &before) {
 		t.Fatal("deselect left a speculative move in the map")
 	}
-	if g.HasSelectedArea() || !g.Stale() {
+	if g.HasSelectedArea() || !g.Stale() || e.commits != 0 {
 		t.Fatal("cancel retained an active gesture")
 	}
 }
@@ -158,7 +201,7 @@ func TestGrabEscapeCancelsDuringDrag(t *testing.T) {
 	imgui.NewFrame()
 	process(false)
 	imgui.EndFrame()
-	if !reflect.DeepEqual(e.m, &before) || !g.Stale() {
+	if !reflect.DeepEqual(e.m, &before) || !g.Stale() || e.commits != 0 {
 		t.Fatal("Escape did not cancel the active drag through the tool frame handler")
 	}
 }

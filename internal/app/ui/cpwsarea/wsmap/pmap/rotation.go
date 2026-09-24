@@ -9,7 +9,7 @@ import (
 
 func (p *PaneMap) canRotateSelection() bool {
 	grab, ok := tools.Selected().(*tools.ToolGrab)
-	return (activePane == p || (activePane == nil && lastActivePane == p)) && ok && grab.HasSelectedArea() && grab.Stale() && grab.SelectionLevel() == p.activeLevel
+	return (activePane == p || (activePane == nil && lastActivePane == p)) && ok && grab.HasSelectedArea() && grab.Stale() && grab.SelectionLevel() == p.activeLevel && p.editor.CanStartMapEdit()
 }
 
 func (p *PaneMap) rotateSelection(clockwise bool) {

@@ -25,6 +25,7 @@ type selectionTestApp struct {
 	clipboard     *dmmclip.Clipboard
 	selectionStep int
 	paths         *dm.PathsFilter
+	network       bool
 }
 
 func (app *selectionTestApp) Prefs() prefs.Prefs {

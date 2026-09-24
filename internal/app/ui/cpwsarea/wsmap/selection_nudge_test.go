@@ -3,6 +3,7 @@ package wsmap
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/SpaiR/imgui-go"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -12,23 +13,54 @@ import (
 	"sdmm/internal/util"
 )
 
+var selectionShortcutSettler func()
+
+func settleSelectionMove(t *testing.T, ws *WsMap, app *selectionTestApp) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for ws.Map().Editor().SelectionMovePreviewActive() {
+		if time.Now().After(deadline) {
+			t.Fatal("selection move did not complete")
+		}
+		ws.Map().Editor().ProcessCollaborationUpdates()
+		ws.Map().Editor().ProcessPasteWork()
+		select {
+		case job := <-app.jobs:
+			job()
+		case <-time.After(time.Millisecond):
+		}
+	}
+}
+
 func pressSelectionShortcut(keys ...glfw.Key) {
 	io := imgui.CurrentIO()
 	for _, key := range keys {
 		io.KeyPress(int(key))
 	}
+	shortcut.BeginFrame()
 	imgui.NewFrame()
 	shortcut.Process()
 	imgui.EndFrame()
 	for _, key := range keys {
 		io.KeyRelease(int(key))
 	}
+	shortcut.BeginFrame()
 	imgui.NewFrame()
 	imgui.EndFrame()
+	if selectionShortcutSettler != nil {
+		selectionShortcutSettler()
+	}
 }
 
 func activateSelectionWorkspace(t *testing.T, ws *WsMap) *tools.ToolGrab {
 	t.Helper()
+	previous := selectionShortcutSettler
+	selectionShortcutSettler = func() {
+		if app, ok := ws.app.(*selectionTestApp); ok && !app.network {
+			settleSelectionMove(t, ws, app)
+		}
+	}
+	t.Cleanup(func() { selectionShortcutSettler = previous })
 	ws.OnCommandContextChange(true)
 	ws.OnFocusChange(true)
 	t.Cleanup(func() { ws.OnCommandContextChange(false); ws.OnFocusChange(false) })

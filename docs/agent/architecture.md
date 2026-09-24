@@ -33,15 +33,22 @@ Important existing seams include:
 completion callbacks are scheduled on the UI thread and fenced by attachment
 generation. An older acknowledgement does not clear a newer open gesture.
 Selection preflight owns only the before-states it acquires. Failed batches
-release those entries before any display mutation; cancelled moves restore and
-release their backgrounds without committing unrelated edits. A new destination
+release those entries before any display mutation. The retained legacy captured
+move adapter restores its backgrounds without committing unrelated edits; the
+shipped Grab tool uses the isolated presentation described below. A new destination
 with a separate pending edit is refused. Invalid capture remains a Save fault
 until validated replacement; cleanup does not reset the attachment or its pending
 acknowledgements. See the
 [capture/cancellation verification](../verification/2026-09-06-selection-capture-and-cancellation.md).
-`WsMap.Save` refuses unfinished gestures/submissions, captures the executor's
-acknowledged state, and reports staging or replacement failures. Close dialogs
-honor that result. The mutable display map is not the save authority.
+`WsMap.Save` schedules persistence of an acknowledged revision; its boolean means
+admission, not disk completion. `SaveAsync` reports the UI completion used by close
+dialogs. Unshared captures pin immutable authority without copying the map on the
+UI thread. A byte-admitted worker materializes, projects, hashes and validates that
+revision for atomic replacement. Session captures retain executor synchronization.
+Completion is fenced by request, attachment, workspace and history ownership, and
+cannot mark newer edits saved. Close-all rechecks every target after the last save,
+including initially clean documents. Real unfinished edits/submissions are refused;
+pure presentation previews do not enter persisted state.
 
 `Editor.ResizeMap` stages local maintenance before changing authority/display.
 Each size has a distinct local document identity and retained local executor, so
@@ -166,7 +173,9 @@ overhang bounds account for sprite dimensions learned after chunk construction.
 Map opening copies the parser's exact source stream into a unique flushed backup.
 The UI interns parsed prefabs in bounded steps; an owned worker then constructs
 instances, authority, initial history compatibility and area indexes. Installation
-transfers that prepared document once and builds initial geometry by chunk.
+transfers that prepared document once and builds initial geometry by chunk. Cold
+level switches use the same bounded builder and defer canvas actions until picking
+geometry is complete; cached level switches do not rebuild.
 Cancellation, environment identity and workspace-content identity fence publication.
 Loading progress is nonmodal; recoverable failures preserve other documents.
 Routine chunk logging is debug-level, and load boundaries do not force collection.
@@ -179,11 +188,12 @@ and conflicting mutations wait until publication finishes. The displayed revisio
 advances only after all tiles are installed. Area boundaries and chunk layer
 membership update from touched tiles instead of rescanning the map. A single
 chunk can exceed the time budget. Large local Fill, selection Delete, matching
-prefab deletion/replacement and search batches prepare through the same owner.
+prefab deletion/replacement, selection rotation/mirroring and search batches
+prepare through the same owner.
 Search first validates exact live pointer membership on the UI, then passes only
-coordinate/identity values to preparation. Legacy selection transforms, that
-initial search membership pass, and network snapshot installation still require
-separate scheduling work.
+coordinate/identity values to preparation. Selection geometry and the initial
+search membership pass still run on the UI. Large session transforms and network
+snapshot installation retain their existing synchronous projection boundaries.
 
 Clipboard and stamp placement retain ToolGrab's lifecycle but use an isolated
 payload, pose and renderer presentation. Translation changes the anchor without
@@ -204,9 +214,17 @@ comes from coherent executor authority, including intervening revisions.
 The [paste-transform report](../verification/2026-09-06-paste-transforms.md)
 records actual shortcut, cancellation, fault and local/network history evidence,
 plus selected-size model costs without claiming desktop latency improvements.
-Ordinary Grab movement still uses captured backgrounds until its own migration;
-cancellation and return-to-origin restore them. The following reports describe
-that earlier mutating lifecycle, not the isolated clipboard/stamp presentation.
+Ordinary Grab movement uses a sparse immutable source payload and a translation
+pose. Local source capture pins the authority index; workers copy only selected
+contents. Presentation suppresses the exact visible source/destination union,
+including mask holes, without tile mutation. Confirmation validates the retained
+source and composes one identity-preserving operation through the same local work
+owner. Regenerated source defaults stay anchored to the vacated cells and respect
+retained hidden families. Session source captures pin the coherent speculative
+projection; rejection of a dependency retains a reconstructable draft. Dispatched
+selection/history completions keep their original owner without clearing a newer
+presentation. The following reports describe the earlier captured-background lifecycle,
+not the current isolated Grab and clipboard/stamp presentations.
 The [preview-copy audit](../verification/2026-09-06-preview-copy-performance.md)
 records profile attribution, matched display hashes, allocation savings and mixed
 timing results for ordinary Grab movement and floating rotation.

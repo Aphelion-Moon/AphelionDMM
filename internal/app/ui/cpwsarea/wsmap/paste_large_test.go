@@ -266,7 +266,7 @@ func TestWholeLevelPaste256PreviewCancelCommitUndoRedoAndSave(t *testing.T) {
 	if got := resizeHash(t, largeSnapshot(t, ws)); got != resizeHash(t, after) || !app.commands.HasUndoV(path) || app.commands.HasRedoV(path) {
 		t.Fatal("one redo did not restore the whole-level paste exactly")
 	}
-	if !ws.Save() {
+	if !saveForTest(t, ws, app.jobs) {
 		t.Fatal("workspace Save rejected confirmed full-level paste")
 	}
 	saved, err := dmmdata.New(path)
@@ -361,7 +361,7 @@ func TestSparse512StampPreviewHistoryAndCommitLifetime(t *testing.T) {
 	if got := resizeHash(t, largeSnapshot(t, ws)); got != resizeHash(t, after) || !app.commands.HasUndoV(path) || app.commands.HasRedoV(path) {
 		t.Fatal("one redo did not restore the sparse stamp")
 	}
-	if !ws.Save() {
+	if !saveForTest(t, ws, app.jobs) {
 		t.Fatal("workspace Save rejected confirmed sparse stamp")
 	}
 	saved, err := dmmdata.New(path)

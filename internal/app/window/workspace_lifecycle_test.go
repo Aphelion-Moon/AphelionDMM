@@ -137,10 +137,22 @@ func TestNativeWorkspaceLifecycle(t *testing.T) {
 		grab.SelectArea([]util.Point{{X: 1, Y: 1, Z: 1}})
 		frame()
 		frame()
+		settle := func() {
+			t.Helper()
+			deadline := time.Now().Add(5 * time.Second)
+			for !e.CanStartMapEdit() || e.SelectionMovePreviewActive() || window.PendingFrameJobsForTest() != 0 {
+				if time.Now().After(deadline) {
+					t.Fatal("workspace edit did not settle")
+				}
+				frame()
+				runtime.Gosched()
+			}
+		}
 		step := func(job func()) {
 			action = job
 			frame()
 			frame()
+			settle()
 			if window.PendingFrameJobsForTest() != 0 {
 				t.Fatal("following frame left deferred work")
 			}
@@ -152,6 +164,7 @@ func TestNativeWorkspaceLifecycle(t *testing.T) {
 		io.KeyRelease(int(glfw.KeyLeftAlt))
 		io.KeyRelease(int(glfw.KeyRight))
 		frame()
+		settle()
 		if hash(snapshot()) == hash(initial) {
 			t.Fatal("native nudge did not change authority")
 		}
@@ -162,7 +175,8 @@ func TestNativeWorkspaceLifecycle(t *testing.T) {
 		if final.Revision != initial.Revision+4 || hash(final) != hash(initial) {
 			t.Fatal("edit/undo/redo did not restore exact authority")
 		}
-		if !current.Save() || current.HasUnsavedChanges() {
+		// APHELION EDIT CHANGE - RESPONSIVE_SAVE - ORIGINAL: if !current.Save() || current.HasUnsavedChanges() {
+		if !saveWorkspaceAsync(t, current) || current.HasUnsavedChanges() {
 			t.Fatal("workspace save failed or remained dirty")
 		}
 		saved, err := dmmdata.New(path)

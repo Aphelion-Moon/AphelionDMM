@@ -3,8 +3,8 @@ package editor
 
 // MapViewVersion identifies the UI-owned display for derived instance queries.
 // It is not an authoritative document revision. Call only on the UI thread.
-// Queries wait for unfinished gestures so previews cannot become action targets
-// or cause a full query rebuild on every drag frame.
+// Queries wait for gestures that mutate the displayed map. Pure selection move
+// presentation leaves committed query results available throughout the drag.
 func (e *Editor) MapViewVersion() (generation uint64, ready bool) {
 	return e.mapViewGeneration, !e.mapViewClosed && e.localWork == nil && e.selectionMove == nil && !e.pasteBlocksCommittedView() && len(e.pendingChanges) == 0
 }
@@ -14,7 +14,7 @@ func (e *Editor) MapViewVersion() (generation uint64, ready bool) {
 // permit ordinary speculative editing; the executor validates their outcomes.
 func (e *Editor) CanStartMapEdit() bool {
 	_, ready := e.MapViewVersion()
-	return ready && e.paste == nil && e.executor != nil && e.collaborationErr == nil && e.history.Valid()
+	return ready && e.paste == nil && e.selectionMovePreview == nil && e.executor != nil && e.collaborationErr == nil && e.history.Valid()
 }
 
 // APHELION EDIT ADDITION END

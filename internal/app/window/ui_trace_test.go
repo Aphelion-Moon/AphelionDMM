@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/trace"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -121,7 +122,7 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 	}
 	grab.SelectArea([]util.Point{selected})
 	var action func()
-	frame := window.FrameRunnerForTest(lifecycleWindow, traceFrameApp{draw: func() {
+	runFrame := window.FrameRunnerForTest(lifecycleWindow, traceFrameApp{draw: func() {
 		shortcut.Process()
 		if action != nil {
 			job := action
@@ -135,6 +136,8 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 		ws.Process()
 		imgui.End()
 	}})
+	var frameTimes []time.Duration
+	frame := func() { start := time.Now(); runFrame(); frameTimes = append(frameTimes, time.Since(start)) }
 	frame()
 	frame()
 	if mapPath != "" {
@@ -173,27 +176,39 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 	}
 	initial := hash(snapshot())
 	io := imgui.CurrentIO()
-	// Each action is processed inside a frame after that frame has drained the
-	// queue. Its deferred bucket work must run at the start of the next frame.
+	// Pump the real frame owner until the accepted revision is presented. A
+	// worker may need more than the old synchronous path's fixed two frames.
+	var operationTimes []time.Duration
 	step := func(name string, job func()) {
 		t.Helper()
+		_, revision := e.SaveVersion()
+		start := time.Now()
 		complete := trace.StartRegion(context.Background(), "aphelion.probe."+name+"_to_gpu_complete")
-		cpu := trace.StartRegion(context.Background(), "aphelion.probe."+name+"_to_following_frame")
+		cpu := trace.StartRegion(context.Background(), "aphelion.probe."+name+"_to_committed_frame")
 		action = job
 		if job == nil {
 			io.KeyPress(int(glfw.KeyLeftAlt))
 			io.KeyPress(int(glfw.KeyRight))
 		}
 		frame()
-		if window.PendingFrameJobsForTest() == 0 {
-			t.Fatal("action did not enqueue a bucket update")
-		}
 		io.KeyRelease(int(glfw.KeyLeftAlt))
 		io.KeyRelease(int(glfw.KeyRight))
 		frame()
+		for {
+			_, current := e.SaveVersion()
+			if current == revision+1 && e.CanStartMapEdit() && window.PendingFrameJobsForTest() == 0 {
+				break
+			}
+			if time.Since(start) > 10*time.Second {
+				t.Fatalf("%s did not settle: revision=%d want=%d jobs=%d", name, current, revision+1, window.PendingFrameJobsForTest())
+			}
+			runtime.Gosched()
+			frame()
+		}
 		cpu.End()
 		gl.Finish()
 		complete.End()
+		operationTimes = append(operationTimes, time.Since(start))
 		if window.PendingFrameJobsForTest() != 0 {
 			t.Fatal("following frame left deferred work queued")
 		}
@@ -226,22 +241,37 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 	runtime.ReadMemStats(&before)
 	initialPixels = sha256.Sum256(ws.Map().Canvas().ReadPixels())
 	checkPixels = true
+	frameTimes = nil
+	operationTimes = nil
 	var data bytes.Buffer
-	if err := trace.Start(&data); err != nil {
-		t.Fatal(err)
+	traced := os.Getenv("APHELION_UI_UNPROFILED") != "1"
+	if traced {
+		if err := trace.Start(&data); err != nil {
+			t.Fatal(err)
+		}
+		defer trace.Stop()
 	}
-	defer trace.Stop()
 	workload := uistage.Begin(uistage.Workload)
 	for range cycles {
 		cycle()
 	}
 	workload.End()
-	trace.Stop()
-	for _, stage := range []string{string(uistage.Frame), string(uistage.Present), string(uistage.CanvasDraw), "aphelion.bucket.queued", "aphelion.bucket.deferred", "aphelion.probe.nudge_to_following_frame"} {
-		if !bytes.Contains(data.Bytes(), []byte(stage)) {
+	if traced {
+		trace.Stop()
+	}
+	for _, stage := range []string{string(uistage.Frame), string(uistage.Present), string(uistage.CanvasDraw), "aphelion.probe.nudge_to_committed_frame"} {
+		if traced && !bytes.Contains(data.Bytes(), []byte(stage)) {
 			t.Errorf("native frame trace lacks %q", stage)
 		}
 	}
+	metrics := func(label string, values []time.Duration) {
+		sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+		if len(values) > 0 {
+			t.Logf("%s count=%d p50_ms=%.3f p95_ms=%.3f worst_ms=%.3f", label, len(values), float64(values[len(values)/2].Microseconds())/1000, float64(values[(len(values)*95-1)/100].Microseconds())/1000, float64(values[len(values)-1].Microseconds())/1000)
+		}
+	}
+	metrics("frame_cpu_and_present", frameTimes)
+	metrics("action_to_gpu_complete", operationTimes)
 	if output := os.Getenv("APHELION_UI_TRACE_OUTPUT"); output != "" {
 		file, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
@@ -256,7 +286,30 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 	runtime.GC()
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
-	t.Logf("dimensions=%dx%dx%d cells=%d selected=%v measured_cycles=%d frames=%d pending_jobs=%d fixture_sha256=%x initial_and_final_hash=%s trace_bytes=%d", e.Dmm().MaxX, e.Dmm().MaxY, e.Dmm().MaxZ, len(e.Dmm().Tiles), selected, cycles, cycles*8, window.PendingFrameJobsForTest(), sha256.Sum256(input), initial, data.Len())
+	t.Logf("dimensions=%dx%dx%d cells=%d selected=%v measured_cycles=%d frames=%d pending_jobs=%d fixture_sha256=%x initial_and_final_hash=%s trace_bytes=%d", e.Dmm().MaxX, e.Dmm().MaxY, e.Dmm().MaxZ, len(e.Dmm().Tiles), selected, cycles, len(frameTimes), window.PendingFrameJobsForTest(), sha256.Sum256(input), initial, data.Len())
 	t.Logf("post_gc_heap_before=%d post_gc_heap_after=%d total_alloc_delta=%d", before.HeapAlloc, after.HeapAlloc, after.TotalAlloc-before.TotalAlloc)
 	t.Logf("canvas=640x480 initial_and_final_pixels_sha256=%x gl_version=%s", initialPixels, gl.GoStr(gl.GetString(gl.VERSION)))
+	if mapPath != "" {
+		// The fixture owns a temporary map and backup; exercise the workspace Save
+		// entry while continuing native presentation. Keep this outside the matched
+		// edit/history allocation sample above.
+		frameTimes = nil
+		var saveBefore, saveAfter runtime.MemStats
+		runtime.ReadMemStats(&saveBefore)
+		done, saved := false, false
+		start := time.Now()
+		ws.SaveAsync(func(ok bool) { done, saved = true, ok })
+		dispatch := time.Since(start)
+		for !done && time.Since(start) < 60*time.Second {
+			frame()
+			runtime.Gosched()
+		}
+		elapsed := time.Since(start)
+		if !done || !saved {
+			t.Fatal("representative workspace save did not complete")
+		}
+		runtime.ReadMemStats(&saveAfter)
+		t.Logf("save_dispatch_ms=%.3f save_total_ms=%.3f save_alloc_bytes=%d", float64(dispatch.Microseconds())/1000, float64(elapsed.Microseconds())/1000, saveAfter.TotalAlloc-saveBefore.TotalAlloc)
+		metrics("save_frame_cpu_and_present", frameTimes)
+	}
 }

@@ -46,6 +46,7 @@ type Editor struct {
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	selectionMove           *editing.Move
 	selectionMoveGeneration uint64
+	selectionMovePreview    *selectionMoveSession
 	selectionOutcome        func(bool)
 	paste                   *pasteSession
 	heldPresentation        *heldPresentation

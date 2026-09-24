@@ -68,6 +68,7 @@ func TestSelectionNoopMirrorDoesNotHideNudgeUndo(t *testing.T) {
 	if err := grab.Nudge(util.Point{X: 1}); err != nil {
 		t.Fatal(err)
 	}
+	settleSelectionMove(t, ws, app)
 	nudged, err := e.SaveSnapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)

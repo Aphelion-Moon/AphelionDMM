@@ -19,7 +19,7 @@ import (
 func TestSelectionCaptureFailureCancelsAndRecoversWorkspace(t *testing.T) {
 	for _, cancel := range []bool{true, false} {
 		t.Run(fmt.Sprintf("explicit_cancel=%v", cancel), func(t *testing.T) {
-			ws, _ := newSelectionWorkspace(t)
+			ws, app := newSelectionWorkspace(t)
 			e := ws.Map().Editor()
 			before := resizeSnapshot(t, e)
 			document, err := engine.NewDocument(before)
@@ -66,7 +66,7 @@ func TestSelectionCaptureFailureCancelsAndRecoversWorkspace(t *testing.T) {
 			if err := e.AttachCollaborationExecutor(authority); err != nil {
 				t.Fatalf("cancelled failed drag left captures blocking recovery: %v", err)
 			}
-			if got := resizeSnapshot(t, e); !reflect.DeepEqual(got, before) || !ws.Save() {
+			if got := resizeSnapshot(t, e); !reflect.DeepEqual(got, before) || !saveForTest(t, ws, app.jobs) {
 				t.Fatal("validated recovery changed authority or failed actual Save")
 			}
 		})
@@ -133,7 +133,7 @@ func TestSelectionCaptureFailureKeepsPendingNetworkAcceptance(t *testing.T) {
 		t.Fatalf("orphan captures blocked validated network recovery: %v", err)
 	}
 	got := resizeSnapshot(t, e)
-	if got.Revision != 1 || resizeHash(t, got) != resizeHash(t, document.Snapshot()) || !ws.Save() {
+	if got.Revision != 1 || resizeHash(t, got) != resizeHash(t, document.Snapshot()) || !saveForTest(t, ws, app.jobs) {
 		t.Fatal("recovery lost the accepted edit or failed actual Save")
 	}
 	if got := e.Dmm().GetTile(util.Point{X: 1, Y: 3, Z: 1}).Instances()[2].Prefab().Vars().ValueV("dir", ""); got != "8" {

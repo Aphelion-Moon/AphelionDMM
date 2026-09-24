@@ -60,7 +60,7 @@ func TestPasteTransformShortcutsBeforeConfirmation(t *testing.T) {
 	if got := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2]; got.StableID() == id || got.Prefab().Vars().ValueV("dir", "") != "4" {
 		t.Fatal("committed rotated/mirrored data or copied identity is wrong")
 	}
-	if g.Placing() || after.Revision != before.Revision+1 || !ws.Save() {
+	if g.Placing() || after.Revision != before.Revision+1 || !saveForTest(t, ws, app.jobs) {
 		t.Fatal("transformed paste did not confirm as one saveable revision")
 	}
 	app.commands.UndoV(e.Dmm().Path.Absolute)
@@ -280,7 +280,7 @@ func TestPasteTransformNeverCapturesOrRepairsDestinationDisplay(t *testing.T) {
 	if err := e.AttachCollaborationExecutor(network); err != nil {
 		t.Fatalf("transform retained captures blocking recovery: %v", err)
 	}
-	if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) || !ws.Save() {
+	if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) || !saveForTest(t, ws, app.jobs) {
 		t.Fatal("validated recovery failed exact original save")
 	}
 }

@@ -55,7 +55,7 @@ func TestGrabMaskHoleIsNotMoveTargetAndCannotLeakToAnotherMap(t *testing.T) {
 		t.Fatal(got)
 	}
 	g.onStart(util.Point{X: 2, Y: 1, Z: 1})
-	if g.move != nil || g.mode != tSelectModeSelectArea {
+	if g.previewMove != nil || g.mode != tSelectModeSelectArea {
 		t.Fatal("hole started moving mask")
 	}
 	g.onStop(util.Point{X: 2, Y: 1, Z: 1})

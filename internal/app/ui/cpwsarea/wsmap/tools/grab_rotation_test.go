@@ -2,23 +2,12 @@ package tools
 
 import (
 	"errors"
-	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 	"testing"
 )
-
-type rotationEditor struct {
-	editor
-	m *dmmap.Dmm
-}
-
-func (e rotationEditor) Dmm() *dmmap.Dmm { return e.m }
-func (e rotationEditor) BeginSelectionMove(area util.Bounds, z int) (*editing.Move, error) {
-	return editing.NewMove(e.m, area, z, func(string) bool { return true }, func(util.Point) error { return nil }, nil, nil)
-}
 
 func TestGrabRotationUpdatesMoveSelectionOnlyOnSuccess(t *testing.T) {
 	oldEditor := ed
@@ -29,7 +18,7 @@ func TestGrabRotationUpdatesMoveSelectionOnlyOnSuccess(t *testing.T) {
 			m.Tiles = append(m.Tiles, &dmmap.Tile{Coord: util.Point{X: x, Y: y, Z: 1}})
 		}
 	}
-	ed = rotationEditor{m: m}
+	ed = &lifecycleEditor{m: m}
 	g := newGrab()
 	g.SelectArea([]util.Point{{X: 1, Y: 1, Z: 1}, {X: 2, Y: 1, Z: 1}})
 	before := g.Bounds()
@@ -69,17 +58,19 @@ func TestGrabMoveReadsCurrentContentsAfterUndo(t *testing.T) {
 	vars.Put("dir", "4")
 	tile.InstancesAdd(dmmprefab.New(0, "/obj/foo", vars.ToImmutable()))
 	m := &dmmap.Dmm{MaxX: 2, MaxY: 1, MaxZ: 1, Tiles: []*dmmap.Tile{tile, {Coord: util.Point{X: 2, Y: 1, Z: 1}}}}
-	ed = rotationEditor{m: m}
+	owner := &lifecycleEditor{m: m}
+	ed = owner
 	g := newGrab()
 	g.SelectArea([]util.Point{tile.Coord})
 	g.mode = tSelectModeMoveArea
 	i := tile.Instances()[0]
 	i.SetPrefab(dmmprefab.New(0, "/obj/foo", dmvars.Set(i.Prefab().Vars(), "dir", "2"))) // Acknowledged undo/remote update.
 	g.onStart(tile.Coord)
-	if _, err := g.move.Preview(util.Point{X: 1}); err != nil {
-		t.Fatal(err)
+	g.onMove(util.Point{X: 2, Y: 1, Z: 1})
+	if len(owner.sourceDirs) != 1 || owner.sourceDirs[0] != "2" {
+		t.Fatalf("pure move did not capture current post-undo source, got %v", owner.sourceDirs)
 	}
-	if got := m.Tiles[1].Instances()[0].Prefab().Vars().ValueV("dir", ""); got != "2" {
-		t.Fatalf("drag resurrected stale rotated direction %s", got)
+	if m.Tiles[0].Instances()[0] != i || len(m.Tiles[1].Instances()) != 0 {
+		t.Fatal("pure move hover replaced the source or populated its destination")
 	}
 }

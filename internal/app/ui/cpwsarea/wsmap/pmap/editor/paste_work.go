@@ -44,35 +44,45 @@ type pasteWorkResult struct {
 }
 
 type pasteSession struct {
-	generation                 uint64
-	level                      int
-	source                     []dmmap.Tile
-	visible                    func(string) bool
-	sourceFactory              pasteSourceFactory
-	releaseSource              func()
-	reservation                *resources.Reservation
-	payload                    *editing.PlacementPayload
-	target                     util.Point
-	orientation                editing.Orientation
-	preparedOrientation        editing.Orientation
-	policy                     editing.PastePolicy
-	request                    uint64
-	prepared                   uint64
-	sourcePrepared             bool
-	phase                      pastePhase
-	err                        error
-	bounds                     util.Bounds
-	intent                     *util.Point
-	selectionOutcome           func(bool)
-	workerCancel               context.CancelFunc
-	workerBusy                 bool
-	results                    chan pasteWorkResult
-	resultMu                   sync.Mutex
-	discarded                  bool
-	commitWork                 int
-	presentation               *render.Presentation
-	preparingPresentation      *render.Presentation
-	spriteTile, spriteInstance int
+	generation            uint64
+	level                 int
+	source                []dmmap.Tile
+	visible               func(string) bool
+	sourceFactory         pasteSourceFactory
+	releaseSource         func()
+	reservation           *resources.Reservation
+	payload               *editing.PlacementPayload
+	target                util.Point
+	orientation           editing.Orientation
+	preparedOrientation   editing.Orientation
+	policy                editing.PastePolicy
+	request               uint64
+	prepared              uint64
+	sourcePrepared        bool
+	phase                 pastePhase
+	err                   error
+	bounds                util.Bounds
+	intent                *util.Point
+	selectionOutcome      func(bool)
+	workerCancel          context.CancelFunc
+	workerBusy            bool
+	results               chan pasteWorkResult
+	resultMu              sync.Mutex
+	discarded             bool
+	commitWork            int
+	presentation          *render.Presentation
+	preparingPresentation *render.Presentation
+	presentationBuild     *presentationBuild
+}
+
+type presentationBuild struct {
+	presentation  *render.Presentation
+	tileCount     int
+	instanceCount func(int) int
+	appearance    func(int, int) render.Appearance
+	tile          int
+	instance      int
+	finished      bool
 }
 
 func (e *Editor) beginPasteProposal(source []dmmap.Tile, visible func(string) bool, target util.Point) error {
@@ -243,12 +253,17 @@ func (e *Editor) PastePlacementProgress() string {
 		return "Preparing paste source"
 	}
 	if p.preparingPresentation != nil {
-		return fmt.Sprintf("Preparing paste sprites: %d / %d tiles", p.spriteTile, len(p.payload.Tiles))
+		prepared := 0
+		if p.presentationBuild != nil {
+			prepared = p.presentationBuild.tile
+		}
+		return fmt.Sprintf("Preparing paste sprites: %d / %d tiles", prepared, len(p.payload.Tiles))
 	}
 	return ""
 }
 
 func (e *Editor) ProcessPasteWork() {
+	e.processSelectionMoveWork()
 	p := e.paste
 	if p == nil {
 		return
@@ -386,7 +401,6 @@ func (e *Editor) startPasteWorker(p *pasteSession) {
 }
 
 func (e *Editor) preparePastePresentation(p *pasteSession) {
-	p.spriteTile, p.spriteInstance = 0, 0
 	payload := p.payload
 	presentation := &render.Presentation{Anchor: p.target, IconSize: dmmap.WorldIconSize}
 	p.preparingPresentation = presentation
@@ -417,40 +431,66 @@ func (e *Editor) preparePastePresentation(p *pasteSession) {
 		before := e.authoritativeTiles[model.Coord{X: p.target.X + a.Coord.X, Y: p.target.Y + a.Coord.Y, Z: p.target.Z}]
 		return editing.CheckComposition(before, intent, p.policy, p.visible) == nil
 	}
+	p.presentationBuild = &presentationBuild{
+		presentation: presentation,
+		tileCount:    len(payload.Tiles),
+		instanceCount: func(tile int) int {
+			return len(payload.Tiles[tile].Instances())
+		},
+		appearance: func(tile, instance int) render.Appearance {
+			source := payload.Tiles[tile]
+			return render.PrepareAppearance(source.Coord, source.Instances()[instance], dmmap.WorldIconSize)
+		},
+	}
 }
 
 func (e *Editor) preparePasteSprites(p *pasteSession) {
-	if p.preparingPresentation == nil {
-		return
-	}
-	if e.pMap.Canvas().Render() == nil {
+	if p.preparingPresentation != nil && e.preparePresentationBuild(p.presentationBuild) {
 		e.publishPastePresentation(p)
-		return
 	}
-	started, count := time.Now(), 0
-	for p.spriteTile < len(p.payload.Tiles) {
-		tile := p.payload.Tiles[p.spriteTile]
-		for p.spriteInstance < len(tile.Instances()) {
-			p.preparingPresentation.Add(render.PrepareAppearance(tile.Coord, tile.Instances()[p.spriteInstance], dmmap.WorldIconSize))
-			p.spriteInstance++
-			count++
-			if count >= pasteUIChunkTiles || time.Since(started) >= pasteUIChunkTime {
-				return
-			}
-		}
-		p.spriteTile++
-		p.spriteInstance = 0
-	}
-	e.publishPastePresentation(p)
 }
 
 func (e *Editor) publishPastePresentation(p *pasteSession) {
-	p.preparingPresentation.Finish()
-	p.presentation = p.preparingPresentation
+	p.presentation = p.presentationBuild.presentation
 	p.preparingPresentation = nil
 	if r := e.pMap.Canvas().Render(); r != nil {
 		r.SetPresentation(p.presentation)
 	}
+}
+
+// preparePresentationBuild incrementally prepares one immutable sprite stream
+// for either paste or ordinary move, keeping large selection work inside the
+// same per-frame budget.
+func (e *Editor) preparePresentationBuild(build *presentationBuild) bool {
+	if build == nil {
+		return false
+	}
+	if build.finished {
+		return true
+	}
+	if e.pMap.Canvas().Render() == nil {
+		build.presentation.Finish()
+		build.finished = true
+		return true
+	}
+	started, count := time.Now(), 0
+	for build.tile < build.tileCount {
+		instances := build.instanceCount(build.tile)
+		if build.instance >= instances {
+			build.tile++
+			build.instance = 0
+			continue
+		}
+		build.presentation.Add(build.appearance(build.tile, build.instance))
+		build.instance++
+		count++
+		if count >= pasteUIChunkTiles || time.Since(started) >= pasteUIChunkTime {
+			return false
+		}
+	}
+	build.presentation.Finish()
+	build.finished = true
+	return true
 }
 
 func (e *Editor) submitPasteIntent(p *pasteSession) {

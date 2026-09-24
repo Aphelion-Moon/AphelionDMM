@@ -157,35 +157,61 @@ func TestRepeatTransformKeepsMoveDistanceAndCustomBinding(t *testing.T) {
 	}
 }
 
-func TestRepeatTransformRotatesFloatingPasteWithoutCommitting(t *testing.T) {
+func TestRepeatTransformKeepsFloatingPasteUncommittedUntilConfirmation(t *testing.T) {
 	ws, app := newSelectionWorkspace(t)
 	g := activateSelectionWorkspace(t, ws)
 	e := ws.Map().Editor()
 	before := resizeSnapshot(t, e)
+	beforeDisplay := e.Dmm().Copy()
+	sourceID := beforeDisplay.GetTile(util.Point{X: 1, Y: 1, Z: 1}).Instances()[2].StableID()
+	destinationID := beforeDisplay.GetTile(util.Point{X: 3, Y: 2, Z: 1}).Instances()[2].StableID()
 	app.Clipboard().Copy(dm.NewPathsFilterEmpty(), e.Dmm(), []util.Point{{X: 1, Y: 1, Z: 1}, {X: 2, Y: 1, Z: 1}})
 	clipboard := app.Clipboard().Buffer().Buffer[0].Copy()
 	ws.Map().CanvasState().SetMousePosition(32, 32, 1)
 	e.TilePasteSelected()
 	settlePastePreview(t, ws, app)
-	id := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2].StableID()
+	assertPreview := func(bounds util.Bounds) {
+		t.Helper()
+		if !g.Placing() || !e.HasPastePlacement() || g.Bounds() != bounds {
+			t.Fatalf("floating preview state = placing:%t paste:%t bounds:%+v; want bounds:%+v", g.Placing(), e.HasPastePlacement(), g.Bounds(), bounds)
+		}
+		if !reflect.DeepEqual(beforeDisplay, e.Dmm().Copy()) || resizeSnapshot(t, e).Revision != before.Revision {
+			t.Fatal("floating repeat changed committed map state")
+		}
+		if app.commands.HasUndoV(e.Dmm().Path.Absolute) || !reflect.DeepEqual(clipboard, app.Clipboard().Buffer().Buffer[0].Copy()) {
+			t.Fatal("floating repeat changed history or clipboard before confirmation")
+		}
+	}
+	assertPreview(util.Bounds{X1: 2, Y1: 2, X2: 3, Y2: 2})
 	pressSelectionShortcut(glfw.KeyRightBracket)
 	settlePastePreview(t, ws, app)
+	assertPreview(util.Bounds{X1: 2, Y1: 2, X2: 2, Y2: 3})
 	pressSelectionShortcut(glfw.KeyF4)
 	settlePastePreview(t, ws, app)
-	if !g.Placing() || g.Bounds() != (util.Bounds{X1: 2, Y1: 2, X2: 3, Y2: 2}) {
-		t.Fatal("repeat failed to transform floating paste", g.Bounds())
-	}
-	rotated := e.Dmm().GetTile(util.Point{X: 3, Y: 2, Z: 1}).Instances()[2]
-	if rotated.StableID() != id || rotated.Prefab().Vars().ValueV("dir", "") != "1" {
-		t.Fatal("repeat changed copied identity or lost orientation")
-	}
-	if app.commands.HasUndoV(e.Dmm().Path.Absolute) || !reflect.DeepEqual(clipboard, app.Clipboard().Buffer().Buffer[0].Copy()) {
-		t.Fatal("repeat committed preview or altered clipboard")
-	}
+	assertPreview(util.Bounds{X1: 2, Y1: 2, X2: 3, Y2: 2})
 	pressSelectionShortcut(glfw.KeyEnter)
 	settlePastePreview(t, ws, app)
-	if resizeSnapshot(t, e).Revision != before.Revision+1 {
+	after := resizeSnapshot(t, e)
+	if after.Revision != before.Revision+1 || g.Placing() || e.HasPastePlacement() || !g.HasSelectedArea() || g.Bounds() != (util.Bounds{X1: 2, Y1: 2, X2: 3, Y2: 2}) || !app.commands.HasUndoV(e.Dmm().Path.Absolute) {
 		t.Fatal("paste confirmation did not make exactly one operation")
+	}
+	rotated := e.Dmm().GetTile(util.Point{X: 3, Y: 2, Z: 1}).Instances()[2]
+	committedID := rotated.StableID()
+	if committedID == "" || committedID == sourceID || committedID == destinationID || rotated.Prefab().Vars().ValueV("dir", "") != "1" {
+		t.Fatalf("committed repeat lost orientation or fresh placement identity: source=%q destination=%q committed=%q dir=%q", sourceID, destinationID, committedID, rotated.Prefab().Vars().ValueV("dir", ""))
+	}
+	if !reflect.DeepEqual(clipboard, app.Clipboard().Buffer().Buffer[0].Copy()) {
+		t.Fatal("paste confirmation altered clipboard")
+	}
+	path, afterHash := e.Dmm().Path.Absolute, resizeHash(t, after)
+	app.commands.UndoV(path)
+	if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) || !app.commands.HasRedoV(path) {
+		t.Fatal("repeat paste undo did not restore the original map")
+	}
+	app.commands.RedoV(path)
+	redone := e.Dmm().GetTile(util.Point{X: 3, Y: 2, Z: 1}).Instances()[2]
+	if resizeHash(t, resizeSnapshot(t, e)) != afterHash || redone.StableID() != committedID {
+		t.Fatal("repeat paste redo changed the committed map or stable ID")
 	}
 }
 

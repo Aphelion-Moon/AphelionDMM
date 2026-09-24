@@ -186,6 +186,7 @@ func TestSelectionTransformUndoRedoRestoresBounds(t *testing.T) {
 		t.Fatal(err)
 	}
 	nudged := grab.Bounds()
+	settleSelectionMove(t, ws, app)
 	for _, want := range []util.Bounds{rotated, before} {
 		app.commands.UndoV(e.Dmm().Path.Absolute)
 		if got := grab.Bounds(); got != want {

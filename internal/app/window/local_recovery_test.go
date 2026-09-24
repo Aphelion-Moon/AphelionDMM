@@ -77,7 +77,8 @@ func TestLocalRecoveryWorkspaceSave(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(recovered, initial) {
 		t.Fatal("discard failed to restore original authority", err)
 	}
-	if !ws.Save() {
+	// APHELION EDIT CHANGE - RESPONSIVE_SAVE - ORIGINAL: if !ws.Save() {
+	if !saveWorkspaceAsync(t, ws) {
 		t.Fatal("native workspace could not Save after recovery")
 	}
 	if _, err := dmmdata.New(e.Dmm().Path.Absolute); err != nil {

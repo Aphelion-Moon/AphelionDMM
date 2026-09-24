@@ -2,7 +2,9 @@ package window_test
 
 import (
 	"context"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/SpaiR/imgui-go"
 	"github.com/go-gl/glfw/v3.3/glfw"
@@ -67,6 +69,14 @@ func TestHeldToolsRespectGrabMouseOwnership(t *testing.T) {
 	}
 	frame(false, 2, 2)
 	frame(false, 2, 2)
+	deadline := time.Now().Add(5 * time.Second)
+	for e.SelectionMovePreviewActive() || !e.CanStartMapEdit() {
+		if time.Now().After(deadline) {
+			t.Fatal("released drag did not settle")
+		}
+		frame(false, 2, 2)
+		runtime.Gosched()
+	}
 	if !tools.IsSelected(tools.TNGrab) || !grab.Stale() || !grab.HasSelectedArea() {
 		t.Fatal("previously blocked held keys activated after mouse release")
 	}

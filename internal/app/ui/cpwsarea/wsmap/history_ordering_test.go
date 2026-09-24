@@ -25,8 +25,9 @@ func TestHistorySavedSelectionBranchKeepsCloseGuard(t *testing.T) {
 		if err := grab.Nudge(delta); err != nil {
 			t.Fatal(err)
 		}
+		settleSelectionMove(t, ws, app)
 	}
-	if !ws.Save() || ws.HasUnsavedChanges() {
+	if !saveForTest(t, ws, app.jobs) || ws.HasUnsavedChanges() {
 		t.Fatal("fixture did not establish a saved map")
 	}
 	saved, err := os.ReadFile(ws.CommandStackId())
@@ -37,6 +38,7 @@ func TestHistorySavedSelectionBranchKeepsCloseGuard(t *testing.T) {
 	if err := grab.Nudge(util.Point{X: 1}); err != nil {
 		t.Fatal(err)
 	}
+	settleSelectionMove(t, ws, app)
 	if !app.commands.IsModified(ws.CommandStackId()) {
 		t.Error("new selection edit at saved depth is marked clean")
 	}
@@ -49,7 +51,7 @@ func TestHistorySavedSelectionBranchKeepsCloseGuard(t *testing.T) {
 	if err != nil || !bytes.Equal(saved, unchanged) {
 		t.Fatal("editing/close inspection modified the saved file")
 	}
-	if !ws.Save() || ws.HasUnsavedChanges() {
+	if !saveForTest(t, ws, app.jobs) || ws.HasUnsavedChanges() {
 		t.Fatal("saving the new branch did not clear the close guard")
 	}
 	updated, err := os.ReadFile(ws.CommandStackId())

@@ -27,6 +27,79 @@ type operationResult struct {
 	err      error
 }
 
+// ProjectionCapture pins one immutable executor projection. NetworkExecutor
+// replaces projections instead of mutating them, so the capture can be
+// materialized by a worker after the executor advances.
+type ProjectionCapture struct {
+	projection Projection
+}
+
+func (capture ProjectionCapture) HasPending() bool {
+	return len(capture.projection.Pending) != 0
+}
+
+func (capture ProjectionCapture) BaseRevision() model.Revision {
+	return capture.projection.Acknowledged.Revision
+}
+
+// EstimatedBytes conservatively covers materializing one visible snapshot,
+// the projection indexes, and pending change states. It allocates nothing.
+func (capture ProjectionCapture) EstimatedBytes() uint64 {
+	bytes := uint64(1 << 20)
+	for _, tile := range capture.projection.Acknowledged.Tiles {
+		bytes = estimateCaptureAdd(bytes, estimateCaptureState(tile.State)+64)
+	}
+	for _, operation := range capture.projection.Pending {
+		bytes = estimateCaptureAdd(bytes, uint64(len(operation.Changes))*128)
+		for _, change := range operation.Changes {
+			bytes = estimateCaptureAdd(bytes, estimateCaptureState(change.After))
+		}
+	}
+	return estimateCaptureMul(bytes, 2)
+}
+
+func estimateCaptureState(state model.TileState) uint64 {
+	bytes := uint64(96)
+	for _, prefab := range state.Prefabs {
+		bytes = estimateCaptureAdd(bytes, 128+uint64(len(prefab.Path))+uint64(len(prefab.StableID)))
+		for name, value := range prefab.Vars {
+			bytes = estimateCaptureAdd(bytes, 64+uint64(len(name))+uint64(len(value)))
+		}
+	}
+	return bytes
+}
+
+func estimateCaptureAdd(a, b uint64) uint64 {
+	if b > ^uint64(0)-a {
+		return ^uint64(0)
+	}
+	return a + b
+}
+
+func estimateCaptureMul(value, factor uint64) uint64 {
+	if factor != 0 && value > ^uint64(0)/factor {
+		return ^uint64(0)
+	}
+	return value * factor
+}
+
+// VisibleSnapshot deep-copies the captured optimistic projection. Call it from
+// a worker when the snapshot may contain a large document.
+func (capture ProjectionCapture) VisibleSnapshot() (model.Snapshot, error) {
+	return capture.projection.Visible()
+}
+
+// OperationBase returns the metadata needed to build an operation against the
+// captured acknowledged revision without exposing executor-owned tile data.
+func (capture ProjectionCapture) OperationBase() (model.DocumentID, model.Revision, string, string, error) {
+	snapshot := capture.projection.Acknowledged
+	hash, err := snapshot.Hash()
+	if err != nil {
+		return "", 0, "", "", err
+	}
+	return snapshot.DocumentID, snapshot.Revision, snapshot.EnvironmentHash, hash, nil
+}
+
 type NetworkExecutor struct {
 	transport Transport
 	actor     model.ActorID
@@ -189,6 +262,19 @@ func (network *NetworkExecutor) Snapshot(ctx context.Context) (model.Snapshot, e
 	network.mutex.Lock()
 	defer network.mutex.Unlock()
 	return model.CloneSnapshot(network.projection.Acknowledged), nil
+}
+
+// CaptureProjection pins the current acknowledged and speculative views with
+// an O(1) copy. Use the returned capture to read a stable view off the UI
+// thread; the captured slices are immutable because executor updates replace
+// the projection value and its backing storage.
+func (network *NetworkExecutor) CaptureProjection(ctx context.Context) (ProjectionCapture, error) {
+	if err := ctx.Err(); err != nil {
+		return ProjectionCapture{}, err
+	}
+	network.mutex.Lock()
+	defer network.mutex.Unlock()
+	return ProjectionCapture{projection: network.projection}, nil
 }
 
 func (network *NetworkExecutor) ProjectionUpdates() <-chan Projection {

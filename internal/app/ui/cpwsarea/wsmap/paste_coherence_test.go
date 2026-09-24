@@ -53,7 +53,7 @@ func TestAcceptedPasteIncludesInterveningDisjointRevision(t *testing.T) {
 	if !snapshotStateIndex(current)[remoteTile.Coord].Equal(after) {
 		t.Fatal("paste inverse reverted another actor's edit")
 	}
-	if !ws.Save() {
+	if !saveForTest(t, ws, app.jobs) {
 		t.Fatal("coherent accepted state could not be saved")
 	}
 }

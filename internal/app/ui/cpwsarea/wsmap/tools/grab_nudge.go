@@ -20,16 +20,19 @@ func (t *ToolGrab) Nudge(shift util.Point) error {
 		return fmt.Errorf("nudge must move 1 through %d tiles along one axis", editing.MaxSelectionMoveStep)
 	}
 	return t.trackSelectionTransform(t.fillArea, true, func() (util.Bounds, error) {
-		move, err := t.beginSelectionMove()
+		move, err := t.beginSelectionMovePreview()
 		if err != nil {
 			return t.fillArea, err
 		}
-		if _, err := ed.PreviewSelectionMove(move, shift); err != nil {
-			ed.FinishSelectionMove(move, true)
+		owner, ok := ed.(selectionMovePreviewOwner)
+		if !ok {
+			return t.fillArea, fmt.Errorf("selection move presentation is unavailable")
+		}
+		if _, err := owner.PreviewSelectionMovePreview(move, shift); err != nil {
+			_ = owner.FinishSelectionMovePreview(move, true)
 			return move.Bounds(), err
 		}
-		ed.FinishSelectionMove(move, false)
-		return move.Bounds(), nil
+		return move.Bounds(), owner.FinishSelectionMovePreview(move, false)
 	})
 }
 

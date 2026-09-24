@@ -17,6 +17,7 @@ import (
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
+	"sdmm/internal/app/ui/dialog"
 	"sdmm/internal/app/ui/shortcut"
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmenv"
@@ -224,6 +225,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	if saveForTest(t, ws, app.jobs) {
 		t.Fatal("save silently replaced a map changed on disk")
 	}
+	dismissSaveConflict(t, app, path)
 	unchanged, err := os.ReadFile(path)
 	if err != nil || !bytes.Equal(unchanged, external) {
 		t.Fatalf("conflicting save changed external file: %v", err)
@@ -252,8 +254,16 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	if saveForTest(t, ws, app.jobs) {
 		t.Fatal("save silently replaced a second external edit")
 	}
+	dismissSaveConflict(t, app, path)
 	if ws.saveAsTo(path) {
 		t.Fatal("Save As overwrote an existing destination by default")
+	}
+	// This expected refusal queues native error presentation, not save work.
+	// Consume it before pumping the subsequent successful asynchronous Save As.
+	select {
+	case <-app.jobs:
+	default:
+		t.Fatal("rejected Save As did not queue its error notification")
 	}
 	unchanged, err = os.ReadFile(path)
 	if err != nil || !bytes.Equal(unchanged, external) {
@@ -291,6 +301,19 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	afterFailure, err := os.ReadFile(copyPath)
 	if err != nil || !bytes.Equal(beforeFailure, afterFailure) || !app.commands.IsModified(copyPath) {
 		t.Fatal("failed save changed file or dirty state")
+	}
+}
+
+// The fixture invokes the user's conflict choice directly, so it also owns the
+// corresponding dialog lifetime instead of leaving it in later test contexts.
+func dismissSaveConflict(t *testing.T, app *saveTestApp, path string) {
+	t.Helper()
+	select {
+	case present := <-app.jobs:
+		present()
+		dialog.Close(dialog.TypeCustom{Title: "Map changed on disk##" + path})
+	default:
+		t.Fatal("save conflict did not queue its choice dialog")
 	}
 }
 

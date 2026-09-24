@@ -100,6 +100,8 @@ func TestStampRoundTripPreviewAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := resizeSnapshot(t, e)
+	beforeDisplay := e.Dmm().Copy()
+	sourceID := e.Dmm().GetTile(util.Point{X: 1, Y: 1, Z: 1}).Instances()[2].StableID()
 	path := filepath.Join(t.TempDir(), "selection.admmstamp")
 	if err := stamp.Save(path); err != nil {
 		t.Fatal(err)
@@ -113,7 +115,9 @@ func TestStampRoundTripPreviewAndHistory(t *testing.T) {
 		t.Fatal("saved stamp did not reload", err)
 	}
 	ws.Map().CanvasState().SetMousePosition(32, 32, 1)
-	hidden := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[0].StableID()
+	point := util.Point{X: 2, Y: 2, Z: 1}
+	hidden := e.Dmm().GetTile(point).Instances()[0].StableID()
+	destinationID := e.Dmm().GetTile(point).Instances()[2].StableID()
 	if err := e.StartStamp(loaded, false); err != nil {
 		t.Fatal(err)
 	}
@@ -121,15 +125,17 @@ func TestStampRoundTripPreviewAndHistory(t *testing.T) {
 	if !g.Placing() {
 		t.Fatal("stamp did not start a floating preview")
 	}
-	if _, err := e.SaveSnapshot(context.Background()); err == nil {
-		t.Fatal("stamp preview allowed Save")
+	if _, err := e.SaveSnapshot(context.Background()); err != nil {
+		t.Fatal("read-only stamp preview blocked committed Save snapshot", err)
 	}
-	copyID := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2].StableID()
-	if copyID == i.StableID() {
-		t.Fatal("stamp reused source identity")
+	if !reflect.DeepEqual(beforeDisplay, e.Dmm().Copy()) || resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) {
+		t.Fatal("stamp preview mutated committed map state")
 	}
 	pressSelectionShortcut(glfw.KeyRightBracket)
 	settlePastePreview(t, ws, app)
+	if !reflect.DeepEqual(beforeDisplay, e.Dmm().Copy()) || resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) {
+		t.Fatal("stamp transform mutated committed map state")
+	}
 	pressSelectionShortcut(glfw.KeyEscape)
 	settlePastePreview(t, ws, app)
 	if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) {
@@ -139,34 +145,40 @@ func TestStampRoundTripPreviewAndHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	settlePastePreview(t, ws, app)
-	secondID := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2].StableID()
-	if secondID == copyID || secondID == i.StableID() {
-		t.Fatal("reused stamp retained pasted identities")
+	if !reflect.DeepEqual(beforeDisplay, e.Dmm().Copy()) {
+		t.Fatal("second stamp preview mutated committed display data")
 	}
 	if !g.ConfirmPlacement() {
 		t.Fatal("stamp preview did not confirm")
 	}
 	settlePastePreview(t, ws, app)
 	after := resizeSnapshot(t, e)
-	if after.Revision != before.Revision+1 || e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[0].StableID() != hidden {
+	if after.Revision != before.Revision+1 || e.Dmm().GetTile(point).Instances()[0].StableID() != hidden {
 		t.Fatal("stamp changed hidden layer or committed more than once")
 	}
-	pasted := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2]
+	pasted := e.Dmm().GetTile(point).Instances()[2]
+	committedID := pasted.StableID()
+	if committedID == "" || committedID == sourceID || committedID == destinationID {
+		t.Fatal("stamp commit did not assign a fresh placement identity")
+	}
 	if pasted.Prefab().Path() != "/obj/unknown" || pasted.Prefab().Vars().ValueV("custom", "") != `"kept value"` {
 		t.Fatal("stamp lost unknown type or variable")
 	}
-	app.commands.UndoV(e.Dmm().Path.Absolute)
-	if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) {
-		t.Fatal("stamp undo changed original state")
+	mapPath := e.Dmm().Path.Absolute
+	afterHash := resizeHash(t, after)
+	app.commands.UndoV(mapPath)
+	if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) || !app.commands.HasRedoV(mapPath) {
+		t.Fatal("stamp undo did not restore the exact original map")
 	}
-	app.commands.RedoV(e.Dmm().Path.Absolute)
-	if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, after) {
+	app.commands.RedoV(mapPath)
+	redone := e.Dmm().GetTile(point).Instances()[2]
+	if resizeHash(t, resizeSnapshot(t, e)) != afterHash || redone.StableID() != committedID {
 		t.Fatal("stamp redo lost copied identities")
 	}
 	if !reflect.DeepEqual(clipboard, app.Clipboard().Buffer().Buffer[0].Copy()) {
 		t.Fatal("stamp workflow altered clipboard")
 	}
-	if !ws.Save() {
+	if !saveForTest(t, ws, app.jobs) {
 		t.Fatal("confirmed stamp could not be saved")
 	}
 }
@@ -186,22 +198,12 @@ func TestStampRejectsBusyOrDifferentEnvironmentAndPreservesHiddenDestination(t *
 	app.PathsFilter().TogglePath("/obj/foo")
 	ws.Map().CanvasState().SetMousePosition(32, 32, 1)
 	point := util.Point{X: 2, Y: 2, Z: 1}
-	hidden := e.Dmm().GetTile(point).Instances()[2].StableID()
 	if err := e.StartStamp(stamp, true); err != nil {
 		t.Fatal(err)
 	}
 	settlePastePreview(t, ws, app)
-	count := 0
-	for _, instance := range e.Dmm().GetTile(point).Instances() {
-		if instance.Prefab().Path() == "/obj/foo" {
-			count++
-			if instance.StableID() != hidden {
-				t.Fatal("stamp replaced a currently hidden destination instance")
-			}
-		}
-	}
-	if count != 1 {
-		t.Fatal("stamp lost or duplicated the hidden destination instance")
+	if !samePasteDisplay(t, before, e.Dmm()) {
+		t.Fatal("active stamp preview changed the hidden destination or committed display")
 	}
 	if err := e.StartStamp(stamp, true); err == nil {
 		t.Fatal("stamp replaced an active preview")

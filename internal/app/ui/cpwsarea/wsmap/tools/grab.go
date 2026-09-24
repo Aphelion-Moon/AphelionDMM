@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"fmt"
 	"math"
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	"sdmm/internal/aphelion/editing"
@@ -47,7 +48,7 @@ type ToolGrab struct {
 
 	mode tSelectMode
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
-	move             *editing.Move
+	previewMove      *editing.SelectionMove
 	selectionHistory *editing.SelectionHistory
 	placement        *grabPlacement
 	selection        editing.Selection
@@ -84,9 +85,11 @@ func (t *ToolGrab) Reset() {
 	t.selectionHistory = nil
 	t.selection = editing.Selection{}
 	t.selectionOwner = nil
-	if t.move != nil {
-		ed.FinishSelectionMove(t.move, true)
-		t.move = nil
+	if t.previewMove != nil {
+		if owner, ok := ed.(selectionMovePreviewOwner); ok {
+			_ = owner.FinishSelectionMovePreview(t.previewMove, true)
+		}
+		t.previewMove = nil
 	}
 	t.dragging = false
 	t.mode = tSelectModeSelectArea
@@ -109,7 +112,7 @@ func newGrab() *ToolGrab {
 
 func (t *ToolGrab) Stale() bool {
 	// APHELION EDIT CHANGE - PASTE PLACEMENT - ORIGINAL: return !t.dragging
-	return !t.dragging && !t.Placing()
+	return !t.dragging && !t.Placing() && (t.previewMove == nil || t.previewMove.Closed())
 }
 
 func (ToolGrab) AltBehaviour() bool {
@@ -212,7 +215,7 @@ func (t *ToolGrab) startMoveArea(coord util.Point) {
 		t.startMovePoint = coord
 		// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 		var err error
-		t.move, err = t.beginSelectionMove()
+		t.previewMove, err = t.beginSelectionMovePreview()
 		if err != nil {
 			t.dragging = false
 			util.ShowErrorDialog("Unable to move selection: " + err.Error())
@@ -258,11 +261,13 @@ func (t *ToolGrab) selectArea(minX, minY, maxX, maxY float64, coord util.Point) 
 
 func (t *ToolGrab) moveArea(coord util.Point) {
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
-	if t.move == nil {
+	if t.previewMove == nil {
 		return
 	}
-	if area, err := ed.PreviewSelectionMove(t.move, coord.Minus(t.startMovePoint)); err == nil {
-		t.fillArea = area
+	if owner, ok := ed.(selectionMovePreviewOwner); ok {
+		if area, err := owner.PreviewSelectionMovePreview(t.previewMove, coord.Minus(t.startMovePoint)); err == nil {
+			t.fillArea = area
+		}
 	}
 	/* APHELION EDIT REMOVAL START - SELECTION LIFECYCLE
 	dmm := ed.Dmm()
@@ -322,13 +327,18 @@ func (t *ToolGrab) onStop(util.Point) {
 		t.stopSelectArea()
 	case tSelectModeMoveArea:
 		// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
-		if t.move != nil {
-			move := t.move
-			_ = t.trackSelectionTransform(t.fillAreaInit, true, func() (util.Bounds, error) {
-				ed.FinishSelectionMove(move, false)
-				return move.Bounds(), nil
-			})
-			t.move = nil
+		if t.previewMove != nil {
+			move := t.previewMove
+			if err := t.trackSelectionTransform(t.fillAreaInit, true, func() (util.Bounds, error) {
+				owner, ok := ed.(selectionMovePreviewOwner)
+				if !ok {
+					return move.Bounds(), fmt.Errorf("selection move presentation is unavailable")
+				}
+				return move.Bounds(), owner.FinishSelectionMovePreview(move, false)
+			}); err != nil {
+				util.ShowErrorDialog("Unable to move selection: " + err.Error())
+			}
+			t.previewMove = nil
 		} else {
 			t.stopMoveArea()
 		}
@@ -425,13 +435,19 @@ func (t *ToolGrab) SelectMask(points []util.Point) error {
 	}
 	return nil
 }
-func (t *ToolGrab) beginSelectionMove() (*editing.Move, error) {
-	if owner, ok := ed.(interface {
-		BeginSelectionMaskMove(editing.Selection) (*editing.Move, error)
-	}); ok {
-		return owner.BeginSelectionMaskMove(t.Selection())
+
+type selectionMovePreviewOwner interface {
+	BeginSelectionMovePreview(editing.Selection) (*editing.SelectionMove, error)
+	PreviewSelectionMovePreview(*editing.SelectionMove, util.Point) (util.Bounds, error)
+	FinishSelectionMovePreview(*editing.SelectionMove, bool) error
+}
+
+func (t *ToolGrab) beginSelectionMovePreview() (*editing.SelectionMove, error) {
+	owner, ok := ed.(selectionMovePreviewOwner)
+	if !ok {
+		return nil, fmt.Errorf("selection move presentation is unavailable")
 	}
-	return ed.BeginSelectionMove(t.fillArea, t.fillStart.Z)
+	return owner.BeginSelectionMovePreview(t.Selection())
 }
 
 // APHELION EDIT ADDITION END
