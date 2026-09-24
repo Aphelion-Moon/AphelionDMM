@@ -1,6 +1,9 @@
 package tools
 
 import (
+	// APHELION EDIT ADDITION START - HELD ROTATION
+	"sdmm/internal/aphelion/editing"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap"
@@ -21,6 +24,9 @@ type ToolMove struct {
 	lastTile        *dmmap.Tile
 	lastMouseCoords imgui.Vec2
 	lastOffsets     [2]int
+	// APHELION EDIT ADDITION START - HELD ROTATION
+	held editing.HeldPrefab
+	// APHELION EDIT ADDITION END
 }
 
 func (ToolMove) Name() string {
@@ -54,6 +60,10 @@ func (t *ToolMove) onStart(util.Point) {
 		// APHELION EDIT ADDITION END
 		ed.InstanceSelect(hoveredInstance)
 		t.instance = hoveredInstance
+		// APHELION EDIT ADDITION START - HELD ROTATION
+		t.held = editing.HeldPrefab{}
+		t.held.SetSource(hoveredInstance.Prefab())
+		// APHELION EDIT ADDITION END
 		t.lastMouseCoords = imgui.MousePos()
 		vars := t.instance.Prefab().Vars()
 		switch ed.Prefs().Editor.NudgeMode {
@@ -162,6 +172,9 @@ func (t *ToolMove) onStop(util.Point) {
 		}
 	}
 	t.instance = nil
+	// APHELION EDIT ADDITION START - HELD ROTATION
+	t.held = editing.HeldPrefab{}
+	// APHELION EDIT ADDITION END
 	t.lastTile = nil
 	ed.CommitOperation("Moved Prefab")
 }

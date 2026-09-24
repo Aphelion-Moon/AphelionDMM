@@ -25,6 +25,11 @@ type Shortcut struct {
 	Action       func()
 	IsEnabled    func() bool
 	IsVisible    bool
+	// APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP
+	// AllowWhenItemActive is an explicit exception for document-owned input
+	// gestures. Text input, popups, and modals still retain keyboard ownership.
+	AllowWhenItemActive func() bool
+	// APHELION EDIT ADDITION END
 }
 
 func (s Shortcut) String() string {
@@ -103,15 +108,17 @@ func remove(shortcut *Shortcut) {
 }
 
 func Process() {
+	/* APHELION EDIT REMOVAL START - DOCUMENT COMMAND OWNERSHIP
 	// Dear ImGui has its own shortcuts for inputs, so when any is active - ignore ours.
 	if imgui.IsAnyItemActive() {
 		return
 	}
-	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
-	if BackgroundInputBlocked() {
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP
+	if BackgroundInputBlocked() || imgui.CurrentIO().WantTextInput() {
 		return
 	}
-	// APHELION EDIT ADDITION END
+	activeItem := imgui.IsAnyItemActive()
 
 	/* APHELION EDIT REMOVAL START - EDITABLE SHORTCUTS
 		var pressedShortcuts []*Shortcut
@@ -133,8 +140,12 @@ func Process() {
 			}
 		}
 	APHELION EDIT REMOVAL END */
-	// APHELION EDIT ADDITION START - EDITABLE SHORTCUTS
-	processCandidates(nil)
+	processCandidates(func(s *Shortcut) bool {
+		if !activeItem {
+			return true
+		}
+		return s.AllowWhenItemActive != nil && s.AllowWhenItemActive()
+	})
 	// APHELION EDIT ADDITION END
 }
 

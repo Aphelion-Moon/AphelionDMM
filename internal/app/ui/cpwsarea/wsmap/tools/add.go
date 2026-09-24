@@ -1,6 +1,9 @@
 package tools
 
 import (
+	// APHELION EDIT ADDITION START - HELD ROTATION
+	"sdmm/internal/aphelion/editing"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/overlay"
 	"sdmm/internal/util"
 )
@@ -15,6 +18,9 @@ type ToolAdd struct {
 	tool
 
 	editedTiles map[util.Point]bool
+	// APHELION EDIT ADDITION START - HELD ROTATION
+	held editing.HeldPrefab
+	// APHELION EDIT ADDITION END
 }
 
 func (ToolAdd) Name() string {
@@ -28,6 +34,9 @@ func newAdd() *ToolAdd {
 }
 
 func (t *ToolAdd) process() {
+	// APHELION EDIT ADDITION START - HELD ROTATION
+	t.showHeld()
+	// APHELION EDIT ADDITION END
 	for coord := range t.editedTiles {
 		if t.AltBehaviour() {
 			ed.OverlayPushTile(coord, overlay.ColorToolAddAltTileFill, overlay.ColorToolAddAltTileBorder)
@@ -42,7 +51,8 @@ func (t *ToolAdd) onStart(coord util.Point) {
 }
 
 func (t *ToolAdd) onMove(coord util.Point) {
-	if prefab, ok := ed.SelectedPrefab(); ok && !t.editedTiles[coord] {
+	// APHELION EDIT CHANGE - HELD ROTATION - ORIGINAL: if prefab, ok := ed.SelectedPrefab(); ok && !t.editedTiles[coord] {
+	if prefab, ok := t.HeldPrefab(); ok && !t.editedTiles[coord] {
 		t.editedTiles[coord] = true // Don't add to the same tile twice
 
 		tile := ed.Dmm().GetTile(coord)

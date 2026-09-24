@@ -87,7 +87,7 @@ func TestCustomShortcutRepeatAndTextFocus(t *testing.T) {
 	t.Cleanup(func() { shortcuts = previous; UseSettings(nil); popupOpenBeforeFrame = false; modalOpen = false })
 	count := 0
 	var holder Shortcuts
-	holder.Add(Shortcut{Name: "pmap#pan", FirstKey: glfw.KeyRight, IsVisible: true, Action: func() { count++ }})
+	holder.Add(Shortcut{Name: "pmap#pan", FirstKey: glfw.KeyRight, IsVisible: true, AllowWhenItemActive: func() bool { return true }, Action: func() { count++ }})
 	if err := SetBindings("pmap#pan", [][][2]glfw.Key{{{glfw.KeyF8, 0}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -124,6 +124,9 @@ func TestCustomShortcutRepeatAndTextFocus(t *testing.T) {
 	if !imgui.IsAnyItemActive() {
 		t.Fatal("input fixture has no active field")
 	}
+	if !io.WantTextInput() {
+		t.Fatal("active text input did not claim text ownership")
+	}
 	Process()
 	imgui.Begin("Input")
 	imgui.InputText("Value", &value)
@@ -132,4 +135,63 @@ func TestCustomShortcutRepeatAndTextFocus(t *testing.T) {
 	if count != before {
 		t.Fatal("rebound shortcut stole a text field's key")
 	}
+}
+
+func TestExplicitShortcutCanRunDuringWidgetGesture(t *testing.T) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	ctx := imgui.CreateContext(nil)
+	defer ctx.Destroy()
+	io := imgui.CurrentIO()
+	io.SetIniFilename("")
+	io.SetDisplaySize(imgui.Vec2{X: 640, Y: 480})
+	io.Fonts().TextureDataRGBA32()
+	previous := shortcuts
+	shortcuts = nil
+	UseSettings(nil)
+	t.Cleanup(func() { shortcuts = previous; UseSettings(nil); popupOpenBeforeFrame = false; modalOpen = false })
+	blocked, allowed := 0, 0
+	var holder Shortcuts
+	holder.Add(Shortcut{Name: "pmap#regular", FirstKey: glfw.KeyF8, IsVisible: true, Action: func() { blocked++ }})
+	holder.Add(Shortcut{Name: "pmap#gesture", FirstKey: glfw.KeyF9, IsVisible: true, AllowWhenItemActive: func() bool { return true }, Action: func() { allowed++ }})
+	frame := func() imgui.Vec2 {
+		imgui.NewFrame()
+		imgui.SetNextWindowPos(imgui.Vec2{})
+		imgui.SetNextWindowSize(imgui.Vec2{X: 200, Y: 100})
+		imgui.BeginV("Gesture owner", nil, imgui.WindowFlagsNoTitleBar|imgui.WindowFlagsNoResize)
+		imgui.Button("Hold this widget")
+		point := imgui.ItemRectMin().Plus(imgui.ItemRectMax()).Times(0.5)
+		imgui.End()
+		imgui.EndFrame()
+		return point
+	}
+	point := frame()
+	io.SetMousePosition(point)
+	io.SetMouseButtonDown(0, true)
+	frame()
+	if !imgui.IsAnyItemActive() {
+		t.Fatal("mouse gesture did not activate the widget")
+	}
+	press := func(key glfw.Key) {
+		io.KeyPress(int(key))
+		BeginFrame()
+		imgui.NewFrame()
+		if !imgui.IsAnyItemActive() {
+			t.Fatal("widget lost active input ownership")
+		}
+		Process()
+		imgui.SetNextWindowPos(imgui.Vec2{})
+		imgui.SetNextWindowSize(imgui.Vec2{X: 200, Y: 100})
+		imgui.BeginV("Gesture owner", nil, imgui.WindowFlagsNoTitleBar|imgui.WindowFlagsNoResize)
+		imgui.Button("Hold this widget")
+		imgui.End()
+		imgui.EndFrame()
+		io.KeyRelease(int(key))
+	}
+	press(glfw.KeyF8)
+	press(glfw.KeyF9)
+	if blocked != 0 || allowed != 1 {
+		t.Fatalf("active widget routing: regular=%d explicit-gesture=%d", blocked, allowed)
+	}
+	io.SetMouseButtonDown(0, false)
 }

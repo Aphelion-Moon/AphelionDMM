@@ -88,7 +88,9 @@ func (ws *WsMap) NameReadable() string {
 }
 
 func (ws *WsMap) PreProcess() {
+	/* APHELION EDIT REMOVAL START - DOCUMENT COMMAND OWNERSHIP
 	ws.paneMap.SetShortcutsVisible(false)
+	APHELION EDIT REMOVAL END */
 	ws.processCanvasCameraMirror()
 }
 
@@ -97,6 +99,9 @@ func (ws *WsMap) Process() {
 }
 
 func (ws *WsMap) Dispose() {
+	// APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP
+	ws.paneMap.SetShortcutsVisible(false)
+	// APHELION EDIT ADDITION END
 	ws.paneMap.Dispose()
 	log.Print("map workspace disposed:", ws.Name())
 }
@@ -112,6 +117,15 @@ func (ws *WsMap) OnFocusChange(focused bool) {
 		ws.paneMap.OnDeactivate()
 	}
 }
+
+// APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP
+// OnCommandContextChange tracks the active workspace, which can remain the
+// same while keyboard focus moves into one of its palette or editor panels.
+func (ws *WsMap) OnCommandContextChange(active bool) {
+	ws.paneMap.SetShortcutsVisible(active)
+}
+
+// APHELION EDIT ADDITION END
 
 func (ws *WsMap) processCanvasCameraMirror() {
 	if !pmap.MirrorCanvasCamera || pmap.ActiveCamera() == nil {

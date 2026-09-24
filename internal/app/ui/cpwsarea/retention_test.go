@@ -42,6 +42,22 @@ type lifetimeApp struct {
 
 func (a *lifetimeApp) OnWorkspaceSwitched() { a.switches++ }
 
+type commandContextContent struct {
+	workspace.Content
+	name    string
+	focused bool
+	owners  []bool
+}
+
+func (c *commandContextContent) Name() string               { return c.name }
+func (c *commandContextContent) Title() string              { return c.name }
+func (c *commandContextContent) CommandStackId() string     { return c.name }
+func (c *commandContextContent) Focused() bool              { return c.focused }
+func (c *commandContextContent) OnFocusChange(focused bool) { c.focused = focused }
+func (c *commandContextContent) OnCommandContextChange(active bool) {
+	c.owners = append(c.owners, active)
+}
+
 func addLifetimeWorkspace(area *WsArea, name string, events *[]string) weak.Pointer[workspacePayload] {
 	payload := new(workspacePayload)
 	for i := 0; i < len(payload); i += 4096 {
@@ -130,4 +146,29 @@ func TestClosingInactiveWorkspacePreservesLiveFocus(t *testing.T) {
 		t.Fatal("inactive close retained its payload or released the live workspace")
 	}
 	runtime.KeepAlive(area)
+}
+
+func TestCommandContextFollowsActiveWorkspaceRatherThanPointerFocus(t *testing.T) {
+	app := &lifetimeApp{guardTestApp: guardTestApp{commands: command.NewStorage()}}
+	area := &WsArea{app: app}
+	firstContent := &commandContextContent{name: "first-map"}
+	secondContent := &commandContextContent{name: "second-map"}
+	first := workspace.New(firstContent)
+	second := workspace.New(secondContent)
+	area.workspaces = []*workspace.Workspace{first, second}
+
+	area.switchActiveWorkspace(first)
+	first.OnFocusChange(false) // A palette child can take pointer focus.
+	if len(firstContent.owners) != 1 || !firstContent.owners[0] {
+		t.Fatalf("palette focus changed active command context: %v", firstContent.owners)
+	}
+	area.switchActiveWorkspace(second)
+	if len(firstContent.owners) != 2 || firstContent.owners[1] ||
+		len(secondContent.owners) != 1 || !secondContent.owners[0] {
+		t.Fatalf("document switch did not transfer command context: first=%v second=%v", firstContent.owners, secondContent.owners)
+	}
+	area.switchActiveWorkspace(nil)
+	if len(secondContent.owners) != 2 || secondContent.owners[1] {
+		t.Fatalf("closing active document retained command context: %v", secondContent.owners)
+	}
 }

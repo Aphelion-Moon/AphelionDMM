@@ -47,6 +47,7 @@ type Editor struct {
 	selectionMoveGeneration uint64
 	selectionOutcome        func(bool)
 	paste                   *pasteSession
+	heldPresentation        *heldPresentation
 	// APHELION EDIT ADDITION START - BYTE-BOUNDED EDIT WORK
 	workBudget *resources.Budget
 	localWork  *localWork

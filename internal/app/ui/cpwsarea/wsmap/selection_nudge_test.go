@@ -8,6 +8,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/app/ui/shortcut"
+	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/util"
 )
 
@@ -28,10 +29,9 @@ func pressSelectionShortcut(keys ...glfw.Key) {
 
 func activateSelectionWorkspace(t *testing.T, ws *WsMap) *tools.ToolGrab {
 	t.Helper()
-	p := ws.Map()
-	p.OnActivate()
-	p.SetShortcutsVisible(true)
-	t.Cleanup(func() { p.SetShortcutsVisible(false); p.OnDeactivate() })
+	ws.OnCommandContextChange(true)
+	ws.OnFocusChange(true)
+	t.Cleanup(func() { ws.OnCommandContextChange(false); ws.OnFocusChange(false) })
 	io := imgui.CurrentIO()
 	io.SetIniFilename("")
 	io.SetDisplaySize(imgui.Vec2{X: 640, Y: 480})
@@ -40,6 +40,59 @@ func activateSelectionWorkspace(t *testing.T, ws *WsMap) *tools.ToolGrab {
 	grab.Reset()
 	grab.SelectArea([]util.Point{{X: 1, Y: 1, Z: 1}})
 	return grab
+}
+
+func TestMapShortcutOwnershipFollowsActiveDocument(t *testing.T) {
+	first, app := newSelectionWorkspace(t)
+	io := imgui.CurrentIO()
+	io.SetIniFilename("")
+	io.SetDisplaySize(imgui.Vec2{X: 640, Y: 480})
+	io.Fonts().TextureDataRGBA32()
+	first.OnCommandContextChange(true)
+	first.OnFocusChange(true)
+	t.Cleanup(func() { first.OnCommandContextChange(false); first.OnFocusChange(false) })
+	defer shortcut.ResetBindings("pmap#doMoveCameraRight")
+	if err := shortcut.SetBindings("pmap#doMoveCameraRight", [][][2]glfw.Key{{{glfw.KeyF8, 0}}}); err != nil {
+		t.Fatal(err)
+	}
+
+	secondDmm := first.Map().Dmm().Copy()
+	secondDmm.Name = "second map"
+	secondDmm.Path = dmmap.DmmPath{Readable: "second.dmm", Absolute: first.Map().Dmm().Path.Absolute + ".second"}
+	second := New(app, &secondDmm)
+	t.Cleanup(second.Dispose)
+	firstCamera := first.Map().Canvas().Render().Camera
+	secondCamera := second.Map().Canvas().Render().Camera
+	firstX, secondX := firstCamera.ShiftX, secondCamera.ShiftX
+
+	first.OnFocusChange(false) // Pointer focus may leave the map for its palette.
+	first.PreProcess()
+	pressSelectionShortcut(glfw.KeyF8)
+	if firstCamera.ShiftX == firstX || secondCamera.ShiftX != secondX {
+		t.Fatalf("palette focus lost document command context: first-camera=%v second-camera=%v", firstCamera.ShiftX, secondCamera.ShiftX)
+	}
+	firstX = firstCamera.ShiftX
+
+	first.OnCommandContextChange(false)
+	second.OnCommandContextChange(true)
+	second.OnFocusChange(true)
+	first.PreProcess()
+	second.PreProcess()
+	pressSelectionShortcut(glfw.KeyF8)
+	if firstCamera.ShiftX != firstX || secondCamera.ShiftX == secondX {
+		t.Fatalf("shortcut after switching to second map: first-camera=%v second-camera=%v", firstCamera.ShiftX, secondCamera.ShiftX)
+	}
+
+	second.OnCommandContextChange(false)
+	second.OnFocusChange(false)
+	first.OnCommandContextChange(true)
+	first.OnFocusChange(true)
+	first.PreProcess()
+	second.PreProcess()
+	pressSelectionShortcut(glfw.KeyF8)
+	if firstCamera.ShiftX == firstX || secondCamera.ShiftX == secondX {
+		t.Fatalf("shortcut after switching back to first map: first-camera=%v second-camera=%v", firstCamera.ShiftX, secondCamera.ShiftX)
+	}
 }
 
 func TestSelectionNudgeWorkspaceShortcuts(t *testing.T) {

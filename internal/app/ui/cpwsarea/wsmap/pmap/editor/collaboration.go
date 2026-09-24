@@ -546,6 +546,7 @@ func (e *Editor) setAuthoritative(snapshot model.Snapshot) {
 }
 
 func (e *Editor) resetAttachment() {
+	e.PreviewHeldPrefab(nil, util.Point{}, false)
 	if e.localWork != nil {
 		e.localWork.cancel()
 		e.localWork = nil

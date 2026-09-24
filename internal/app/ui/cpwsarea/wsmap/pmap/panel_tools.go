@@ -44,6 +44,9 @@ var (
 				w.TextFrame("1"),
 				w.Separator(),
 				w.Text("Place the selected object"),
+				// APHELION EDIT ADDITION START - HELD ROTATION
+				w.Text("Q / E: rotate the held object left / right"),
+				// APHELION EDIT ADDITION END
 				w.Line(w.TextFrame("Hold Alt"), w.Text("Place the selected object with replace")),
 			},
 		},
@@ -83,6 +86,9 @@ var (
 				w.TextFrame("4"),
 				w.Separator(),
 				w.Text("Move a singular object"),
+				// APHELION EDIT ADDITION START - HELD ROTATION
+				w.Text("Q / E: rotate while holding the object"),
+				// APHELION EDIT ADDITION END
 				w.Line(w.TextFrame("Hold Shift"), w.Text("Pixel/Step offset the selected object via dragging")),
 			},
 		},

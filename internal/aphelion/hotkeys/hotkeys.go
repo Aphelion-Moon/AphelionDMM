@@ -101,7 +101,8 @@ var labels = map[string]string{
 	"pmap#selectSelectTool": "Select Grab tool", "pmap#selectMoveTool": "Select Move tool",
 	"pmap#selectPickTool": "Select Pick tool", "pmap#selectDeleteTool": "Select Delete tool", "pmap#selectReplaceTool": "Select Replace tool",
 	"pmap#rotateLeft": "Rotate selection left", "pmap#rotateRight": "Rotate selection right",
-	"pmap#repeatTransform": "Repeat last transform",
+	"pmap#rotateHeldLeft": "Rotate held object left", "pmap#rotateHeldRight": "Rotate held object right",
+	"pmap#repeatTransform":           "Repeat last transform",
 	"pmap#mirrorSelectionHorizontal": "Mirror selection horizontally", "pmap#mirrorSelectionVertical": "Mirror selection vertically",
 	"pmap#doDeselectAll": "Deselect", "menu#DoOpenJumpWindow": "Go to coordinates", "menu#showHotkeys": "Keyboard shortcuts",
 }

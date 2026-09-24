@@ -53,6 +53,22 @@ type WsArea struct {
 	workspaces []*workspace.Workspace
 }
 
+// APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP
+type commandContextOwner interface {
+	OnCommandContextChange(active bool)
+}
+
+func setCommandContextOwner(ws *workspace.Workspace, active bool) {
+	if ws == nil {
+		return
+	}
+	if owner, ok := ws.Content().(commandContextOwner); ok {
+		owner.OnCommandContextChange(active)
+	}
+}
+
+// APHELION EDIT ADDITION END
+
 func (w *WsArea) Init(app App) {
 	w.app = app
 	w.loadConfig()
@@ -465,6 +481,9 @@ func (w *WsArea) switchFocusedWorkspace(focusedWs *workspace.Workspace) {
 
 func (w *WsArea) switchActiveWorkspace(activeWs *workspace.Workspace) {
 	if w.activeWs != activeWs || (activeWs != nil && w.activeWsContentId != activeWs.Content().Id()) {
+		// APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP
+		previous := w.activeWs
+		// APHELION EDIT ADDITION END
 		log.Print("switch active workspace:", activeWs)
 
 		if activeWs != nil {
@@ -486,6 +505,10 @@ func (w *WsArea) switchActiveWorkspace(activeWs *workspace.Workspace) {
 		} else {
 			w.app.CommandStorage().SetStack(w.activeWs.CommandStackId())
 		}
+		// APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP
+		setCommandContextOwner(previous, false)
+		setCommandContextOwner(activeWs, true)
+		// APHELION EDIT ADDITION END
 	}
 }
 
