@@ -18,6 +18,9 @@ import (
 // replacement rules apply. Submission/acknowledgement use the existing executor
 // and history path; returning does not imply a network acknowledgement.
 func (e *Editor) CommitInstanceBatch(instances []*dmminstance.Instance, replacement *dmmprefab.Prefab, message string) {
+	if e.tryScheduleInstanceBatch(instances, replacement, message) {
+		return
+	}
 	if !e.CanStartMapEdit() || len(instances) == 0 {
 		return
 	}

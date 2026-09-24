@@ -106,6 +106,11 @@ func (e *Editor) TileCutSelected() {
 // TileDeleteSelected deletes the last hovered by the mouse tile.
 // Respects a dm.PathsFilter state.
 func (e *Editor) TileDeleteSelected() {
+	// APHELION EDIT ADDITION START - LOCAL BULK PREPARATION
+	if grab, ok := tools.Selected().(*tools.ToolGrab); ok && grab.HasSelectedArea() && e.tryScheduleSelectionDelete(grab.Selection()) {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	if e.HasPastePlacement() {
 		return

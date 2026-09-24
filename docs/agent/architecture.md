@@ -178,9 +178,12 @@ time with a frame budget that includes geometry refresh. Save, queries, recovery
 and conflicting mutations wait until publication finishes. The displayed revision
 advances only after all tiles are installed. Area boundaries and chunk layer
 membership update from touched tiles instead of rescanning the map. A single
-chunk can exceed the time budget. Large local Fill also enumerates/prepares on
-the worker; remaining legacy target enumeration/capture and
-network snapshot installation still require separate scheduling work.
+chunk can exceed the time budget. Large local Fill, selection Delete, matching
+prefab deletion/replacement and search batches prepare through the same owner.
+Search first validates exact live pointer membership on the UI, then passes only
+coordinate/identity values to preparation. Legacy selection transforms, that
+initial search membership pass, and network snapshot installation still require
+separate scheduling work.
 
 Clipboard and stamp placement retain ToolGrab's lifecycle but use an isolated
 payload, pose and renderer presentation. Translation changes the anchor without

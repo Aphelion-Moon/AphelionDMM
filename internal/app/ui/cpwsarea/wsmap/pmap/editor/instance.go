@@ -100,6 +100,11 @@ func (e *Editor) InstanceDelete(i *dmminstance.Instance) {
 
 // InstancesDeleteByPrefab deletes from the map all instances from the provided prefab.
 func (e *Editor) InstancesDeleteByPrefab(prefab *dmmprefab.Prefab) {
+	// APHELION EDIT ADDITION START - LOCAL BULK PREPARATION
+	if e.trySchedulePrefabBatch(prefab, nil, "Delete Instances") {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	if e.HasPastePlacement() {
 		return

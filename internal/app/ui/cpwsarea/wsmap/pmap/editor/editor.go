@@ -193,6 +193,11 @@ func (e *Editor) SelectedPrefab() (*dmmprefab.Prefab, bool) {
 
 // ReplacePrefab replaces all old prefabs on the map with the new one. Commits map changes.
 func (e *Editor) ReplacePrefab(oldPrefab, newPrefab *dmmprefab.Prefab) {
+	// APHELION EDIT ADDITION START - LOCAL BULK PREPARATION
+	if e.trySchedulePrefabBatch(oldPrefab, newPrefab, "Replace Prefab") {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	if e.HasPastePlacement() {
 		return
