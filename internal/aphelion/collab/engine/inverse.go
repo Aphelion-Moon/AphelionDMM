@@ -64,6 +64,9 @@ func (document *Document) BuildInverseContext(ctx context.Context, actor model.A
 	if err := ctx.Err(); err != nil {
 		return model.Operation{}, err
 	}
+	if err := document.ensureHash(); err != nil {
+		return model.Operation{}, err
+	}
 	if err := actor.Validate(); err != nil {
 		return model.Operation{}, document.reject(CodeInvalidOperation, err)
 	}

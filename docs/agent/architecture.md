@@ -102,6 +102,18 @@ New Aphelion-owned packages:
 
 ## Concurrency model
 
+Unshared edits have a separate internal request contract behind the same engine.
+`LocalRequest` carries an opaque owner/revision token and explicit tile deltas;
+the shared changed-union validator stages identity moves and before-state checks
+before publication. Engine coordinate/identity indexes are reused, with copy-on-write
+ownership across branches. Ordinary local commits and local undo/redo update only
+accepted display and compatibility tiles. They do not construct network envelopes,
+retain network replay records, or eagerly hash unused whole-map state. Canonical
+hashing remains exact at actual consumers. Session ownership is explicit, including
+while disconnected; the availability of an in-process capability is not permission
+to use it for a session. Legacy wire-shaped local producers remain valid during
+migration and retain their base-hash and inverse checks at that boundary.
+
 Each open document has one authoritative mutation loop. It serializes durable operations and owns the current revision. Network readers, presence updates, persistence, rendering, and telemetry may run concurrently, but they cannot mutate authoritative document state directly.
 
 Before durable append, the server reserves wire headroom for acceptance, replay,

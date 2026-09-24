@@ -54,17 +54,19 @@ type Editor struct {
 	// APHELION EDIT ADDITION END
 
 	// APHELION EDIT ADDITION START - COLLABORATION
-	executor              executor.Executor
-	documentID            model.DocumentID
-	actorID               model.ActorID
-	authoritative         model.Snapshot
-	authoritativeTiles    map[model.Coord]model.TileState
-	pendingChanges        map[model.Coord]model.TileState
-	collaborationErr      error
-	attachmentGeneration  uint64
-	historyGeneration     uint64 // Resumable local history; callback generation never rewinds.
-	history               command.Target
-	unresolvedSubmissions map[model.OperationID]struct{}
+	executor               executor.Executor
+	documentID             model.DocumentID
+	actorID                model.ActorID
+	authoritative          model.Snapshot
+	authoritativeTiles     map[model.Coord]model.TileState
+	authoritativePositions map[model.Coord]int
+	sessionOwned           bool
+	pendingChanges         map[model.Coord]model.TileState
+	collaborationErr       error
+	attachmentGeneration   uint64
+	historyGeneration      uint64 // Resumable local history; callback generation never rewinds.
+	history                command.Target
+	unresolvedSubmissions  map[model.OperationID]struct{}
 	// APHELION EDIT ADDITION END
 }
 

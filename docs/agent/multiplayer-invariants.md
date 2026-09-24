@@ -12,7 +12,7 @@ These rules are correctness requirements, not implementation preferences.
 
 ## Operations
 
-Every durable operation contains:
+Every durable network operation contains:
 
 - protocol version;
 - document, actor, and operation identifiers;
@@ -25,6 +25,28 @@ Every durable operation contains:
 The server validates the entire operation before applying any part. A stale base revision may still merge when its base hash is authentic and all explicit value preconditions remain valid. Partial acceptance is not permitted.
 
 Operations describe domain changes, not UI gestures. A brush drag is converted to deterministic tile changes before submission. The accepted record contains the normalized change set used by the server.
+
+## Unshared local documents
+
+An explicitly unshared document may submit an internal `engine.LocalRequest`
+through its in-process executor. This is not a protocol flag or a wire envelope.
+The opaque document-owner token and expected revision fence each request. The
+same changed-tile validation checks bounds, exact before-values and stable-ID
+uniqueness across the entire atomic batch. Failure publishes neither state nor
+index changes. Actual edits advance one revision; no-ops do not.
+
+Local command history owns reversible deltas with current-value preconditions.
+It does not require a second network replay log. The canonical digest is explicitly
+unavailable after an internal edit until a real hash consumer needs it. Saves,
+exports, installation and session promotion still validate coherent state using
+the unchanged canonical representation. Session promotion creates a validated
+network baseline; missing local revision hashes are not invented as historical
+network bases. Existing crash-recovery guarantees remain independent of this
+in-memory execution contract.
+
+A hosted document with one participant remains session-owned. Disconnection
+does not enable local execution. Attach/detach and retained resize history fence
+owner, attachment and history lifetimes independently.
 
 ## Conflict behavior
 

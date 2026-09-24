@@ -71,3 +71,23 @@ func (local *Local) Snapshot(ctx context.Context) (model.Snapshot, error) {
 	}
 	return local.document.Snapshot(), nil
 }
+
+// LocalVersion and ApplyLocal are internal unshared-edit capabilities. They are
+// deliberately distinct from the wire-shaped Executor contract.
+func (local *Local) LocalVersion(ctx context.Context) (engine.LocalVersion, error) {
+	local.mu.Lock()
+	defer local.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return engine.LocalVersion{}, err
+	}
+	return local.document.LocalVersion(), nil
+}
+
+func (local *Local) ApplyLocal(ctx context.Context, request engine.LocalRequest) (engine.LocalAcceptance, error) {
+	if err := ctx.Err(); err != nil {
+		return engine.LocalAcceptance{}, err
+	}
+	local.mu.Lock()
+	defer local.mu.Unlock()
+	return local.document.ApplyLocal(ctx, request)
+}

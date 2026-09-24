@@ -53,7 +53,7 @@ func (e *Editor) ResizeMap(x, y, z int) error {
 	if err != nil {
 		return err
 	}
-	document, err := engine.NewDocument(after)
+	document, err := engine.NewUnsharedDocument(after)
 	if err != nil {
 		return err
 	}

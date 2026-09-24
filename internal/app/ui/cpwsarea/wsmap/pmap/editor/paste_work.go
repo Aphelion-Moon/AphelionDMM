@@ -718,6 +718,10 @@ func (e *Editor) adoptAuthoritative(snapshot model.Snapshot, states map[model.Co
 	e.mapViewGeneration++
 	e.authoritative = snapshot
 	e.authoritativeTiles = states
+	e.authoritativePositions = make(map[model.Coord]int, len(snapshot.Tiles))
+	for index, tile := range snapshot.Tiles {
+		e.authoritativePositions[tile.Coord] = index
+	}
 }
 
 func (e *Editor) discardPasteWithoutRestore() {
@@ -1200,6 +1204,11 @@ func uniqueCoords(coords []model.Coord) []model.Coord {
 func (e *Editor) syncPasteSnapshot(coords []model.Coord) {
 	initial := e.pMap.Snapshot().Initial()
 	if initial == nil {
+		return
+	}
+	// Dimension replacement is a full-install boundary, not an ordinary edit.
+	if initial.MaxX != e.dmm.MaxX || initial.MaxY != e.dmm.MaxY || initial.MaxZ != e.dmm.MaxZ || len(initial.Tiles) != len(e.dmm.Tiles) {
+		e.pMap.Snapshot().Sync()
 		return
 	}
 	for _, coord := range coords {

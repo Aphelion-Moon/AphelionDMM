@@ -18,11 +18,16 @@ type Document struct {
 	// Snapshot payloads and accepted records are immutable after validation.
 	// Public inputs/results are deep copies; branches own their metadata maps
 	// and validation copies the tile table before replacing or appending states.
-	snapshot model.Snapshot
-	mapHash  string
-	hashes   map[model.Revision]string
-	accepted map[model.OperationID]model.AcceptedOperation
-	inverted map[model.OperationID]model.OperationID
+	snapshot       model.Snapshot
+	mapHash        string
+	hashes         map[model.Revision]string
+	accepted       map[model.OperationID]model.AcceptedOperation
+	inverted       map[model.OperationID]model.OperationID
+	tileIndexes    map[model.Coord]int
+	identityOwners map[model.StableID]model.Coord
+	sharedTiles    bool
+	sharedIndexes  bool
+	unshared       bool
 }
 
 func NewDocument(snapshot model.Snapshot) (*Document, error) {
@@ -30,7 +35,7 @@ func NewDocument(snapshot model.Snapshot) (*Document, error) {
 	if err != nil {
 		return nil, fmt.Errorf("validate initial snapshot: %w", err)
 	}
-	return &Document{
+	document := &Document{
 		snapshot: model.CloneSnapshot(snapshot),
 		mapHash:  mapHash,
 		hashes: map[model.Revision]string{
@@ -38,7 +43,9 @@ func NewDocument(snapshot model.Snapshot) (*Document, error) {
 		},
 		accepted: make(map[model.OperationID]model.AcceptedOperation),
 		inverted: make(map[model.OperationID]model.OperationID),
-	}, nil
+	}
+	document.indexState()
+	return document, nil
 }
 
 func (document *Document) Apply(operation model.Operation, acceptedAt time.Time) (model.AcceptedOperation, error) {
@@ -47,6 +54,9 @@ func (document *Document) Apply(operation model.Operation, acceptedAt time.Time)
 
 func (document *Document) ApplyContext(ctx context.Context, operation model.Operation, acceptedAt time.Time) (model.AcceptedOperation, error) {
 	if err := ctx.Err(); err != nil {
+		return model.AcceptedOperation{}, err
+	}
+	if err := document.ensureHash(); err != nil {
 		return model.AcceptedOperation{}, err
 	}
 	if operation.DocumentID != document.snapshot.DocumentID {
@@ -73,7 +83,17 @@ func (document *Document) ApplyContext(ctx context.Context, operation model.Oper
 		Revision:   candidate.Revision,
 		AcceptedAt: acceptedAt,
 	}
+	document.ownIndexes()
+	nextIndex := len(document.snapshot.Tiles)
+	for _, change := range normalized.Changes {
+		if _, exists := document.tileIndexes[change.Coord]; !exists {
+			document.tileIndexes[change.Coord] = nextIndex
+			nextIndex++
+		}
+	}
 	document.snapshot = candidate
+	document.sharedTiles = false
+	document.updateIdentityOwners(normalized.Changes)
 	document.mapHash = candidateHash
 	document.hashes[candidate.Revision] = candidateHash
 	// normalized was detached during validation and never escapes without a
@@ -90,12 +110,19 @@ func (document *Document) Snapshot() model.Snapshot {
 }
 
 func (document *Document) Clone() *Document {
+	document.sharedTiles = true
+	document.sharedIndexes = true
 	clone := &Document{
-		snapshot: document.snapshot,
-		mapHash:  document.mapHash,
-		hashes:   make(map[model.Revision]string, len(document.hashes)),
-		accepted: make(map[model.OperationID]model.AcceptedOperation, len(document.accepted)),
-		inverted: make(map[model.OperationID]model.OperationID, len(document.inverted)),
+		snapshot:       document.snapshot,
+		mapHash:        document.mapHash,
+		hashes:         make(map[model.Revision]string, len(document.hashes)),
+		accepted:       make(map[model.OperationID]model.AcceptedOperation, len(document.accepted)),
+		inverted:       make(map[model.OperationID]model.OperationID, len(document.inverted)),
+		tileIndexes:    document.tileIndexes,
+		identityOwners: document.identityOwners,
+		sharedTiles:    true,
+		sharedIndexes:  true,
+		unshared:       document.unshared,
 	}
 	for revision, hash := range document.hashes {
 		clone.hashes[revision] = hash
@@ -171,38 +198,20 @@ func (document *Document) validateContext(ctx context.Context, operation model.O
 	if err := document.validateInverseContext(ctx, normalized); err != nil {
 		return model.Operation{}, model.Snapshot{}, "", err
 	}
+	if err := document.validateChanges(ctx, normalized.Changes); err != nil {
+		return model.Operation{}, model.Snapshot{}, "", err
+	}
 
 	candidate := document.snapshot
 	candidate.Tiles = slices.Clone(document.snapshot.Tiles)
-	tileIndexes := make(map[model.Coord]int, len(candidate.Tiles))
-	for index, tile := range candidate.Tiles {
-		tileIndexes[tile.Coord] = index
-	}
-	seen := make(map[model.Coord]struct{}, len(normalized.Changes))
 	for _, change := range normalized.Changes {
 		if err := ctx.Err(); err != nil {
 			return model.Operation{}, model.Snapshot{}, "", err
 		}
-		if _, exists := seen[change.Coord]; exists {
-			return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("duplicate change coordinate (%d,%d,%d)", change.Coord.X, change.Coord.Y, change.Coord.Z))
-		}
-		seen[change.Coord] = struct{}{}
-		if !candidate.Contains(change.Coord) {
-			return model.Operation{}, model.Snapshot{}, "", document.reject(CodeOutOfBounds, fmt.Errorf("coordinate (%d,%d,%d) is outside document", change.Coord.X, change.Coord.Y, change.Coord.Z))
-		}
-
-		index, exists := tileIndexes[change.Coord]
-		current := model.TileState{}
-		if exists {
-			current = candidate.Tiles[index].State
-		}
-		if !current.Equal(change.Before) {
-			return model.Operation{}, model.Snapshot{}, "", document.reject(CodePreconditionFailed, fmt.Errorf("tile precondition failed at (%d,%d,%d)", change.Coord.X, change.Coord.Y, change.Coord.Z))
-		}
+		index, exists := document.tileIndexes[change.Coord]
 		if exists {
 			candidate.Tiles[index].State = change.After
 		} else {
-			tileIndexes[change.Coord] = len(candidate.Tiles)
 			candidate.Tiles = append(candidate.Tiles, model.Tile{Coord: change.Coord, State: change.After})
 		}
 	}

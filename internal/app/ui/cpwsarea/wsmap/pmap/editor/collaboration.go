@@ -46,7 +46,7 @@ func (e *Editor) initializeCollaboration() {
 		e.collaborationErr = err
 		return
 	}
-	document, err := engine.NewDocument(snapshot)
+	document, err := engine.NewUnsharedDocument(snapshot)
 	if err != nil {
 		e.collaborationErr = err
 		return
@@ -57,6 +57,7 @@ func (e *Editor) initializeCollaboration() {
 		return
 	}
 	e.executor = local
+	e.sessionOwned = false
 	e.collaborationErr = nil
 	e.setAuthoritative(snapshot)
 }
@@ -112,6 +113,7 @@ func (e *Editor) AttachCollaborationExecutor(execution executor.Executor) error 
 	}
 	e.resetAttachment()
 	e.executor = execution
+	e.sessionOwned = true
 	e.collaborationErr = nil
 	e.documentID = snapshot.DocumentID
 	e.setAuthoritative(snapshot)
@@ -131,7 +133,7 @@ func (e *Editor) DetachCollaborationExecutor(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("detach collaboration executor: %w", err)
 	}
-	document, err := engine.NewDocument(snapshot)
+	document, err := engine.NewUnsharedDocument(snapshot)
 	if err != nil {
 		return fmt.Errorf("detach collaboration executor: %w", err)
 	}
@@ -144,6 +146,7 @@ func (e *Editor) DetachCollaborationExecutor(ctx context.Context) error {
 	}
 	e.resetAttachment()
 	e.executor = local
+	e.sessionOwned = false
 	e.setAuthoritative(snapshot)
 	e.refreshCollaborationView(e.pMap.ActiveLevel(), nil, snapshot)
 	return nil
@@ -311,6 +314,10 @@ func (e *Editor) commitOperation(commitMessage string) {
 	}
 	// A restored/no-op gesture needs no full-map copy. Read authority only after
 	// the touched tiles prove there is an operation to submit.
+	if local, ok := execution.(localEditExecutor); ok && !e.sessionOwned {
+		e.commitLocal(local, commitMessage, changes, selectionOutcome, repeatAccepted)
+		return
+	}
 	base, err := execution.Snapshot(context.Background())
 	if err != nil {
 		selectionApplied(selectionOutcome, false)
@@ -531,8 +538,10 @@ func (e *Editor) setAuthoritative(snapshot model.Snapshot) {
 	e.mapViewGeneration++
 	e.authoritative = model.CloneSnapshot(snapshot)
 	e.authoritativeTiles = make(map[model.Coord]model.TileState, len(snapshot.Tiles))
-	for _, tile := range snapshot.Tiles {
+	e.authoritativePositions = make(map[model.Coord]int, len(snapshot.Tiles))
+	for index, tile := range snapshot.Tiles {
 		e.authoritativeTiles[tile.Coord] = model.CloneTileState(tile.State)
+		e.authoritativePositions[tile.Coord] = index
 	}
 }
 
