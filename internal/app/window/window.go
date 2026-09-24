@@ -3,6 +3,9 @@ package window
 import (
 	"image"
 	"runtime"
+	// APHELION EDIT ADDITION START - FRAME OWNER
+	"time"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/rsc"
 
@@ -38,6 +41,10 @@ type Window struct {
 
 	mouseChangeCallbackId int
 	mouseChangeCallbacks  map[int]func(uint, uint)
+	// APHELION EDIT ADDITION START - FRAME OWNER
+	frameRunning     bool
+	repaintRequested bool
+	// APHELION EDIT ADDITION END
 }
 
 func (w *Window) Handle() *glfw.Window {
@@ -96,7 +103,8 @@ func SetPointSize(ps float32) {
 
 func SetFps(value int) {
 	log.Print("set fps:", value)
-	ticker = newTicker(value)
+	// APHELION EDIT CHANGE - FRAME OWNER - ORIGINAL: ticker = newTicker(value)
+	frameInterval = time.Second / time.Duration(max(1, value))
 }
 
 func (w *Window) setupGlfw() {
@@ -170,5 +178,6 @@ func (w *Window) disposeGlfw() {
 }
 
 func (w *Window) resizeCallback(_ *glfw.Window, _, _ int) {
-	w.runFrame()
+	// APHELION EDIT CHANGE - FRAME OWNER - ORIGINAL: w.runFrame()
+	w.repaintRequested = true
 }

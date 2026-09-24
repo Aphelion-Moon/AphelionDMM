@@ -16,25 +16,45 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 )
 
+/* APHELION EDIT REMOVAL START - FRAME OWNER
 var ticker = newTicker(60)
+func newTicker(fps int) *time.Ticker { return time.NewTicker(time.Second / time.Duration(fps)) }
+APHELION EDIT REMOVAL END */
+// APHELION EDIT ADDITION START - FRAME OWNER
+var frameInterval = time.Second / 60
 
-func newTicker(fps int) *time.Ticker {
-	return time.NewTicker(time.Second / time.Duration(fps))
-}
+// APHELION EDIT ADDITION END
 
 func (w *Window) Process() {
 	for !w.application.IsClosed() {
+		// APHELION EDIT ADDITION START - FRAME OWNER
+		started := time.Now()
+		// APHELION EDIT ADDITION END
 		// Override window closing behaviour to enforce our checks.
 		if w.handle.ShouldClose() {
 			w.application.CloseCheck()
 			w.handle.SetShouldClose(false)
 		}
 		w.runFrame()
-		<-ticker.C
+		// APHELION EDIT CHANGE - FRAME OWNER - ORIGINAL: <-ticker.C
+		if remaining := frameInterval - time.Since(started); remaining > 0 {
+			time.Sleep(remaining)
+		}
 	}
 }
 
 func (w *Window) runFrame() {
+	// APHELION EDIT ADDITION START - FRAME OWNER
+	if w.frameRunning {
+		w.repaintRequested = true
+		return
+	}
+	w.frameRunning = true
+	defer func() { w.frameRunning = false }()
+	// Consume native input before ImGui resolves the current frame's ownership.
+	glfw.PollEvents()
+	w.repaintRequested = false
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	defer uistage.Begin(uistage.Frame).End()
 	// APHELION EDIT ADDITION END
@@ -55,6 +75,7 @@ func (w *Window) startFrame() {
 	runRepeatJobs()
 }
 
+/* APHELION EDIT REMOVAL START - BOUNDED DEFERRED WORK
 func runLaterJobs() {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	laterJobsMutex.Lock()
@@ -66,6 +87,11 @@ func runLaterJobs() {
 		job()
 	}
 }
+APHELION EDIT REMOVAL END */
+// APHELION EDIT ADDITION START - BOUNDED DEFERRED WORK
+func runLaterJobs() { runLaterJobsBudget(64, 2*time.Millisecond) }
+
+// APHELION EDIT ADDITION END
 
 func runRepeatJobs() {
 	for _, job := range repeatJobs {
@@ -83,5 +109,7 @@ func (w *Window) endFrame() {
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	present.End()
 	// APHELION EDIT ADDITION END
-	glfw.PollEvents()
+	// APHELION EDIT REMOVAL START - FRAME OWNER
+	// glfw.PollEvents() moved before input resolution and rendering.
+	// APHELION EDIT REMOVAL END
 }

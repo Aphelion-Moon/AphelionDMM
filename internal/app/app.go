@@ -10,6 +10,9 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"sdmm/internal/aphelion/collab/model"
+	// APHELION EDIT ADDITION START - CONFIG SNAPSHOTS
+	"sdmm/internal/aphelion/configstore"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	"sdmm/internal/aphelion/diagnostics/uistage"
 	// APHELION EDIT ADDITION END
@@ -115,6 +118,10 @@ type app struct {
 	pathsFilter       *dm.PathsFilter
 
 	configs map[string]config.Config
+	// APHELION EDIT ADDITION START - CONFIG SNAPSHOTS
+	configWriter   *configstore.Writer
+	nextConfigSave time.Time
+	// APHELION EDIT ADDITION END
 
 	commandStorage *command.Storage
 	clipboard      *dmmclip.Clipboard
@@ -177,6 +184,9 @@ func (a *app) Process() {
 }
 
 func (a *app) PostProcess() {
+	// APHELION EDIT ADDITION START - CONFIG SNAPSHOTS
+	a.processConfigSave()
+	// APHELION EDIT ADDITION END
 	a.checkShouldClose()
 	a.checkUpdateScale()
 	a.dropTmpState()
@@ -224,6 +234,11 @@ func (a *app) dispose() {
 	// APHELION EDIT ADDITION END
 	brush.Dispose()
 	a.configSave()
+	// APHELION EDIT ADDITION START - CONFIG SNAPSHOTS
+	if a.configWriter != nil {
+		a.configWriter.Close()
+	}
+	// APHELION EDIT ADDITION END
 	a.masterWindow.Dispose()
 }
 
