@@ -272,7 +272,8 @@ func processSelectedToolMove() {
 		return
 	}
 	coord := cs.HoveredTile()
-	if coord != oldCoord && active {
+	// APHELION EDIT CHANGE - DETERMINISTIC ERASER - ORIGINAL: if coord != oldCoord && active {
+	if active && (coord != oldCoord || Selected().Name() == TNDelete) {
 		Selected().onMove(coord)
 	}
 	oldCoord = coord
