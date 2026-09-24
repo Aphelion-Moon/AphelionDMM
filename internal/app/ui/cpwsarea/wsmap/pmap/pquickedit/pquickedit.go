@@ -118,7 +118,8 @@ func (p *Panel) showNudgeOption(label string, xAxis bool, instance *dmminstance.
 		}
 		// APHELION EDIT ADDITION END
 		p.sanitizeInstanceVar(instance, nudgeVarName, "0")
-		dmmap.PrefabStorage.Put(instance.Prefab())
+		// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: dmmap.PrefabStorage.Put(instance.Prefab())
+		instance.SetPrefab(dmmap.PrefabStorage.Put(instance.Prefab()))
 		p.editor.InstanceSelect(instance)
 		p.editor.CommitOperation("Quick Edit: " + label)
 	}
@@ -206,7 +207,8 @@ func (p *Panel) showDirOption(instance *dmminstance.Instance) {
 		}
 		// APHELION EDIT ADDITION END
 		p.sanitizeInstanceVar(instance, "dir", "0")
-		dmmap.PrefabStorage.Put(instance.Prefab())
+		// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: dmmap.PrefabStorage.Put(instance.Prefab())
+		instance.SetPrefab(dmmap.PrefabStorage.Put(instance.Prefab()))
 		p.editor.InstanceSelect(instance)
 		p.editor.CommitOperation("Quick Edit: Dir")
 	}

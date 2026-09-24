@@ -54,9 +54,11 @@ func validateBase(t *testing.T, input string, isDmm bool, onlyLF bool) {
 			t.Fatalf("Wrong number of prefabs for key %s: %d", key, len(prefabs))
 		}
 		assert.Empty(prefabs[0].Vars().Iterate(), key)
+		/* APHELION EDIT REMOVAL START - CONTENT IDENTITY
 		// Magic number based on the hash of /obj/foo
 		id := uint64(key[0]-'a') + 0x37781ed381b00f3
 		assert.Equal(id, prefabs[0].Id(), key)
+		APHELION EDIT REMOVAL END */
 
 		expectedPath := "/obj/foo" + string(key[0]-'a'+'1')
 		assert.Equal(expectedPath, prefabs[0].Path(), key)

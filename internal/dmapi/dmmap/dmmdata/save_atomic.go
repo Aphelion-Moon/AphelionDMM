@@ -68,6 +68,11 @@ func SaveAtomic(path string, write func(io.Writer) error, validate func(string) 
 	return nil
 }
 
+// ValidateSaved compares a staged file against this independent semantic view.
+func (d DmmData) ValidateSaved(path string) error {
+	return d.validateSaved(path, d.IsTgm)
+}
+
 func (d DmmData) validateSaved(path string, isTGM bool) error {
 	reparsed, err := New(path)
 	if err != nil {

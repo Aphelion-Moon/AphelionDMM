@@ -150,7 +150,8 @@ func New(dme *dmenv.Dme, data *dmmdata.DmmData, backup string) (dmm *Dmm, unknow
 func (d *Dmm) PersistPrefabs() {
 	for _, tile := range d.Tiles {
 		for _, instance := range tile.Instances() {
-			PrefabStorage.Put(instance.Prefab())
+			// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: PrefabStorage.Put(instance.Prefab())
+			instance.SetPrefab(PrefabStorage.Put(instance.Prefab()))
 		}
 	}
 }

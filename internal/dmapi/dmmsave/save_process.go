@@ -2,6 +2,9 @@ package dmmsave
 
 import (
 	"errors"
+	// APHELION EDIT ADDITION START - EXPECTED INPUT VALIDATION
+	"sdmm/internal/aphelion/mapsave"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
@@ -23,6 +26,9 @@ type saveProcess struct {
 	output     *dmmdata.DmmData
 	keygen     *keygen.KeyGen
 	unusedKeys map[dmmdata.Key]bool
+	// APHELION EDIT ADDITION START - EXPECTED INPUT VALIDATION
+	expected *dmmdata.DmmData
+	// APHELION EDIT ADDITION END
 }
 
 func makeSaveProcess(cfg Config, dme *dmenv.Dme, dmm *dmmap.Dmm, path string) (*saveProcess, error) {
@@ -55,6 +61,7 @@ func makeSaveProcess(cfg Config, dme *dmenv.Dme, dmm *dmmap.Dmm, path string) (*
 		unusedKeys[key] = true
 	}
 
+	/* APHELION EDIT REMOVAL START - EXPECTED INPUT VALIDATION
 	return &saveProcess{
 		cfg,
 		dme,
@@ -64,6 +71,15 @@ func makeSaveProcess(cfg Config, dme *dmenv.Dme, dmm *dmmap.Dmm, path string) (*
 		keygen.New(output),
 		unusedKeys,
 	}, nil
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - EXPECTED INPUT VALIDATION
+	sp := &saveProcess{cfg: cfg, dme: dme, dmm: dmm, initial: initial, output: output, keygen: keygen.New(output), unusedKeys: unusedKeys}
+	if cfg.SanitizeVariables {
+		sp.sanitizeVariables()
+	}
+	sp.expected = mapsave.Expected(dmm, output.IsTgm)
+	return sp, nil
+	// APHELION EDIT ADDITION END
 }
 
 func detectIsTgm(saveFormat Format, isInitialTGM bool) bool {
@@ -200,7 +216,8 @@ func (sp *saveProcess) tryToReuseKeysByTheirInitialLocation(locsWithoutKey map[u
 			prefabsHash := prefabs.Hash()
 
 			// If the key was already applied to the content in a previous iteration.
-			if cachedKey, ok := keyByPrefabs[prefabsHash]; ok {
+			// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: if cachedKey, ok := keyByPrefabs[prefabsHash]; ok {
+			if cachedKey, ok := keyByPrefabs[prefabsHash]; ok && prefabs.Equals(sp.output.Dictionary[cachedKey]) {
 				sp.output.Grid[loc] = cachedKey
 				continue
 			}
@@ -282,7 +299,8 @@ func findKeyByTileContent(
 ) (dmmdata.Key, bool) {
 	contentHash := prefabs.Hash()
 
-	if key, ok := keyByPrefabs[contentHash]; ok {
+	// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: if key, ok := keyByPrefabs[contentHash]; ok {
+	if key, ok := keyByPrefabs[contentHash]; ok && prefabs.Equals(data.Dictionary[key]) {
 		return key, true
 	}
 

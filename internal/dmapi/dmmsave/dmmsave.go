@@ -25,16 +25,19 @@ func SaveV(dme *dmenv.Dme, dmm *dmmap.Dmm, path string, cfg Config) error {
 		return fmt.Errorf("start save process: %w", err)
 	}
 
+	/* APHELION EDIT REMOVAL START - EXPECTED INPUT VALIDATION
 	if cfg.SanitizeVariables {
 		sp.sanitizeVariables()
 	}
+	APHELION EDIT REMOVAL END */
 
 	sp.handleReusedKeys()
 	if err = sp.handleLocationsWithoutKeys(); err != nil {
 		log.Print("unable to handle locations without keys:", err)
 		return fmt.Errorf("assign map keys: %w", err)
 	}
-	if err := sp.output.Save(); err != nil {
+	// APHELION EDIT CHANGE - EXPECTED INPUT VALIDATION - ORIGINAL: if err := sp.output.Save(); err != nil {
+	if err := sp.save(); err != nil {
 		return err
 	}
 

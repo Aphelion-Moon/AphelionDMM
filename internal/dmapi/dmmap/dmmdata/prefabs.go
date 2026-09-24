@@ -1,6 +1,9 @@
 package dmmdata
 
 import (
+	// APHELION EDIT ADDITION START - CONTENT IDENTITY
+	"sdmm/internal/aphelion/prefabidentity"
+	// APHELION EDIT ADDITION END
 	"sort"
 	"strconv"
 	"strings"
@@ -24,7 +27,8 @@ func (p Prefabs) Equals(prefabs Prefabs) bool {
 	}
 
 	for idx, prefab := range p {
-		if prefab.Id() != prefabs[idx].Id() {
+		// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: if prefab.Id() != prefabs[idx].Id() {
+		if !prefab.Equals(prefabs[idx]) {
 			return false
 		}
 	}
@@ -35,7 +39,13 @@ func (p Prefabs) Equals(prefabs Prefabs) bool {
 func (p Prefabs) Hash() uint64 {
 	sb := strings.Builder{}
 	for _, prefab := range p {
-		sb.WriteString(strconv.FormatUint(prefab.Id(), 10))
+		// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: sb.WriteString(strconv.FormatUint(prefab.Id(), 10))
+		content := prefabidentity.Key(prefab.Path(), prefab.Vars())
+		// APHELION EDIT ADDITION START - CONTENT IDENTITY
+		sb.WriteString(strconv.Itoa(len(content)))
+		sb.WriteByte(':')
+		sb.WriteString(content)
+		// APHELION EDIT ADDITION END
 	}
 	return util.Djb2(sb.String())
 }

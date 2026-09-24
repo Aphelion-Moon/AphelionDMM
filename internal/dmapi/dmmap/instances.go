@@ -25,7 +25,8 @@ func (i Instances) PrefabsEquals(instances Instances) bool {
 	}
 
 	for idx, instance := range i {
-		if instance.Prefab().Id() != instances[idx].Prefab().Id() {
+		// APHELION EDIT CHANGE - CONTENT IDENTITY - ORIGINAL: if instance.Prefab().Id() != instances[idx].Prefab().Id() {
+		if !instance.Prefab().Equals(instances[idx].Prefab()) {
 			return false
 		}
 	}

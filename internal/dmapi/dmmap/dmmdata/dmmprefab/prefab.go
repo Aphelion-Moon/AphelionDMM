@@ -1,6 +1,9 @@
 package dmmprefab
 
 import (
+	// APHELION EDIT ADDITION START - CONTENT IDENTITY
+	"sdmm/internal/aphelion/prefabidentity"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 )
@@ -46,6 +49,7 @@ func (p Prefab) Stage() Prefab {
 }
 
 func Id(path string, vars *dmvars.Variables) uint64 {
+	/* APHELION EDIT REMOVAL START - CONTENT IDENTITY
 	snap := path
 	if vars != nil {
 		for _, name := range vars.Iterate() {
@@ -57,4 +61,12 @@ func Id(path string, vars *dmvars.Variables) uint64 {
 		}
 	}
 	return util.Djb2(snap)
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - CONTENT IDENTITY
+	id := util.Djb2(prefabidentity.Key(path, vars))
+	if id <= IdStage {
+		id += 2
+	}
+	return id
+	// APHELION EDIT ADDITION END
 }

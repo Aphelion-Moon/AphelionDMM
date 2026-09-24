@@ -88,6 +88,11 @@ func TestQuickNudgeCaptureAndRelease(t *testing.T) {
 				t.Fatal("failed capture changed the instance")
 			}
 			beforeRelease := instance.Prefab()
+			if scenario.release {
+				// Force the sanitized prefab's hash slot to belong to other content.
+				id := dmmprefab.Id("/obj/test", dmvars.FromParent(base))
+				dmmap.PrefabStorage.Put(dmmprefab.New(id, "/obj/other", &dmvars.Variables{}))
+			}
 			ed.allow = scenario.release
 			panel.lastScrollEdit = time.Now().Add(-time.Second).UnixMilli()
 			frame()
@@ -100,6 +105,12 @@ func TestQuickNudgeCaptureAndRelease(t *testing.T) {
 				}
 			} else if instance.Prefab() == beforeRelease || ed.selections != 1 {
 				t.Fatal("valid release did not sanitize the inherited default")
+			}
+			if scenario.release {
+				cached, ok := dmmap.PrefabStorage.GetById(instance.Prefab().Id())
+				if !ok || cached != instance.Prefab() {
+					t.Fatal("quick edit selected another prefab's colliding ID")
+				}
 			}
 		})
 	}
