@@ -52,7 +52,9 @@ func (w *Window) runFrame() {
 	w.frameRunning = true
 	defer func() { w.frameRunning = false }()
 	// Consume native input before ImGui resolves the current frame's ownership.
+	w.canReplayFrame = w.completedFrame
 	glfw.PollEvents()
+	w.canReplayFrame = false
 	w.repaintRequested = false
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
@@ -106,6 +108,9 @@ func (w *Window) endFrame() {
 	present := uistage.Begin(uistage.Present)
 	// APHELION EDIT ADDITION END
 	w.handle.SwapBuffers()
+	// APHELION EDIT ADDITION START - COMPLETED FRAME REPAINT
+	w.completedFrame = true
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	present.End()
 	// APHELION EDIT ADDITION END

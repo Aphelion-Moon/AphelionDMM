@@ -44,6 +44,8 @@ type Window struct {
 	// APHELION EDIT ADDITION START - FRAME OWNER
 	frameRunning     bool
 	repaintRequested bool
+	canReplayFrame   bool
+	completedFrame   bool
 	// APHELION EDIT ADDITION END
 }
 
@@ -143,6 +145,9 @@ func (w *Window) setupGlfw() {
 	}
 
 	window.SetSizeCallback(w.resizeCallback)
+	// APHELION EDIT ADDITION START - COMPLETED FRAME REPAINT
+	window.SetRefreshCallback(func(handle *glfw.Window) { w.resizeCallback(handle, 0, 0) })
+	// APHELION EDIT ADDITION END
 
 	// Ensure that the window is fully initialized before showing.
 	RunLater(func() {
@@ -180,4 +185,7 @@ func (w *Window) disposeGlfw() {
 func (w *Window) resizeCallback(_ *glfw.Window, _, _ int) {
 	// APHELION EDIT CHANGE - FRAME OWNER - ORIGINAL: w.runFrame()
 	w.repaintRequested = true
+	// APHELION EDIT ADDITION START - COMPLETED FRAME REPAINT
+	w.replayCompletedFrame()
+	// APHELION EDIT ADDITION END
 }

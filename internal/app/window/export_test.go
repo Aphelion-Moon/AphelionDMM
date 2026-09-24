@@ -12,6 +12,15 @@ func FrameRunnerForTest(handle *glfw.Window, app application) func() {
 	return w.runFrame
 }
 
+func FrameRepaintForTest(handle *glfw.Window, app application) (func(), func(bool) bool) {
+	w := &Window{handle: handle, application: app}
+	return w.runFrame, func(duringPoll bool) bool {
+		w.canReplayFrame = duringPoll
+		defer func() { w.canReplayFrame = false }()
+		return w.replayCompletedFrame()
+	}
+}
+
 func PendingFrameJobsForTest() int {
 	laterJobsMutex.Lock()
 	defer laterJobsMutex.Unlock()
