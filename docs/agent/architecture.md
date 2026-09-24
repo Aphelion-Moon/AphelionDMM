@@ -156,21 +156,28 @@ retains full history and has a measurement-backed scaling investigation in the
 
 The UI thread remains the only owner of OpenGL/ImGui work. Applied operations produce immutable render invalidations that are scheduled onto the UI thread.
 
-Clipboard placement reuses the owned Move preview lifecycle and the same local/
-network operation engine. The application Paste action starts a preview; it no
-longer commits immediately. The tool retains its originating editor, assigns
-copied IDs once, and restores/releases only owned destination backgrounds.
-Save and competing edits remain guarded until confirmation or cancellation.
-Floating rotation/mirroring builds a sparse candidate template, validates all
-orientations, then reuses Move's capture-before-restore transaction. Failure
-leaves the previous template/display intact. Only final placement submits an
-operation; transformed templates preserve clipboard independence and copied IDs.
+Clipboard and stamp placement retain ToolGrab's lifecycle but use an isolated
+payload, pose and renderer presentation. Translation changes the anchor without
+capturing tiles, building operations, interning prefabs, or rebuilding base chunks.
+Copied IDs are assigned once per placement; orientation is a normalized rectangle
+symmetry applied to the original source. The last complete presentation remains
+visible while replacement appearances are prepared on the graphics owner thread.
+The shared composer keeps sparse footprints and explicit channel intent. The
+default preserves absent channels; Apply Over appends collections; explicit
+Replace Including Blanks permits represented clears. Hidden singleton conflicts
+are rejected rather than creating another turf/area or deleting hidden content.
+Only confirmation composes and submits changes. A click received during source
+preparation keeps its exact target. Cancellation discards presentation without
+restoring tiles; submitted outcomes remain owned until resolution. Pure previews
+allow committed saves, queries and incoming projections. Real captured gestures
+and unresolved submissions retain their guards. Accepted network paste metadata
+comes from coherent executor authority, including intervening revisions.
 The [paste-transform report](../verification/2026-09-06-paste-transforms.md)
 records actual shortcut, cancellation, fault and local/network history evidence,
 plus selected-size model costs without claiming desktop latency improvements.
-Preview refresh now restores only passed-over tiles before rebuilding owned
-tiles from captured backgrounds; cancellation and return-to-origin still restore
-everything. Hidden display instances remain copies, preserving snapshot isolation.
+Ordinary Grab movement still uses captured backgrounds until its own migration;
+cancellation and return-to-origin restore them. The following reports describe
+that earlier mutating lifecycle, not the isolated clipboard/stamp presentation.
 The [preview-copy audit](../verification/2026-09-06-preview-copy-performance.md)
 records profile attribution, matched display hashes, allocation savings and mixed
 timing results for ordinary Grab movement and floating rotation.

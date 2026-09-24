@@ -96,6 +96,14 @@ func (t *ToolGrab) UpdatePlacement(coord util.Point) {
 
 func (t *ToolGrab) ConfirmPlacement() bool {
 	p := t.placement
+	if p != nil && ed == p.owner && p.controller != nil {
+		if pending, ok := p.controller.(interface{ PastePlacementPending() bool }); ok {
+			if pending.PastePlacementPending() {
+				return false
+			}
+			return t.confirmPreparedIntent(p)
+		}
+	}
 	if p == nil || !p.valid || ed != p.owner || p.move != nil && p.move.Closed() || p.controller != nil && p.controller.PastePlacementClosed() {
 		return false
 	}
@@ -132,9 +140,50 @@ func (t *ToolGrab) ConfirmPlacement() bool {
 	return true
 }
 
+// The isolated controller retains pending clicks. Keep the tool alive until
+// acceptance supplies the final geometry, so preparation cannot lose selection.
+func (t *ToolGrab) confirmPreparedIntent(p *grabPlacement) bool {
+	var history *editing.SelectionHistory
+	changed := func(applied bool) {
+		if applied && history == nil && ed == p.owner && t.placement == p {
+			area, _, _ := p.controller.UpdatePastePlacement(p.last)
+			t.fillArea, t.fillAreaInit = area, area
+			t.fillStart = util.Point{X: int(area.X1), Y: int(area.Y1), Z: p.last.Z}
+			t.placement = nil
+			t.initTiles = nil
+			t.mode = tSelectModeMoveArea
+			history = editing.NewSelectionHistory(area)
+			t.selectionHistory = history
+		} else if !applied && ed == p.owner && (t.placement == p || history != nil && t.selectionHistory == history && !t.Placing() && !t.dragging) {
+			t.Reset()
+		}
+	}
+	accepted := false
+	action := func() error {
+		accepted = p.controller.ConfirmPastePlacement()
+		if !accepted {
+			return fmt.Errorf("paste target is unavailable")
+		}
+		return nil
+	}
+	if observer, ok := p.owner.(selectionTransformObserver); ok {
+		if err := observer.TrackSelectionTransform(changed, action); err != nil {
+			p.err = err
+		}
+	} else {
+		if err := action(); err != nil {
+			p.err = err
+		}
+	}
+	return accepted
+}
+
 func (t *ToolGrab) CancelPlacement() {
 	if t.Placing() {
 		if t.placement.controller != nil {
+			if controller, ok := t.placement.controller.(interface{ CanCancelPastePlacement() bool }); ok && !controller.CanCancelPastePlacement() {
+				return
+			}
 			t.placement.controller.CancelPastePlacement()
 			t.placement = nil
 			t.Reset()

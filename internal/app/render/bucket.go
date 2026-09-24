@@ -40,7 +40,16 @@ func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight
 	}
 
 	// Iterate through every layer to render.
-	for _, layer := range visibleLevel.Layers {
+	// APHELION EDIT ADDITION START - PLACEMENT PRESENTATION
+	var ghost *Presentation
+	var ghostLayers []float32
+	if p := r.presentation; p != nil && p.Ready && p.Anchor.Z == level {
+		ghost = p
+		ghostLayers = p.Layers
+	}
+	// APHELION EDIT CHANGE - PLACEMENT PRESENTATION - ORIGINAL: for _, layer := range visibleLevel.Layers {
+	eachPresentationLayer(visibleLevel.Layers, ghostLayers, func(layer float32) {
+		// APHELION EDIT ADDITION END
 		// Iterate through chunks with units on the rendered layer.
 		for _, chunk := range visibleLevel.ChunksByLayers[layer] {
 			// Out of bounds = skip.
@@ -55,6 +64,11 @@ func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight
 					continue
 				}
 				// Process unit
+				// APHELION EDIT ADDITION START - PLACEMENT PRESENTATION
+				if ghost != nil && ghost.Suppress != nil && ghost.Suppress(u) {
+					continue
+				}
+				// APHELION EDIT ADDITION END
 				if r.unitProcessor != nil && !r.unitProcessor.ProcessUnit(u) {
 					continue
 				}
@@ -71,7 +85,12 @@ func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight
 				}
 			}
 		}
-	}
+		// APHELION EDIT ADDITION START - PLACEMENT PRESENTATION
+		if ghost != nil {
+			ghost.drawLayer(layer, viewBounds)
+		}
+	})
+	// APHELION EDIT ADDITION END
 }
 
 func (r *Render) batchUnitHighlight(u unit.Unit) {

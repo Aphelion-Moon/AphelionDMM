@@ -328,6 +328,12 @@ func (t *ToolGrab) stopMoveArea() {
 }
 
 func (t *ToolGrab) OnDeselect() {
+	// APHELION EDIT ADDITION START - PASTE COMMIT OWNERSHIP
+	if t.Placing() {
+		t.CancelPlacement()
+		return
+	}
+	// APHELION EDIT ADDITION END
 	t.Reset()
 }
 

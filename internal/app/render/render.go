@@ -16,6 +16,9 @@ type Render struct {
 
 	overlay       overlay
 	unitProcessor unitProcessor
+	// APHELION EDIT ADDITION START - PLACEMENT PRESENTATION
+	presentation *Presentation
+	// APHELION EDIT ADDITION END
 }
 
 func New() *Render {

@@ -79,7 +79,7 @@ func (e *Editor) CollaborationSnapshot(ctx context.Context) (model.Snapshot, err
 	if e.executor == nil {
 		return model.Snapshot{}, fmt.Errorf("read collaboration snapshot: executor is unavailable")
 	}
-	if e.selectionMove != nil || e.paste != nil || len(e.pendingChanges) != 0 {
+	if e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
 		return model.Snapshot{}, fmt.Errorf("read collaboration snapshot: map has an uncommitted edit")
 	}
 	snapshot, err := e.executor.Snapshot(ctx)
@@ -162,7 +162,7 @@ func (e *Editor) ProcessCollaborationUpdates() {
 	if e.selectionMove != nil && e.selectionMove.Level() != e.pMap.ActiveLevel() {
 		e.FinishSelectionMove(e.selectionMove, true)
 	}
-	if e.selectionMove != nil || e.paste != nil || len(e.pendingChanges) != 0 {
+	if e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
 		return
 	}
 	execution, ok := e.executor.(projectionExecutor)
@@ -200,7 +200,7 @@ func (e *Editor) RefreshCollaborationSnapshot(ctx context.Context) error {
 	if e.collaborationErr != nil {
 		return fmt.Errorf("inspect and explicitly discard the retained local edit before refreshing")
 	}
-	if e.selectionMove != nil || e.paste != nil || len(e.pendingChanges) != 0 {
+	if e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
 		return fmt.Errorf("refresh collaboration snapshot: map has an uncommitted edit")
 	}
 	if e.executor == nil {
@@ -591,7 +591,7 @@ func (e *Editor) SaveVersion() (uint64, model.Revision) {
 
 func (e *Editor) ChangedSinceSave(generation uint64, revision model.Revision) bool {
 	return generation != e.attachmentGeneration || revision != e.authoritative.Revision ||
-		e.selectionMove != nil || e.paste != nil || len(e.pendingChanges) != 0 || len(e.unresolvedSubmissions) != 0 || e.collaborationErr != nil
+		e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 || len(e.unresolvedSubmissions) != 0 || e.collaborationErr != nil
 }
 
 func (e *Editor) reportCollaborationError(message string, err error) {

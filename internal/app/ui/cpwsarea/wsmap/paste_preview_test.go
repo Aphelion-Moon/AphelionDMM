@@ -136,11 +136,11 @@ func TestPastePreviewInvalidStartLifecycleGuards(t *testing.T) {
 			if g.ConfirmPlacement() || !e.HasPastePlacement() {
 				t.Fatal("invalid paste ended or confirmed")
 			}
-			if _, err := e.SaveSnapshot(context.Background()); err == nil {
-				t.Fatal("empty-journal preview allowed Save")
+			if _, err := e.SaveSnapshot(context.Background()); err != nil {
+				t.Fatal("isolated preview blocked committed Save", err)
 			}
-			if err := e.RefreshCollaborationSnapshot(context.Background()); err == nil {
-				t.Fatal("empty-journal preview allowed replacement")
+			if err := e.RefreshCollaborationSnapshot(context.Background()); err != nil {
+				t.Fatal("isolated preview blocked committed refresh", err)
 			}
 			if err := e.DetachCollaborationExecutor(context.Background()); err == nil {
 				t.Fatal("empty-journal preview allowed detach")
@@ -159,7 +159,7 @@ func TestPastePreviewInvalidStartLifecycleGuards(t *testing.T) {
 				e.Close()
 			}
 			settlePastePreview(t, ws, app)
-			if e.HasPastePlacement() || !reflect.DeepEqual(e.Dmm().Copy(), before) || app.commands.HasUndoV(e.Dmm().Path.Absolute) {
+			if e.HasPastePlacement() || !samePasteDisplay(t, before, e.Dmm()) || app.commands.HasUndoV(e.Dmm().Path.Absolute) {
 				t.Fatal("lifecycle left placement ownership or changed map/history")
 			}
 		})
@@ -211,6 +211,11 @@ func TestPastePreviewNetworkOutcomes(t *testing.T) {
 			if len(op.Changes) != 1 || op.Changes[0].Coord.X != 2 {
 				t.Fatal("paste did not submit exact destination")
 			}
+			g.CancelPlacement()
+			ws.Map().DoDeselect()
+			if !g.Placing() || !e.PastePlacementPending() {
+				t.Fatal("Cancel hid a submitted operation before its durable outcome")
+			}
 			if accept {
 				acceptSelection(t, network, document, op)
 			} else {
@@ -225,8 +230,8 @@ func TestPastePreviewNetworkOutcomes(t *testing.T) {
 			if app.commands.HasUndoV(e.Dmm().Path.Absolute) != accept {
 				t.Fatal("wrong paste history outcome")
 			}
-			if !accept && (g.HasSelectedArea() || len(network.Conflicts()) != 1) {
-				t.Fatal("rejected paste kept selection or lost conflict")
+			if !accept && (!g.Placing() || !e.HasPastePlacement() || len(network.Conflicts()) != 1) {
+				t.Fatal("rejected paste lost usable intent or conflict")
 			}
 			if accept {
 				app.commands.UndoV(e.Dmm().Path.Absolute)
@@ -254,8 +259,8 @@ func TestPastePreviewConfirmationAndCancellation(t *testing.T) {
 	if !g.Placing() || g.Stale() {
 		t.Fatal("paste did not start placement")
 	}
-	if _, err := e.SaveSnapshot(context.Background()); err == nil || e.CanChangeMapSize() {
-		t.Fatal("open placement permits Save/resize")
+	if _, err := e.SaveSnapshot(context.Background()); err != nil || e.CanChangeMapSize() {
+		t.Fatal("isolated placement must allow committed Save while retaining resize ownership", err)
 	}
 	id := e.Dmm().Tiles[1].Instances()[2].StableID()
 	e.TilePasteSelected()
@@ -272,11 +277,11 @@ func TestPastePreviewConfirmationAndCancellation(t *testing.T) {
 	settlePastePreview(t, ws, app)
 	g.UpdatePlacement(util.Point{X: 3, Y: 1, Z: 1})
 	settlePastePreview(t, ws, app, util.Point{X: 3, Y: 1, Z: 1})
-	id = e.Dmm().Tiles[2].Instances()[2].StableID()
-	if !g.ConfirmPlacement() || g.Placing() {
+	if !g.ConfirmPlacement() {
 		t.Fatal("valid placement did not confirm")
 	}
 	settlePastePreview(t, ws, app)
+	id = e.Dmm().Tiles[2].Instances()[2].StableID()
 	after := resizeSnapshot(t, e)
 	if after.Revision != before.Revision+1 || id == string(before.Tiles[0].State.Prefabs[2].StableID) {
 		t.Fatal("paste did not create one distinct operation")

@@ -27,26 +27,26 @@ func TestPasteTransformShortcutsBeforeConfirmation(t *testing.T) {
 	e.TilePasteSelected()
 	settlePastePreview(t, ws, app)
 	g := tools.Selected().(*tools.ToolGrab)
-	id := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2].StableID()
+	displayBefore := e.Dmm().Copy()
+	id := e.Dmm().GetTile(util.Point{X: 1, Y: 1, Z: 1}).Instances()[2].StableID()
 	hiddenID := e.Dmm().GetTile(util.Point{X: 2, Y: 3, Z: 1}).Instances()[0].StableID()
 	pressSelectionShortcut(glfw.KeyRightBracket)
 	settlePastePreview(t, ws, app)
 	if !g.Placing() || g.Bounds() != (util.Bounds{X1: 2, Y1: 2, X2: 2, Y2: 3}) {
 		t.Fatal("rotation shortcut did not rotate the floating template")
 	}
-	rotated := e.Dmm().GetTile(util.Point{X: 2, Y: 3, Z: 1}).Instances()[2]
-	if rotated.StableID() != id || rotated.Prefab().Vars().ValueV("dir", "") != "8" {
-		t.Fatal("rotation changed identity or failed to rotate direction")
+	if !reflect.DeepEqual(displayBefore, e.Dmm().Copy()) {
+		t.Fatal("floating rotation mutated committed data")
 	}
 	pressSelectionShortcut(glfw.KeyV)
 	settlePastePreview(t, ws, app)
-	if got := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2]; got.StableID() != id {
-		t.Fatal("vertical mirror did not exchange template cells")
+	if !reflect.DeepEqual(displayBefore, e.Dmm().Copy()) {
+		t.Fatal("floating vertical mirror mutated committed data")
 	}
 	pressSelectionShortcut(glfw.KeyH)
 	settlePastePreview(t, ws, app)
-	if got := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2]; got.Prefab().Vars().ValueV("dir", "") != "4" {
-		t.Fatal("horizontal mirror did not reflect orientation")
+	if !reflect.DeepEqual(displayBefore, e.Dmm().Copy()) {
+		t.Fatal("floating horizontal mirror mutated committed data")
 	}
 	if app.commands.HasUndoV(e.Dmm().Path.Absolute) || !reflect.DeepEqual(clipboard, app.Clipboard().Buffer().Buffer[0].Copy()) {
 		t.Fatal("preview transform created history or changed clipboard")
@@ -57,6 +57,9 @@ func TestPasteTransformShortcutsBeforeConfirmation(t *testing.T) {
 	pressSelectionShortcut(glfw.KeyEnter)
 	settlePastePreview(t, ws, app)
 	after := resizeSnapshot(t, e)
+	if got := e.Dmm().GetTile(util.Point{X: 2, Y: 2, Z: 1}).Instances()[2]; got.StableID() == id || got.Prefab().Vars().ValueV("dir", "") != "4" {
+		t.Fatal("committed rotated/mirrored data or copied identity is wrong")
+	}
 	if g.Placing() || after.Revision != before.Revision+1 || !ws.Save() {
 		t.Fatal("transformed paste did not confirm as one saveable revision")
 	}
@@ -91,8 +94,8 @@ func TestPasteTransformNetworkOutcomes(t *testing.T) {
 				t.Fatal("floating transform submitted an operation")
 			default:
 			}
-			if _, err := e.SaveSnapshot(context.Background()); err == nil {
-				t.Fatal("transformed preview allowed Save")
+			if _, err := e.SaveSnapshot(context.Background()); err != nil {
+				t.Fatal("isolated transformed preview blocked committed Save", err)
 			}
 			g := tools.Selected().(*tools.ToolGrab)
 			if !g.ConfirmPlacement() {
@@ -119,8 +122,8 @@ func TestPasteTransformNetworkOutcomes(t *testing.T) {
 			if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, after) || app.commands.HasUndoV(e.Dmm().Path.Absolute) != accept {
 				t.Fatal("transformed paste outcome disagrees with authority/history")
 			}
-			if !accept && (g.HasSelectedArea() || len(network.Conflicts()) != 1) {
-				t.Fatal("rejection retained selection or lost conflict")
+			if !accept && (!g.Placing() || !e.HasPastePlacement() || len(network.Conflicts()) != 1) {
+				t.Fatal("rejection lost usable intent or conflict")
 			}
 			if accept {
 				app.commands.UndoV(e.Dmm().Path.Absolute)
@@ -234,7 +237,7 @@ func TestPasteTransformRepairsInvalidTargetAndCancels(t *testing.T) {
 	}
 }
 
-func TestPasteTransformCaptureFaultKeepsSaveGuardUntilRecovery(t *testing.T) {
+func TestPasteTransformNeverCapturesOrRepairsDestinationDisplay(t *testing.T) {
 	ws, app := newSelectionWorkspace(t)
 	activateSelectionWorkspace(t, ws)
 	network, transport, document := selectionNetwork(t, ws)
@@ -251,20 +254,20 @@ func TestPasteTransformCaptureFaultKeepsSaveGuardUntilRecovery(t *testing.T) {
 	pressSelectionShortcut(glfw.KeyRightBracket)
 	settlePastePreview(t, ws, app)
 	g := tools.Selected().(*tools.ToolGrab)
-	if g.PlacementError() == nil || !reflect.DeepEqual(display, e.Dmm().Copy()) || g.ConfirmPlacement() {
-		t.Fatal("capture fault changed or confirmed preview")
+	if g.PlacementError() != nil || !reflect.DeepEqual(display, e.Dmm().Copy()) {
+		t.Fatal("isolated transform captured or rewrote destination display")
 	}
 	invalid.SetStableID(originalID)
 	display = e.Dmm().Copy()
 	pressSelectionShortcut(glfw.KeyH)
 	settlePastePreview(t, ws, app)
-	if g.PlacementError() == nil || !reflect.DeepEqual(display, e.Dmm().Copy()) {
-		t.Fatal("another transform bypassed the capture fault")
+	if g.PlacementError() != nil || !reflect.DeepEqual(display, e.Dmm().Copy()) {
+		t.Fatal("isolated mirror captured or rewrote destination display")
 	}
 	pressSelectionShortcut(glfw.KeyEscape)
 	settlePastePreview(t, ws, app)
-	if _, err := e.SaveSnapshot(context.Background()); err == nil {
-		t.Fatal("cancel cleared latched Save fault")
+	if snapshot, err := e.SaveSnapshot(context.Background()); err != nil || resizeHash(t, snapshot) != resizeHash(t, before) {
+		t.Fatal("presentation contaminated committed save authority", err)
 	}
 	if app.commands.HasUndoV(e.Dmm().Path.Absolute) {
 		t.Fatal("fault created history")

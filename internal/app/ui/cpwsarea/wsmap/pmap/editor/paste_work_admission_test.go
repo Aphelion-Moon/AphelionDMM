@@ -58,9 +58,8 @@ func TestPasteAdmissionFailureLeavesAuthorityDisplayAndHistoryUntouched(t *testi
 	if !reflect.DeepEqual(e.dmm.Copy(), beforeDisplay) || e.app.CommandStorage().HasUndoV(e.dmm.Path.Absolute) {
 		t.Fatal("admission failure changed the display or created history")
 	}
-	// The active paste intentionally blocks editor SaveSnapshot even when its
-	// proposal was denied, so inspect executor authority directly here.
-	afterAuthority, err := e.executor.Snapshot(context.Background())
+	// An unplaced, denied source must not block committed saves either.
+	afterAuthority, err := e.SaveSnapshot(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}

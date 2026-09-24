@@ -42,7 +42,7 @@ func TestPlacementRetainsCopiedIdentityAcrossTransformsAndTargets(t *testing.T) 
 			t.Fatal(err)
 		}
 		defer lease.Release()
-		op, err := BuildPlacementProposalReservedWithIdentities(ctx, snapshot, actor, template, func(string) bool { return true }, target, nil, lease, identities, PlacementDefaults{})
+		op, err := BuildPlacementProposalReservedWithIdentities(ctx, snapshot, actor, template, func(string) bool { return true }, target, nil, lease, identities)
 		if err != nil {
 			t.Fatal(err)
 		}

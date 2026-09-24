@@ -3,31 +3,23 @@ package editing
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/resources"
-	"sdmm/internal/dmapi/dm"
+
 	"sdmm/internal/dmapi/dmmap"
-	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
+
 	"sdmm/internal/util"
 )
 
-// PlacementDefaults captures environment-owned immutable prefabs on the UI
-// thread before work starts, so a worker never reads changing map globals.
-type PlacementDefaults struct {
-	Area *dmmprefab.Prefab
-	Turf *dmmprefab.Prefab
-}
-
-// BuildPlacementProposal builds the immutable operation used by paste preview
-// and commit. snapshot must be an owned executor snapshot, and source must stay
+// BuildPlacementProposal adapts a clipboard to a wire commit. snapshot must
+// be an owned executor snapshot, and source must stay
 // immutable for the duration of the call. Clipboard snapshots satisfy that
 // contract: they retain immutable prefab values while later copies replace the
 // clipboard slice instead of editing this one.
 //
 // The function never reads or mutates the displayed DMM. Call it on a worker,
-// then use operation.Changes for bounded UI-thread preview application.
+// then publish accepted changes on the UI thread. Presentation never calls it.
 func BuildPlacementProposal(
 	ctx context.Context,
 	snapshot model.Snapshot,
@@ -83,7 +75,7 @@ func BuildPlacementProposalReserved(
 	progress func(completed, total int),
 	reservation *resources.Reservation,
 ) (model.Operation, error) {
-	return BuildPlacementProposalReservedWithIdentities(ctx, snapshot, actor, source, visible, target, progress, reservation, nil, PlacementDefaults{Area: dmmap.BaseArea, Turf: dmmap.BaseTurf})
+	return BuildPlacementProposalReservedWithIdentities(ctx, snapshot, actor, source, visible, target, progress, reservation, nil)
 }
 
 // BuildPlacementProposalReservedWithIdentities reuses copied instance IDs for
@@ -100,12 +92,11 @@ func BuildPlacementProposalReservedWithIdentities(
 	progress func(completed, total int),
 	reservation *resources.Reservation,
 	identities map[model.StableID]model.StableID,
-	defaults PlacementDefaults,
 ) (model.Operation, error) {
 	if reservation == nil || reservation.Bytes() < EstimatePlacementMemory(snapshot, source, 0) {
 		return model.Operation{}, fmt.Errorf("placement memory reservation is smaller than the estimated requirement")
 	}
-	return buildPlacementProposal(ctx, snapshot, actor, source, visible, target, progress, identities, defaults)
+	return buildPlacementProposal(ctx, snapshot, actor, source, visible, target, progress, identities)
 }
 
 // ReservePlacementMemory estimates the temporary snapshot indexes, transformed
@@ -156,7 +147,6 @@ func buildPlacementProposal(
 	target util.Point,
 	progress func(completed, total int),
 	identities map[model.StableID]model.StableID,
-	defaults PlacementDefaults,
 ) (model.Operation, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -181,132 +171,46 @@ func buildPlacementProposal(
 		return model.Operation{}, fmt.Errorf("paste target is outside the map")
 	}
 
-	minX, minY, maxX, maxY := source[0].Coord.X, source[0].Coord.Y, source[0].Coord.X, source[0].Coord.Y
-	level := source[0].Coord.Z
-	seen := make(map[util.Point]struct{}, len(source))
-	for _, tile := range source {
-		coord := tile.Coord
-		if coord.X < 1 || coord.Y < 1 || coord.Z != level {
-			return model.Operation{}, fmt.Errorf("clipboard must contain positive coordinates on one level")
-		}
-		if _, exists := seen[coord]; exists {
-			return model.Operation{}, fmt.Errorf("clipboard contains duplicate tiles")
-		}
-		seen[coord] = struct{}{}
-		minX, minY = min(minX, coord.X), min(minY, coord.Y)
-		maxX, maxY = max(maxX, coord.X), max(maxY, coord.Y)
-	}
-	width, height := maxX-minX+1, maxY-minY+1
-	if width > snapshot.MaxX || height > snapshot.MaxY || target.X+width-1 > snapshot.MaxX || target.Y+height-1 > snapshot.MaxY {
-		return model.Operation{}, fmt.Errorf("paste selection would leave the map or selected level")
-	}
-
-	base := make(map[model.Coord]model.TileState, len(snapshot.Tiles))
 	usedIDs := make(map[model.StableID]struct{})
-	for index, tile := range snapshot.Tiles {
-		if index&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return model.Operation{}, err
-			}
+	base := make(map[model.Coord]model.TileState, len(snapshot.Tiles))
+	for _, tile := range snapshot.Tiles {
+		if err := ctx.Err(); err != nil {
+			return model.Operation{}, err
 		}
 		base[tile.Coord] = tile.State
 		for _, prefab := range tile.State.Prefabs {
 			usedIDs[prefab.StableID] = struct{}{}
 		}
 	}
-
-	type sourceTile struct {
-		tile dmmap.Tile
-		dest model.Coord
-	}
-	ordered := make([]sourceTile, 0, len(source))
-	for _, tile := range source {
-		destination := model.Coord{
-			X: target.X + tile.Coord.X - minX,
-			Y: target.Y + tile.Coord.Y - minY,
-			Z: target.Z,
-		}
-		ordered = append(ordered, sourceTile{tile: tile, dest: destination})
-	}
-	sort.Slice(ordered, func(i, j int) bool {
-		if ordered[i].dest.Y != ordered[j].dest.Y {
-			return ordered[i].dest.Y < ordered[j].dest.Y
-		}
-		return ordered[i].dest.X < ordered[j].dest.X
-	})
-
-	changes := make([]model.TileChange, 0, len(ordered))
-	for index, entry := range ordered {
-		if err := ctx.Err(); err != nil {
-			return model.Operation{}, err
-		}
-		before, exists := base[entry.dest]
-		if !exists {
-			return model.Operation{}, fmt.Errorf("paste destination (%d,%d,%d) is missing from the base snapshot", entry.dest.X, entry.dest.Y, entry.dest.Z)
-		}
-		before = model.CloneTileState(before)
-		after := model.TileState{Prefabs: make([]model.PrefabState, 0, len(before.Prefabs)+len(entry.tile.Instances()))}
-		for _, prefab := range before.Prefabs {
-			if !visible(prefab.Path) {
-				after.Prefabs = append(after.Prefabs, clonePrefabState(prefab))
+	owned := make([]dmmap.Tile, len(source))
+	for index, tile := range source {
+		owned[index].Coord = tile.Coord
+		for _, instance := range tile.Instances() {
+			if instance == nil || instance.Prefab() == nil {
+				return model.Operation{}, fmt.Errorf("invalid paste source")
 			}
-		}
-		for _, instance := range entry.tile.Instances() {
-			if err := ctx.Err(); err != nil {
-				return model.Operation{}, err
-			}
-			if instance == nil || instance.Prefab() == nil || instance.Prefab().Vars() == nil {
-				return model.Operation{}, fmt.Errorf("clipboard contains an invalid instance")
-			}
-			prefab := instance.Prefab()
-			if !visible(prefab.Path()) {
-				continue
-			}
-			state := model.PrefabState{Path: prefab.Path(), Vars: make(map[string]string, prefab.Vars().Len())}
-			for _, name := range prefab.Vars().Iterate() {
-				value, ok := prefab.Vars().Value(name)
-				if !ok {
-					return model.Operation{}, fmt.Errorf("clipboard variable %q on %q has no value", name, prefab.Path())
-				}
-				state.Vars[name] = value
-			}
-			key := model.StableID(instance.StableID())
-			if identities != nil {
-				if err := key.Validate(); err != nil {
-					return model.Operation{}, fmt.Errorf("paste source identity: %w", err)
-				}
-			}
-			state.StableID, err = placementIdentity(key, usedIDs, identities)
+			copy := instance.Copy()
+			id, err := placementIdentity(model.StableID(instance.StableID()), usedIDs, identities)
 			if err != nil {
 				return model.Operation{}, err
 			}
-			after.Prefabs = append(after.Prefabs, state)
-		}
-		if !hasPrefabPath(after, "/area") {
-			key := model.StableID(fmt.Sprintf("area:%d:%d:%d", entry.dest.X, entry.dest.Y, entry.dest.Z))
-			state, stateErr := prefabState(defaults.Area, usedIDs, identities, key)
-			if stateErr != nil {
-				return model.Operation{}, stateErr
-			}
-			after.Prefabs = append(after.Prefabs, state)
-		}
-		if !hasPrefabPath(after, "/turf") {
-			key := model.StableID(fmt.Sprintf("turf:%d:%d:%d", entry.dest.X, entry.dest.Y, entry.dest.Z))
-			state, stateErr := prefabState(defaults.Turf, usedIDs, identities, key)
-			if stateErr != nil {
-				return model.Operation{}, stateErr
-			}
-			after.Prefabs = append(after.Prefabs, state)
-		}
-		if !before.Equal(after) {
-			changes = append(changes, model.TileChange{Coord: entry.dest, Before: before, After: after})
-		}
-		if progress != nil {
-			progress(index+1, len(ordered))
+			copy.SetStableID(string(id))
+			owned[index].Set(append(owned[index].Instances(), &copy))
 		}
 	}
-	if err := ctx.Err(); err != nil {
+	payload, err := CompilePlacementPayload(ctx, owned, visible)
+	if err != nil {
 		return model.Operation{}, err
+	}
+	if err := payload.ValidateTarget(target, snapshot.MaxX, snapshot.MaxY, target.Z); err != nil {
+		return model.Operation{}, err
+	}
+	changes, err := payload.BuildPlacementChanges(ctx, target, PastePolicy{Channels: AllChannels}, visible, func(coord model.Coord) (model.TileState, bool) { state, ok := base[coord]; return state, ok })
+	if err != nil {
+		return model.Operation{}, err
+	}
+	if progress != nil {
+		progress(len(source), len(source))
 	}
 	operationID, err := model.NewOperationID()
 	if err != nil {
@@ -378,32 +282,6 @@ func saturatingMul(left, right uint64) uint64 {
 		return ^uint64(0)
 	}
 	return left * right
-}
-
-func hasPrefabPath(state model.TileState, base string) bool {
-	for _, prefab := range state.Prefabs {
-		if dm.IsPath(prefab.Path, base) {
-			return true
-		}
-	}
-	return false
-}
-
-func prefabState(prefab *dmmprefab.Prefab, usedIDs map[model.StableID]struct{}, identities map[model.StableID]model.StableID, key model.StableID) (model.PrefabState, error) {
-	if prefab == nil || prefab.Vars() == nil {
-		return model.PrefabState{}, fmt.Errorf("map base prefab is invalid")
-	}
-	state := model.PrefabState{Path: prefab.Path(), Vars: make(map[string]string, prefab.Vars().Len())}
-	for _, name := range prefab.Vars().Iterate() {
-		value, ok := prefab.Vars().Value(name)
-		if !ok {
-			return model.PrefabState{}, fmt.Errorf("map base variable %q on %q has no value", name, prefab.Path())
-		}
-		state.Vars[name] = value
-	}
-	var err error
-	state.StableID, err = placementIdentity(key, usedIDs, identities)
-	return state, err
 }
 
 func placementIdentity(key model.StableID, usedIDs map[model.StableID]struct{}, identities map[model.StableID]model.StableID) (model.StableID, error) {
