@@ -53,6 +53,43 @@ func TestInvalidHistoryTargetsCannotCreateStacks(t *testing.T) {
 	}
 }
 
+func TestRebindHistoryMovesItsLifetimeWithoutLosingCommands(t *testing.T) {
+	storage := NewStorage()
+	storage.SetStack("before.dmm")
+	target := storage.Bind("before.dmm")
+	undone := 0
+	if !target.Push(Make("existing edit", func() { undone++ }, func() {})) {
+		t.Fatal("could not seed history")
+	}
+	if !storage.CanRebindStack("before.dmm", "after.dmm") {
+		t.Fatal("expected an unused destination stack to be available")
+	}
+	if !storage.RebindStack("before.dmm", "after.dmm") {
+		t.Fatal("history stack did not rebind")
+	}
+	if target.Valid() != true || storage.currentStackId != "after.dmm" || storage.HasUndoV("before.dmm") || !storage.HasUndoV("after.dmm") {
+		t.Fatal("rebind lost the live target, active id, or existing command")
+	}
+	if !target.Push(Make("later edit", func() {}, func() {})) || !storage.HasUndoV("after.dmm") {
+		t.Fatal("bound target could not push after rebind")
+	}
+	storage.UndoV("after.dmm")
+	if !storage.HasRedoV("after.dmm") || undone != 0 {
+		t.Fatal("rebound history could not undo the newly pushed edit")
+	}
+	storage.UndoV("after.dmm")
+	if undone != 1 {
+		t.Fatal("rebind discarded the prior undo command")
+	}
+	if storage.CanRebindStack("after.dmm", "collision.dmm") == false {
+		t.Fatal("expected a second unused destination to be available")
+	}
+	storage.Bind("collision.dmm")
+	if storage.CanRebindStack("after.dmm", "collision.dmm") || storage.RebindStack("after.dmm", "collision.dmm") {
+		t.Fatal("rebind replaced an existing destination stack")
+	}
+}
+
 func TestDisposedHistoryReleasesPayloadWithLiveTarget(t *testing.T) {
 	for _, action := range []string{"dispose", "free"} {
 		t.Run(action, func(t *testing.T) {

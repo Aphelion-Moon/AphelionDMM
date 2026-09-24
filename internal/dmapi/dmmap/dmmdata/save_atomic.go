@@ -12,21 +12,33 @@ import (
 	"path/filepath"
 	"sort"
 
+	"sdmm/internal/aphelion/diskversion"
 	"sdmm/internal/util"
 )
 
 func SaveAtomic(path string, write func(io.Writer) error, validate func(string) error) (resultErr error) {
+	_, resultErr = saveAtomic(path, write, validate, nil)
+	return resultErr
+}
+
+// SaveAtomicWithState stages and validates output, then replaces path only if
+// its current filesystem state still matches expected.
+func SaveAtomicWithState(path string, write func(io.Writer) error, validate func(string) error, expected diskversion.State) (diskversion.State, error) {
+	return saveAtomic(path, write, validate, &expected)
+}
+
+func saveAtomic(path string, write func(io.Writer) error, validate func(string) error, expected *diskversion.State) (resultState diskversion.State, resultErr error) {
 	if write == nil {
-		return fmt.Errorf("atomic save: writer is nil")
+		return diskversion.State{}, fmt.Errorf("atomic save: writer is nil")
 	}
 	if validate == nil {
-		return fmt.Errorf("atomic save: validator is nil")
+		return diskversion.State{}, fmt.Errorf("atomic save: validator is nil")
 	}
 
 	directory := filepath.Dir(path)
 	stage, err := os.CreateTemp(directory, "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
-		return fmt.Errorf("create staging file: %w", err)
+		return diskversion.State{}, fmt.Errorf("create staging file: %w", err)
 	}
 	stagePath := stage.Name()
 	stageOpen := true
@@ -39,33 +51,57 @@ func SaveAtomic(path string, write func(io.Writer) error, validate func(string) 
 		}
 	}()
 
-	if err := write(stage); err != nil {
-		return fmt.Errorf("write staging file: %w", err)
+	trackedOutput := diskversion.NewWriter(stage)
+	if err := write(trackedOutput); err != nil {
+		return diskversion.State{}, fmt.Errorf("write staging file: %w", err)
 	}
-	mode := os.FileMode(0o666)
+	var preserveMode *os.FileMode
 	if targetInfo, statErr := os.Stat(path); statErr == nil {
-		mode = targetInfo.Mode().Perm()
+		mode := targetInfo.Mode().Perm()
+		preserveMode = &mode
 	} else if !errors.Is(statErr, os.ErrNotExist) {
-		return fmt.Errorf("inspect target permissions: %w", statErr)
+		return diskversion.State{}, fmt.Errorf("inspect target permissions: %w", statErr)
 	}
-	if err := stage.Chmod(mode); err != nil {
-		return fmt.Errorf("set staging permissions: %w", err)
+	if preserveMode != nil {
+		if err := stage.Chmod(*preserveMode); err != nil {
+			return diskversion.State{}, fmt.Errorf("preserve target permissions: %w", err)
+		}
 	}
 	if err := stage.Sync(); err != nil {
-		return fmt.Errorf("sync staging file: %w", err)
+		return diskversion.State{}, fmt.Errorf("sync staging file: %w", err)
+	}
+	stageInfo, err := stage.Stat()
+	if err != nil {
+		return diskversion.State{}, fmt.Errorf("inspect staging file: %w", err)
+	}
+	resultState, err = trackedOutput.State(stageInfo, stageInfo)
+	if err != nil {
+		return diskversion.State{}, err
 	}
 	if err := stage.Close(); err != nil {
 		stageOpen = false
-		return fmt.Errorf("close staging file: %w", err)
+		return diskversion.State{}, fmt.Errorf("close staging file: %w", err)
 	}
 	stageOpen = false
 	if err := validate(stagePath); err != nil {
-		return fmt.Errorf("validate staging file: %w", err)
+		return diskversion.State{}, fmt.Errorf("validate staging file: %w", err)
+	}
+	if expected != nil {
+		// This narrows the race with non-cooperating writers to the interval
+		// between this check and the atomic replacement.
+		if err := expected.Check(path); err != nil {
+			return diskversion.State{}, err
+		}
 	}
 	if err := replaceFile(stagePath, path); err != nil {
-		return fmt.Errorf("replace target: %w", err)
+		return diskversion.State{}, fmt.Errorf("replace target: %w", err)
 	}
-	return nil
+	if expected != nil {
+		if err := resultState.Check(path); err != nil {
+			return diskversion.State{}, fmt.Errorf("verify replaced target: %w", err)
+		}
+	}
+	return resultState, nil
 }
 
 // ValidateSaved compares a staged file against this independent semantic view.

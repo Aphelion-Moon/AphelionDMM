@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"sdmm/internal/aphelion/diskversion"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
@@ -78,6 +79,76 @@ func TestSaveAtomicReplacesValidatedTarget(t *testing.T) {
 		t.Fatalf("target contents = %q, want complete replacement", contents)
 	}
 	assertNoStages(t, target)
+}
+
+func TestSaveAtomicWithStateRechecksAfterValidation(t *testing.T) {
+	t.Parallel()
+
+	target := existingTarget(t)
+	expected, err := diskversion.Capture(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = SaveAtomicWithState(target, func(writer io.Writer) error {
+		_, writeErr := io.WriteString(writer, "editor replacement")
+		return writeErr
+	}, func(string) error {
+		return os.WriteFile(target, []byte("external replacement"), 0600)
+	}, expected)
+	if !errors.Is(err, diskversion.ErrConflict) {
+		t.Fatalf("SaveAtomicWithState() error = %v, want disk conflict", err)
+	}
+	contents, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "external replacement" {
+		t.Fatalf("conflicting target contents = %q, want external replacement", contents)
+	}
+	assertNoStages(t, target)
+}
+
+func TestSaveAtomicWithStateReturnsVersionOfSavedOutput(t *testing.T) {
+	t.Parallel()
+
+	target := existingTarget(t)
+	expected, err := diskversion.Capture(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := SaveAtomicWithState(target, func(writer io.Writer) error {
+		_, writeErr := io.WriteString(writer, "saved replacement")
+		return writeErr
+	}, func(string) error { return nil }, expected)
+	if err != nil {
+		t.Fatalf("SaveAtomicWithState() error = %v", err)
+	}
+	if err := saved.Check(target); err != nil {
+		t.Fatalf("returned state does not describe the replaced target: %v", err)
+	}
+}
+
+func TestSaveAtomicWithStateDoesNotReplaceUnexpectedNewTarget(t *testing.T) {
+	t.Parallel()
+
+	target := filepath.Join(t.TempDir(), "new-map.dmm")
+	if err := os.WriteFile(target, []byte("external target"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := SaveAtomicWithState(target, func(writer io.Writer) error {
+		_, writeErr := io.WriteString(writer, "editor replacement")
+		return writeErr
+	}, func(string) error { return nil }, diskversion.Absent())
+	if !errors.Is(err, diskversion.ErrConflict) {
+		t.Fatalf("SaveAtomicWithState() error = %v, want disk conflict", err)
+	}
+	contents, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "external target" {
+		t.Fatalf("unexpected target contents = %q, want external target", contents)
+	}
 }
 
 func TestWriteDMPropagatesWriterFailure(t *testing.T) {

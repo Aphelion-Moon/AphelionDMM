@@ -12,6 +12,7 @@ import (
 	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/executor"
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/diskversion"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/prefs"
@@ -180,17 +181,80 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	if app.commands.IsModified(path) {
 		t.Fatal("successful save did not balance commands")
 	}
+	external := []byte("external editor replacement")
+	if err := os.WriteFile(path, external, 0600); err != nil {
+		t.Fatal(err)
+	}
+	app.commands.Push(command.Make("Unsaved edit before external conflict", func() {}, func() {}))
+	if ws.Save() {
+		t.Fatal("save silently replaced a map changed on disk")
+	}
+	unchanged, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(unchanged, external) {
+		t.Fatalf("conflicting save changed external file: %v", err)
+	}
+	if !app.commands.IsModified(path) || !ws.HasUnsavedChanges() {
+		t.Fatal("conflicting save marked the editor clean")
+	}
+	observedExternal, err := diskversion.Capture(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ws.overwriteAfterConflict(observedExternal) {
+		t.Fatal("explicit overwrite of the observed disk version failed")
+	}
+	if app.commands.IsModified(path) || ws.HasUnsavedChanges() {
+		t.Fatal("successful explicit overwrite did not acknowledge the saved map")
+	}
+	if _, err := dmmdata.New(path); err != nil {
+		t.Fatalf("explicit overwrite produced an unreadable map: %v", err)
+	}
+	external = []byte("external edit before Save As")
+	if err := os.WriteFile(path, external, 0600); err != nil {
+		t.Fatal(err)
+	}
+	app.commands.Push(command.Make("Unsaved edit before Save As", func() {}, func() {}))
+	if ws.Save() {
+		t.Fatal("save silently replaced a second external edit")
+	}
+	if ws.saveAsTo(path) {
+		t.Fatal("Save As overwrote an existing destination by default")
+	}
+	unchanged, err = os.ReadFile(path)
+	if err != nil || !bytes.Equal(unchanged, external) {
+		t.Fatalf("rejected Save As changed the existing destination: %v", err)
+	}
+	if ws.CommandStackId() != path || !ws.HasUnsavedChanges() {
+		t.Fatal("rejected Save As changed workspace identity or cleared dirty state")
+	}
+	copyPath := filepath.Join(directory, "map-copy.dmm")
+	if !ws.saveAsTo(copyPath) {
+		t.Fatal("Save As to a new destination failed")
+	}
+	if ws.CommandStackId() != copyPath || ws.HasUnsavedChanges() {
+		t.Fatal("successful Save As did not rebind and acknowledge the workspace")
+	}
+	if !app.commands.HasUndoV(copyPath) || app.commands.HasUndoV(path) || !app.commands.HasUndo() {
+		t.Fatal("successful Save As did not move the active undo history to the new workspace identity")
+	}
+	unchanged, err = os.ReadFile(path)
+	if err != nil || !bytes.Equal(unchanged, external) {
+		t.Fatalf("Save As changed the conflicted source file: %v", err)
+	}
+	if _, err := dmmdata.New(copyPath); err != nil {
+		t.Fatalf("Save As produced an unreadable map: %v", err)
+	}
 	app.commands.Push(command.Make("Unsaved verification edit", func() {}, func() {}))
 	mapState.Backup = filepath.Join(directory, "missing-backup.dmm")
-	beforeFailure, err := os.ReadFile(path)
+	beforeFailure, err := os.ReadFile(copyPath)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ws.Save() {
 		t.Fatal("failed staging reported success")
 	}
-	afterFailure, err := os.ReadFile(path)
-	if err != nil || !bytes.Equal(beforeFailure, afterFailure) || !app.commands.IsModified(path) {
+	afterFailure, err := os.ReadFile(copyPath)
+	if err != nil || !bytes.Equal(beforeFailure, afterFailure) || !app.commands.IsModified(copyPath) {
 		t.Fatal("failed save changed file or dirty state")
 	}
 }

@@ -102,6 +102,42 @@ func (s *Storage) Bind(id string) Target {
 	return Target{storage: s, stack: s.commandStacks[id]}
 }
 
+// APHELION EDIT ADDITION START - SAVE_AS_HISTORY
+// CanRebindStack reports whether the source stack can change identity without
+// replacing an already-owned destination stack. Busy stacks cannot be moved
+// because async completions are scoped to their original identity.
+func (s *Storage) CanRebindStack(fromID, toID string) bool {
+	if s == nil || fromID == "" || toID == "" || fromID == NullSpaceStackId || toID == NullSpaceStackId {
+		return false
+	}
+	stack := s.commandStacks[fromID]
+	if stack == nil || stack.busy {
+		return false
+	}
+	return fromID == toID || s.commandStacks[toID] == nil
+}
+
+// RebindStack moves one map's existing undo history to its Save As identity.
+// Bound targets keep the same stack pointer and remain valid after the move.
+func (s *Storage) RebindStack(fromID, toID string) bool {
+	if !s.CanRebindStack(fromID, toID) {
+		return false
+	}
+	if fromID == toID {
+		return true
+	}
+	stack := s.commandStacks[fromID]
+	delete(s.commandStacks, fromID)
+	stack.id = toID
+	s.commandStacks[toID] = stack
+	if s.currentStackId == fromID {
+		s.currentStackId = toID
+	}
+	return true
+}
+
+// APHELION EDIT ADDITION END
+
 func (target Target) Valid() bool {
 	return target.storage != nil && target.stack != nil && target.storage.commandStacks[target.stack.id] == target.stack
 }

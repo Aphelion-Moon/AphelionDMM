@@ -36,6 +36,7 @@ type WsMap struct {
 	savedMapHash    string
 	savedGeneration uint64
 	savedRevision   model.Revision
+	diskConflict    bool
 	// APHELION EDIT ADDITION END
 }
 
@@ -72,7 +73,7 @@ func (WsMap) Ini() workspace.Ini {
 func (ws *WsMap) Name() string {
 	visibleName := ws.paneMap.Dmm().Name
 	// APHELION EDIT CHANGE - ATOMIC_SAVE - ORIGINAL: if ws.app.CommandStorage().IsModified(ws.CommandStackId()) {
-	if ws.app.CommandStorage().IsModified(ws.CommandStackId()) || ws.paneMap.Editor().ChangedSinceSave(ws.savedGeneration, ws.savedRevision) {
+	if ws.diskConflict || ws.app.CommandStorage().IsModified(ws.CommandStackId()) || ws.paneMap.Editor().ChangedSinceSave(ws.savedGeneration, ws.savedRevision) {
 		visibleName = "* " + visibleName
 	}
 	return fmt.Sprint(visibleName, "###workspace_map_", ws.paneMap.Dmm().Path.Absolute)

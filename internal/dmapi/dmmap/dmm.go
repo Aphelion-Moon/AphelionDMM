@@ -2,6 +2,9 @@ package dmmap
 
 import (
 	"path/filepath"
+	// APHELION EDIT ADDITION START - DISK_VERSION
+	"sdmm/internal/aphelion/diskversion"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 
@@ -23,6 +26,9 @@ type Dmm struct {
 	MaxX, MaxY, MaxZ int
 
 	Backup string
+	// APHELION EDIT ADDITION START - DISK_VERSION
+	DiskState diskversion.State
+	// APHELION EDIT ADDITION END
 }
 
 func (d *Dmm) Copy() Dmm {
@@ -33,6 +39,9 @@ func (d *Dmm) Copy() Dmm {
 	dmm.MaxY = d.MaxY
 	dmm.MaxZ = d.MaxZ
 	dmm.Backup = d.Backup
+	// APHELION EDIT ADDITION START - DISK_VERSION
+	dmm.DiskState = d.DiskState
+	// APHELION EDIT ADDITION END
 
 	// Do a deep copy for tiles
 	dmm.Tiles = make([]*Tile, 0, len(d.Tiles))
@@ -115,6 +124,9 @@ func New(dme *dmenv.Dme, data *dmmdata.DmmData, backup string) (dmm *Dmm, unknow
 		MaxZ:  data.MaxZ,
 
 		Backup: backup,
+		// APHELION EDIT ADDITION START - DISK_VERSION
+		DiskState: data.DiskState,
+		// APHELION EDIT ADDITION END
 	}
 
 	for z := 1; z <= data.MaxZ; z++ {
