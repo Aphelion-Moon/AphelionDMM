@@ -114,7 +114,8 @@ func (t *ToolGrab) ConfirmPlacement() bool {
 	if p.move != nil {
 		t.stopMoveArea()
 	}
-	history := editing.NewSelectionHistory(t.fillArea)
+	t.capturePlacementSelection(p)
+	history := editing.NewMaskSelectionHistory(t.Selection())
 	t.selectionHistory = history
 	changed := func(applied bool) {
 		if !applied && ed == p.owner && t.selectionHistory == history && !t.Placing() && !t.dragging {
@@ -152,7 +153,8 @@ func (t *ToolGrab) confirmPreparedIntent(p *grabPlacement) bool {
 			t.placement = nil
 			t.initTiles = nil
 			t.mode = tSelectModeMoveArea
-			history = editing.NewSelectionHistory(area)
+			t.capturePlacementSelection(p)
+			history = editing.NewMaskSelectionHistory(t.Selection())
 			t.selectionHistory = history
 		} else if !applied && ed == p.owner && (t.placement == p || history != nil && t.selectionHistory == history && !t.Placing() && !t.dragging) {
 			t.Reset()
@@ -176,6 +178,16 @@ func (t *ToolGrab) confirmPreparedIntent(p *grabPlacement) bool {
 		}
 	}
 	return accepted
+}
+
+func (t *ToolGrab) capturePlacementSelection(p *grabPlacement) {
+	if controller, ok := p.controller.(interface{ PasteSelection() editing.Selection }); ok {
+		if s := controller.PasteSelection(); s.Len() > 0 {
+			t.setSelection(s)
+			return
+		}
+	}
+	t.setSelection(editing.RectangleSelection(t.fillArea, t.fillStart.Z))
 }
 
 func (t *ToolGrab) CancelPlacement() {

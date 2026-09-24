@@ -50,6 +50,10 @@ type ToolGrab struct {
 	move             *editing.Move
 	selectionHistory *editing.SelectionHistory
 	placement        *grabPlacement
+	selection        editing.Selection
+	selectionOwner   *dmmap.Dmm
+	AreaMode         bool
+	AllMatchingAreas bool
 	// APHELION EDIT ADDITION END
 }
 
@@ -78,6 +82,8 @@ func (t *ToolGrab) Reset() {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	t.selectionHistory = nil
+	t.selection = editing.Selection{}
+	t.selectionOwner = nil
 	if t.move != nil {
 		ed.FinishSelectionMove(t.move, true)
 		t.move = nil
@@ -119,6 +125,9 @@ func (t *ToolGrab) SelectArea(tiles []util.Point) {
 	// APHELION EDIT ADDITION END
 
 	t.fillStart = tiles[0]
+	// APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
+	t.fillArea = util.Bounds{X1: float32(tiles[0].X), Y1: float32(tiles[0].Y), X2: float32(tiles[0].X), Y2: float32(tiles[0].Y)}
+	// APHELION EDIT ADDITION END
 	for _, tile := range tiles {
 		t.selectArea(float64(t.fillArea.X1), float64(t.fillArea.Y1), float64(t.fillArea.X2), float64(t.fillArea.Y2), tile)
 	}
@@ -142,7 +151,16 @@ func (t *ToolGrab) process() {
 	t.processPlacement()
 	// APHELION EDIT ADDITION END
 	if t.active() {
-		ed.OverlayPushArea(t.fillArea, overlay.ColorToolSelectTileFill, overlay.ColorToolSelectTileBorder)
+		// APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
+		selection := t.Selection()
+		if selection.Sparse() {
+			selection.VisitRuns(func(area util.Bounds) {
+				ed.OverlayPushArea(area, overlay.ColorToolSelectTileFill, overlay.ColorToolSelectTileBorder)
+			})
+		} else {
+			ed.OverlayPushArea(t.fillArea, overlay.ColorToolSelectTileFill, overlay.ColorToolSelectTileBorder)
+		}
+		// APHELION EDIT ADDITION END
 	}
 }
 
@@ -165,6 +183,18 @@ func (t *ToolGrab) onStart(coord util.Point) {
 
 func (t *ToolGrab) startSelectArea(coord util.Point) {
 	t.Reset()
+	// APHELION EDIT ADDITION START - AREA SELECTION
+	if t.AreaMode {
+		selection, err := editing.SelectAreaMask(ed.Dmm(), coord, t.AllMatchingAreas)
+		if err != nil {
+			util.ShowErrorDialog(err.Error())
+			return
+		}
+		t.setSelection(selection)
+		t.mode = tSelectModeMoveArea
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	t.dragging = true
 	// APHELION EDIT ADDITION END
@@ -174,15 +204,15 @@ func (t *ToolGrab) startSelectArea(coord util.Point) {
 
 func (t *ToolGrab) startMoveArea(coord util.Point) {
 	// APHELION EDIT CHANGE - SELECTION LIFECYCLE - ORIGINAL: if t.fillArea.Contains(float32(coord.X), float32(coord.Y)) {
-	if coord.Z == t.fillStart.Z && t.fillArea.Contains(float32(coord.X), float32(coord.Y)) {
+	if t.Selection().Contains(coord) {
 		// APHELION EDIT ADDITION START - SELECTION ROTATION
 		// Undo and remote acknowledgements can replace contents between gestures.
-		t.initTiles = collectTiles(ed.Dmm(), t.fillArea, t.fillStart.Z)
+		t.initTiles = nil
 		// APHELION EDIT ADDITION END
 		t.startMovePoint = coord
 		// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 		var err error
-		t.move, err = ed.BeginSelectionMove(t.fillArea, t.fillStart.Z)
+		t.move, err = t.beginSelectionMove()
 		if err != nil {
 			t.dragging = false
 			util.ShowErrorDialog("Unable to move selection: " + err.Error())
@@ -220,6 +250,10 @@ func (t *ToolGrab) selectArea(minX, minY, maxX, maxY float64, coord util.Point) 
 	t.fillArea.X2 = float32(math.Max(maxX, float64(coord.X)))
 	t.fillArea.Y2 = float32(math.Max(maxY, float64(coord.Y)))
 	t.fillAreaInit = t.fillArea
+	// APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
+	t.selection = editing.RectangleSelection(t.fillArea, t.fillStart.Z)
+	t.selectionOwner = ed.Dmm()
+	// APHELION EDIT ADDITION END
 }
 
 func (t *ToolGrab) moveArea(coord util.Point) {
@@ -358,13 +392,46 @@ func (t *ToolGrab) selectedCoordinates() []util.Point {
 	if !t.HasSelectedArea() {
 		return nil
 	}
-	var points []util.Point
-	for x := int(t.fillArea.X1); x <= int(t.fillArea.X2); x++ {
-		for y := int(t.fillArea.Y1); y <= int(t.fillArea.Y2); y++ {
-			points = append(points, util.Point{X: x, Y: y, Z: t.fillStart.Z})
-		}
+	return t.Selection().Coordinates()
+}
+
+func (t *ToolGrab) Selection() editing.Selection {
+	if t.selectionOwner != nil && (ed == nil || t.selectionOwner != ed.Dmm()) {
+		return editing.Selection{}
 	}
-	return points
+	if t.selection.Len() == 0 {
+		return editing.RectangleSelection(t.fillArea, t.fillStart.Z)
+	}
+	a := t.selection.Bounds()
+	return t.selection.Translate(util.Point{X: int(t.fillArea.X1 - a.X1), Y: int(t.fillArea.Y1 - a.Y1)})
+}
+func (t *ToolGrab) setSelection(s editing.Selection) {
+	t.selection = s
+	t.selectionOwner = ed.Dmm()
+	t.fillArea = s.Bounds()
+	t.fillAreaInit = s.Bounds()
+	t.fillStart = util.Point{X: int(s.Bounds().X1), Y: int(s.Bounds().Y1), Z: s.Level()}
+	t.initTiles = nil
+}
+func (t *ToolGrab) SelectMask(points []util.Point) error {
+	s, err := editing.MaskSelection(points)
+	if err != nil {
+		return err
+	}
+	t.Reset()
+	if s.Len() != 0 {
+		t.setSelection(s)
+		t.mode = tSelectModeMoveArea
+	}
+	return nil
+}
+func (t *ToolGrab) beginSelectionMove() (*editing.Move, error) {
+	if owner, ok := ed.(interface {
+		BeginSelectionMaskMove(editing.Selection) (*editing.Move, error)
+	}); ok {
+		return owner.BeginSelectionMaskMove(t.Selection())
+	}
+	return ed.BeginSelectionMove(t.fillArea, t.fillStart.Z)
 }
 
 // APHELION EDIT ADDITION END

@@ -10,11 +10,16 @@ import (
 )
 
 func (e *Editor) BeginSelectionMove(area util.Bounds, z int) (*editing.Move, error) {
+	return e.BeginSelectionMaskMove(editing.RectangleSelection(area, z))
+}
+
+func (e *Editor) BeginSelectionMaskMove(selection editing.Selection) (*editing.Move, error) {
+	z := selection.Level()
 	if e.localWork != nil || e.executor == nil || e.collaborationErr != nil || e.selectionMove != nil || len(e.pendingChanges) != 0 || z != e.pMap.ActiveLevel() {
 		return nil, fmt.Errorf("finish the current edit and select the visible level before moving")
 	}
 	filter := e.app.PathsFilter().Copy()
-	move, err := editing.NewMove(e.dmm, area, z, filter.IsVisiblePath,
+	move, err := editing.NewMaskMove(e.dmm, selection, filter.IsVisiblePath,
 		func(coord util.Point) error {
 			// Move calls capture only for new backgrounds. A journal entry here
 			// belongs to a separate edit and cannot be restored/released by this drag.

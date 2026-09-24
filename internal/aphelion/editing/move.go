@@ -32,6 +32,11 @@ type Move struct {
 // release, when non-nil, drops a captured before-state once the move no longer
 // owns it: after failed preflight, restoration of a passed-over tile, or cancel.
 func NewMove(m *dmmap.Dmm, area util.Bounds, z int, visible func(string) bool, capture func(util.Point) error, regenerate func(*dmmap.Tile), release func(util.Point)) (*Move, error) {
+	return NewMaskMove(m, RectangleSelection(area, z), visible, capture, regenerate, release)
+}
+
+func NewMaskMove(m *dmmap.Dmm, selection Selection, visible func(string) bool, capture func(util.Point) error, regenerate func(*dmmap.Tile), release func(util.Point)) (*Move, error) {
+	area, z := selection.Bounds(), selection.Level()
 	for _, value := range []float32{area.X1, area.Y1, area.X2, area.Y2} {
 		if math.IsNaN(float64(value)) || math.IsInf(float64(value), 0) || float64(value) != math.Trunc(float64(value)) {
 			return nil, fmt.Errorf("selection must contain whole tiles")
@@ -42,19 +47,18 @@ func NewMove(m *dmmap.Dmm, area util.Bounds, z int, visible func(string) bool, c
 		return nil, fmt.Errorf("selection is outside the map")
 	}
 	move := &Move{m: m, origin: area, bounds: area, z: z, background: make(map[util.Point]dmmap.Tile), visible: visible, capture: capture, regenerate: regenerate, release: release}
-	for y := int(area.Y1); y <= int(area.Y2); y++ {
-		for x := int(area.X1); x <= int(area.X2); x++ {
-			coord := util.Point{X: x, Y: y, Z: z}
-			if err := capture(coord); err != nil {
-				for captured := range move.background {
-					move.releaseRestored(captured)
-				}
-				return nil, err
+	move.sourceCoords = make(map[util.Point]struct{}, selection.Len())
+	for _, coord := range selection.Coordinates() {
+		if err := capture(coord); err != nil {
+			for captured := range move.background {
+				move.releaseRestored(captured)
 			}
-			tile := m.GetTile(coord).Copy()
-			move.source = append(move.source, tile)
-			move.background[coord] = tile
+			return nil, err
 		}
+		tile := m.GetTile(coord).Copy()
+		move.source = append(move.source, tile)
+		move.background[coord] = tile
+		move.sourceCoords[coord] = struct{}{}
 	}
 	return move, nil
 }
@@ -95,7 +99,7 @@ func (move *Move) Preview(shift util.Point) ([]util.Point, error) {
 	if !move.placement && shift == (util.Point{}) {
 		coords := move.restore()
 		for coord := range move.background {
-			if !move.origin.Contains(float32(coord.X), float32(coord.Y)) {
+			if _, source := move.sourceCoords[coord]; !source {
 				move.releaseRestored(coord)
 			}
 		}
@@ -151,7 +155,9 @@ func (move *Move) ownsDestination(coord, shift util.Point, next util.Bounds) boo
 		_, exists := move.sourceCoords[coord.Minus(shift)]
 		return exists
 	}
-	return move.origin.Contains(float32(coord.X), float32(coord.Y)) || next.Contains(float32(coord.X), float32(coord.Y))
+	_, source := move.sourceCoords[coord]
+	_, destination := move.sourceCoords[coord.Minus(shift)]
+	return source || destination
 }
 
 func (move *Move) releaseRestored(coord util.Point) {

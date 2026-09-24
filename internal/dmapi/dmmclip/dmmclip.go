@@ -35,7 +35,8 @@ func (c *Clipboard) Copy(pathsFilter *dm.PathsFilter, dmm *dmmap.Dmm, tiles []ut
 		return
 	}
 
-	log.Printf("copy tiles to the clipboard buffer: %v", tiles)
+	// APHELION EDIT CHANGE - BOUNDED CLIPBOARD LOGGING - ORIGINAL: log.Printf("copy tiles to the clipboard buffer: %v", tiles)
+	log.Debug().Int("tiles", len(tiles)).Msg("copy tiles to the clipboard buffer")
 
 	c.pasteData.Filter = pathsFilter.Copy()
 	c.pasteData.Buffer = make([]dmmap.Tile, 0, len(tiles))

@@ -68,14 +68,18 @@ func TestGrabMoveReadsCurrentContentsAfterUndo(t *testing.T) {
 	vars := &dmvars.MutableVariables{}
 	vars.Put("dir", "4")
 	tile.InstancesAdd(dmmprefab.New(0, "/obj/foo", vars.ToImmutable()))
-	ed = rotationEditor{m: &dmmap.Dmm{MaxX: 1, MaxY: 1, MaxZ: 1, Tiles: []*dmmap.Tile{tile}}}
+	m := &dmmap.Dmm{MaxX: 2, MaxY: 1, MaxZ: 1, Tiles: []*dmmap.Tile{tile, {Coord: util.Point{X: 2, Y: 1, Z: 1}}}}
+	ed = rotationEditor{m: m}
 	g := newGrab()
 	g.SelectArea([]util.Point{tile.Coord})
 	g.mode = tSelectModeMoveArea
 	i := tile.Instances()[0]
 	i.SetPrefab(dmmprefab.New(0, "/obj/foo", dmvars.Set(i.Prefab().Vars(), "dir", "2"))) // Acknowledged undo/remote update.
 	g.onStart(tile.Coord)
-	if got := g.initTiles[0].Instances()[0].Prefab().Vars().ValueV("dir", ""); got != "2" {
+	if _, err := g.move.Preview(util.Point{X: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Tiles[1].Instances()[0].Prefab().Vars().ValueV("dir", ""); got != "2" {
 		t.Fatalf("drag resurrected stale rotated direction %s", got)
 	}
 }

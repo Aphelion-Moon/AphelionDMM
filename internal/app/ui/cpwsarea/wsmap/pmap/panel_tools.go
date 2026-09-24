@@ -5,6 +5,9 @@ import (
 	"github.com/SpaiR/imgui-go"
 	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
+	// APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
+	"sdmm/internal/util"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/imguiext/icon"
 	"sdmm/internal/imguiext/style"
 	w "sdmm/internal/imguiext/widget"
@@ -147,6 +150,13 @@ func (p *PaneMap) showToolsPanel() {
 	}
 	// Paste controls follow the stable first row; progress belongs to the bubble.
 	p.showPastePlacementControls()
+	if tools.IsSelected(tools.TNGrab) {
+		grab := tools.Selected().(*tools.ToolGrab)
+		imgui.Checkbox("Area selection", &grab.AreaMode)
+		if grab.AreaMode {
+			imgui.Checkbox("All matching areas on this level", &grab.AllMatchingAreas)
+		}
+	}
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION STAMPS
 	p.showStampControls()
@@ -163,6 +173,24 @@ func (p *PaneMap) showToolsPanel() {
 			p.showSelectionNudgeButtons()
 		}
 		p.showRepeatTransformButton()
+		// APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
+		if prefab, ok := p.Editor().SelectedPrefab(); ok {
+			selection := tools.Selected().(*tools.ToolGrab).Selection()
+			w.Layout{
+				w.Button("Fill selection", func() {
+					if err := p.Editor().FillSelection(selection, prefab, false); err != nil {
+						util.ShowErrorDialog(err.Error())
+					}
+				}),
+				w.SameLine(),
+				w.Button("Replace selected channel", func() {
+					if err := p.Editor().FillSelection(selection, prefab, true); err != nil {
+						util.ShowErrorDialog(err.Error())
+					}
+				}).Tooltip("Replace the selected prefab's channel only in the selected cells; protect excluded types"),
+			}.Build()
+		}
+		// APHELION EDIT ADDITION END
 	}
 	// APHELION EDIT ADDITION END
 }

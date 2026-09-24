@@ -207,6 +207,20 @@ func (e *Editor) CancelPastePlacement() {
 }
 func (e *Editor) PastePlacementClosed() bool { return e.paste == nil }
 
+// PasteSelection is read during acceptance, before the source session is freed.
+func (e *Editor) PasteSelection() editing.Selection {
+	p := e.paste
+	if p == nil || p.payload == nil {
+		return editing.Selection{}
+	}
+	points := make([]util.Point, 0, len(p.payload.Tiles))
+	for _, tile := range p.payload.Tiles {
+		points = append(points, util.Point{X: p.target.X + tile.Coord.X - 1, Y: p.target.Y + tile.Coord.Y - 1, Z: p.level})
+	}
+	s, _ := editing.MaskSelection(points)
+	return s
+}
+
 func (e *Editor) CanCancelPastePlacement() bool {
 	return e.paste != nil && e.paste.phase != pasteResolving
 }

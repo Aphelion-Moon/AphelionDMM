@@ -3,6 +3,7 @@ package tools
 
 import (
 	"fmt"
+	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/util"
 )
 
@@ -13,8 +14,17 @@ func (t *ToolGrab) Rotate(clockwise bool, transform func(util.Bounds, int, bool)
 	if !t.HasSelectedArea() || !t.Stale() {
 		return fmt.Errorf("finish selecting or moving the area before rotating")
 	}
-	return t.trackSelectionTransform(t.fillArea, false, func() (util.Bounds, error) {
-		return transform(t.fillArea, t.fillStart.Z, clockwise)
+	before := t.Selection()
+	return t.trackSelectionMask(before, false, func() (editing.Selection, error) {
+		var err error
+		if owner, ok := ed.(interface {
+			RotateSelectionMask(editing.Selection, bool) (util.Bounds, error)
+		}); ok && before.Sparse() {
+			_, err = owner.RotateSelectionMask(before, clockwise)
+		} else {
+			_, err = transform(t.fillArea, t.fillStart.Z, clockwise)
+		}
+		return before.Rotate(clockwise), err
 	})
 }
 

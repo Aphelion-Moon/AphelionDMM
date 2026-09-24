@@ -45,3 +45,25 @@ func TestSelectionReleaseDoesNotReadObjectContents(t *testing.T) {
 		t.Fatal("selection geometry was lost")
 	}
 }
+
+func TestGrabMaskHoleIsNotMoveTargetAndCannotLeakToAnotherMap(t *testing.T) {
+	g, owner := lifecycleFixture(t)
+	if err := g.SelectMask([]util.Point{{X: 1, Y: 1, Z: 1}, {X: 3, Y: 1, Z: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.selectedCoordinates(); len(got) != 2 {
+		t.Fatal(got)
+	}
+	g.onStart(util.Point{X: 2, Y: 1, Z: 1})
+	if g.move != nil || g.mode != tSelectModeSelectArea {
+		t.Fatal("hole started moving mask")
+	}
+	g.onStop(util.Point{X: 2, Y: 1, Z: 1})
+	other := *owner
+	mapCopy := *owner.m
+	other.m = &mapCopy
+	ed = &other
+	if len(g.selectedCoordinates()) != 0 {
+		t.Fatal("selection leaked to another document")
+	}
+}

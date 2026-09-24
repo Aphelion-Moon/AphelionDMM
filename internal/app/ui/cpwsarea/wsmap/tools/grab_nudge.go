@@ -20,7 +20,7 @@ func (t *ToolGrab) Nudge(shift util.Point) error {
 		return fmt.Errorf("nudge must move 1 through %d tiles along one axis", editing.MaxSelectionMoveStep)
 	}
 	return t.trackSelectionTransform(t.fillArea, true, func() (util.Bounds, error) {
-		move, err := ed.BeginSelectionMove(t.fillArea, t.fillStart.Z)
+		move, err := t.beginSelectionMove()
 		if err != nil {
 			return t.fillArea, err
 		}
