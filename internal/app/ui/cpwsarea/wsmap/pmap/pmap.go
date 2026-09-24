@@ -128,7 +128,8 @@ type PaneMap struct {
 	panelRightBottomSize imgui.Vec2
 	panelBottomSize      imgui.Vec2
 	// APHELION EDIT ADDITION START - EDIT STATUS
-	editBubble editBubbleState
+	editBubble  editBubbleState
+	areaBorders areaBorderCache
 	// APHELION EDIT ADDITION END
 
 	// The value of the Z-level with which the user is currently working.

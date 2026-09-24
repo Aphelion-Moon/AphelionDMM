@@ -43,6 +43,7 @@ func areaPaths(state model.TileState) map[string]bool {
 }
 
 func (e *Editor) updateAreaMembership(path string, point util.Point, present bool) {
+	e.areaBordersGeneration++
 	index := e.areaIndexes[path]
 	if index == nil {
 		if !present {

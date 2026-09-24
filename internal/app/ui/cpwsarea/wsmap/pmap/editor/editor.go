@@ -40,7 +40,8 @@ type Editor struct {
 
 	areasZones []AreaZone
 	// APHELION EDIT ADDITION START - AREA DELTAS
-	areaIndexes map[string]*areaIndex
+	areaIndexes           map[string]*areaIndex
+	areaBordersGeneration uint64
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	selectionMove           *editing.Move
@@ -94,6 +95,11 @@ func (e *Editor) FlickInstance() []overlay.FlickInstance {
 func (e *Editor) AreasZones() []AreaZone {
 	return e.areasZones
 }
+
+// APHELION EDIT ADDITION START - CACHED AREA BORDERS
+func (e *Editor) AreaBordersGeneration() uint64 { return e.areaBordersGeneration }
+
+// APHELION EDIT ADDITION END
 
 func (e *Editor) ActiveLevel() int {
 	return e.pMap.ActiveLevel()

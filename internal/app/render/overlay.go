@@ -33,13 +33,19 @@ type overlay interface {
 }
 
 // Draw overlays for aras borders.
-func (r *Render) batchOverlayAreasBorders() {
+// APHELION EDIT CHANGE - BORDER CULLING - ORIGINAL: func (r *Render) batchOverlayAreasBorders() {
+func (r *Render) batchOverlayAreasBorders(viewport util.Bounds) {
 	if r.overlay == nil {
 		return
 	}
 
 	for _, areaBorder := range r.overlay.AreasBorders() {
 		for _, bounds := range areaBorder.Borders() {
+			// APHELION EDIT ADDITION START - BORDER CULLING
+			if !viewport.ContainsV(bounds) {
+				continue
+			}
+			// APHELION EDIT ADDITION END
 			brush.Line(bounds.X1, bounds.Y1, bounds.X2, bounds.Y2, areaBorder.Color())
 		}
 	}

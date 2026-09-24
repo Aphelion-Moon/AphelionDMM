@@ -24,6 +24,9 @@ var zoneDirs = map[util.Point]int{
 }
 
 func (e *Editor) updateAreasZones() {
+	// APHELION EDIT ADDITION START - CACHED AREA BORDERS
+	e.areaBordersGeneration++
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - AREA DELTAS - ORIGINAL: type coords map[util.Point]bool
 	type coords = map[util.Point]bool
 

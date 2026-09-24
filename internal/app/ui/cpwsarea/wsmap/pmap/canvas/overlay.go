@@ -91,6 +91,12 @@ func (o *Overlay) PushAreaBorder(areaBorder OverlayAreaBorder) {
 	o.areasBorders = append(o.areasBorders, areaBorder)
 }
 
+// APHELION EDIT ADDITION START - CACHED AREA BORDERS
+// The cache owns this immutable slice; flushing only drops the frame's view.
+func (o *Overlay) SetAreaBorders(borders []render.AreaBorder) { o.areasBorders = borders }
+
+// APHELION EDIT ADDITION END
+
 func (o *Overlay) AreasBorders() []render.AreaBorder {
 	return o.areasBorders
 }

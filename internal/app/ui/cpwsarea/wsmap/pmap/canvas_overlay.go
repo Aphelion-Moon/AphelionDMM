@@ -7,7 +7,9 @@ import (
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/canvas"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/overlay"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
-	"sdmm/internal/dmapi/dm"
+	// APHELION EDIT REMOVAL START - CACHED AREA BORDERS
+	// "sdmm/internal/dmapi/dm"
+	// APHELION EDIT REMOVAL END
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 	"sdmm/internal/util"
@@ -117,6 +119,13 @@ func (p *PaneMap) processCanvasOverlayFlick() {
 }
 
 func (p *PaneMap) processCanvasOverlayAreasZones() {
+	// APHELION EDIT ADDITION START - CACHED AREA BORDERS
+	if !AreaBordersRendering {
+		return
+	}
+	p.canvasOverlay.SetAreaBorders(p.areaBorders.resolve(p.editor.AreaBordersGeneration(), p.activeLevel, dmmap.WorldIconSize, p.editor.AreasZones()))
+	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - CACHED AREA BORDERS
 	if !AreaBordersRendering {
 		return
 	}
@@ -154,6 +163,7 @@ func (p *PaneMap) processCanvasOverlayAreasZones() {
 			})
 		}
 	}
+	APHELION EDIT REMOVAL END */
 }
 
 func (p *PaneMap) PushUnitHighlight(instance *dmminstance.Instance, color util.Color) {

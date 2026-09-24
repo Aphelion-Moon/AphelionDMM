@@ -77,7 +77,8 @@ func (r *Render) prepare() {
 func (r *Render) draw(width, height float32) {
 	r.batchBucketUnits(r.viewportBounds(width, height))
 	//r.batchChunksVisuals()
-	r.batchOverlayAreasBorders()
+	// APHELION EDIT CHANGE - BORDER CULLING - ORIGINAL: r.batchOverlayAreasBorders()
+	r.batchOverlayAreasBorders(r.viewportBounds(width, height))
 	r.batchOverlayAreas()
 	brush.Draw(width, height, r.Camera.ShiftX, r.Camera.ShiftY, r.Camera.Scale)
 }
