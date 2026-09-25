@@ -38,6 +38,9 @@ func TestProjectionCaptureSurvivesExecutorTransitions(t *testing.T) {
 			if !capture.HasPending() || capture.BaseRevision() != base.Revision {
 				t.Fatal("capture lost its pending operation or acknowledged revision")
 			}
+			if capture.DocumentID() != base.DocumentID || !reflect.DeepEqual(capture.AcceptedSnapshot(), base) {
+				t.Fatal("accepted capture leaked speculative changes")
+			}
 			visible, err := capture.VisibleSnapshot()
 			if err != nil {
 				t.Fatal(err)
@@ -52,6 +55,10 @@ func TestProjectionCaptureSurvivesExecutorTransitions(t *testing.T) {
 			readDone := make(chan error, 1)
 			go func() {
 				for range 50 {
+					if !reflect.DeepEqual(capture.AcceptedSnapshot(), base) {
+						readDone <- errors.New("accepted capture changed after executor transition")
+						return
+					}
 					next, err := capture.VisibleSnapshot()
 					if err != nil {
 						readDone <- err

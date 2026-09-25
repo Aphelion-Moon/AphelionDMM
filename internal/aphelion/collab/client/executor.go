@@ -42,6 +42,16 @@ func (capture ProjectionCapture) BaseRevision() model.Revision {
 	return capture.projection.Acknowledged.Revision
 }
 
+func (capture ProjectionCapture) DocumentID() model.DocumentID {
+	return capture.projection.Acknowledged.DocumentID
+}
+
+// AcceptedSnapshot materializes only the pinned acknowledged revision. Pending
+// view data is never included in source context or persistence.
+func (capture ProjectionCapture) AcceptedSnapshot() model.Snapshot {
+	return model.CloneSnapshot(capture.projection.Acknowledged)
+}
+
 // EstimatedBytes conservatively covers materializing one visible snapshot,
 // the projection indexes, and pending change states. It allocates nothing.
 func (capture ProjectionCapture) EstimatedBytes() uint64 {

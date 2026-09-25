@@ -1,7 +1,7 @@
 package mapping
 
 import (
-	"reflect"
+	"maps"
 	"strings"
 
 	"sdmm/internal/util"
@@ -35,5 +35,16 @@ func atomsFor(atoms []Atom, c string) []Atom {
 	return result
 }
 func CompareCell(a, b []Atom) ChannelDiff {
-	return ChannelDiff{Turf: !reflect.DeepEqual(atomsFor(a, "turf"), atomsFor(b, "turf")), Area: !reflect.DeepEqual(atomsFor(a, "area"), atomsFor(b, "area")), Objects: !reflect.DeepEqual(atomsFor(a, "objects"), atomsFor(b, "objects"))}
+	equal := func(a, b []Atom) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for i := range a {
+			if a[i].Path != b[i].Path || !maps.Equal(a[i].Vars, b[i].Vars) {
+				return false
+			}
+		}
+		return true
+	}
+	return ChannelDiff{Turf: !equal(atomsFor(a, "turf"), atomsFor(b, "turf")), Area: !equal(atomsFor(a, "area"), atomsFor(b, "area")), Objects: !equal(atomsFor(a, "objects"), atomsFor(b, "objects"))}
 }

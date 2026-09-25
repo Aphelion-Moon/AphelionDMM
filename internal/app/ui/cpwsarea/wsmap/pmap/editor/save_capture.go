@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"sdmm/internal/aphelion/collab/client"
 	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/model"
 )
@@ -35,6 +36,10 @@ type localSnapshotCapturer interface {
 	CaptureSnapshot(context.Context) (engine.SnapshotCapture, error)
 }
 
+type acknowledgedSaveSnapshot struct{ client.ProjectionCapture }
+
+func (c acknowledgedSaveSnapshot) Snapshot() model.Snapshot { return c.AcceptedSnapshot() }
+
 func (e *Editor) CaptureSaveSnapshot(ctx context.Context) (SaveSnapshotCapture, SaveCapture, error) {
 	if e.collaborationErr != nil {
 		return nil, SaveCapture{}, e.collaborationErr
@@ -64,6 +69,17 @@ func (e *Editor) CaptureSaveSnapshot(ctx context.Context) (SaveSnapshotCapture, 
 				Revision:   handle.Revision(),
 			}, nil
 		}
+	}
+
+	if capturer, ok := e.executor.(projectionCapturer); ok {
+		handle, err := capturer.CaptureProjection(ctx)
+		if err != nil {
+			return nil, SaveCapture{}, err
+		}
+		if handle.HasPending() || handle.DocumentID() != e.documentID || handle.BaseRevision() != e.authoritative.Revision {
+			return nil, SaveCapture{}, fmt.Errorf("wait for acknowledged source projection")
+		}
+		return acknowledgedSaveSnapshot{handle}, SaveCapture{DocumentID: handle.DocumentID(), Generation: e.attachmentGeneration, Revision: handle.BaseRevision()}, nil
 	}
 
 	// Session-owned executors keep the existing snapshot path, which applies

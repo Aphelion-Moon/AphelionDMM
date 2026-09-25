@@ -3,6 +3,7 @@ package mapping
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +39,8 @@ type moduleConfig struct {
 	Rooms      map[string]struct{ Modules []string }
 }
 type Catalog struct {
+	deferred       error
+	accepted       map[string]AcceptedSource
 	environment    *dmenv.Dme
 	assets         map[string]*Source
 	configs        map[string]*moduleConfig
@@ -53,17 +56,28 @@ func (c *Catalog) Close() {
 	}
 	c.assets = nil
 	c.configs = nil
+	c.accepted = nil
 }
 func (c *Catalog) Load(ctx context.Context, path string) (*Source, error) {
-	if s := c.assets[path]; s != nil {
+	key := sourceKey(path)
+	if s := c.assets[key]; s != nil {
 		return s, nil
 	}
 	if len(c.assets) >= 256 {
 		return nil, fmt.Errorf("reference catalogue limit of 256 loaded sources reached")
 	}
-	s, err := LoadSource(ctx, path, c.environment)
+	var s *Source
+	var err error
+	if accepted, ok := c.accepted[key]; ok {
+		s, err = FromAccepted(ctx, path, c.environment, accepted)
+	} else {
+		s, err = LoadSource(ctx, path, c.environment)
+	}
 	if err == nil {
-		c.assets[path] = s
+		c.assets[key] = s
+	}
+	if errors.Is(err, ErrAcceptedDeferred) {
+		c.deferred = err
 	}
 	return s, err
 }
@@ -122,7 +136,7 @@ func (c *Catalog) Roots(ctx context.Context, s *Source, transform Transform, par
 				continue
 			}
 			r := Root{Parent: parent, Source: s.Identity, Local: point, Destination: transform.Apply(point), AtomIndex: index}
-			r.ID = fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d,%d,%d|%d", parent, s.Identity.Path, s.Identity.ContentHash, s.Identity.EnvironmentHash, point.X, point.Y, point.Z, index))))
+			r.ID = fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d,%d,%d|%d", parent, sourceKey(s.Identity.Path), s.Identity.StructuralHash, s.Identity.EnvironmentHash, point.X, point.Y, point.Z, index))))
 			configValue, _ := s.effective(atom, "config_file")
 			keyValue, _ := s.effective(atom, "key")
 			configName, configErr := constantString(configValue)

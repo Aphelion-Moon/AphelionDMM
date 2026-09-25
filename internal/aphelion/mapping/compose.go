@@ -17,8 +17,10 @@ import (
 const SelectorVersion = 1
 
 type Choice struct {
-	Slot          int
-	CandidateHash string
+	Slot                 int
+	CandidateHash        string
+	DocumentID           string
+	Generation, Revision uint64
 }
 type Scenario struct {
 	Version                   int
@@ -299,12 +301,16 @@ func (c *Catalog) Compose(ctx context.Context, base *Source, scenario Scenario, 
 			diagnose("error", "source", err.Error(), candidate.Path, root.ID, root.Local, root.Destination)
 			continue
 		}
-		if choice.CandidateHash != "" && choice.CandidateHash != source.Identity.ContentHash {
+		acceptedRefresh := choice.DocumentID != "" && choice.DocumentID == source.Identity.DocumentID && choice.Generation == source.Identity.Generation && source.Identity.Revision >= choice.Revision
+		if choice.CandidateHash != "" && choice.CandidateHash != source.Identity.StructuralHash && !acceptedRefresh {
 			diagnose("error", "stale-pin", "Pinned source content changed", candidate.Path, root.ID, root.Local, root.Destination)
 			continue
 		}
 		if pinned {
-			choice.CandidateHash = source.Identity.ContentHash
+			choice.CandidateHash = source.Identity.StructuralHash
+			choice.DocumentID = source.Identity.DocumentID
+			choice.Generation = source.Identity.Generation
+			choice.Revision = source.Identity.Revision
 			scenario.Choices[root.ID] = choice
 		}
 		transform, err := Anchor(source, root.Destination)
@@ -378,6 +384,7 @@ func (c *Catalog) Compose(ctx context.Context, base *Source, scenario Scenario, 
 		source.dictionary[key] = atoms
 	}
 	p.Source = source
+	source.Identity.StructuralHash = source.structuralHash()
 	p.Scenario = scenario
 	diagnose("info", "static-projection", "Authored content only; baseturf stacks, Initialize effects, and async ordering are not reconstructed", base.Identity.Path, "", util.Point{}, util.Point{})
 	published = true

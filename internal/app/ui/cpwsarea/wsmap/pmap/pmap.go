@@ -107,6 +107,9 @@ type PaneMap struct {
 	canvasState   *canvas.State
 	canvasControl *canvas.Control
 	canvasOverlay *canvas.Overlay
+	// APHELION EDIT ADDITION START - LOCKED SOURCE CONTEXT
+	contextTexture uint32
+	// APHELION EDIT ADDITION END
 
 	// ID is needed to dispose a mouse callback when the pane is closed.
 	mouseChangeCbId int
@@ -297,6 +300,17 @@ func (p *PaneMap) Process() {
 	}
 	p.ResolveCanvasInput()
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LOCKED SOURCE CONTEXT
+	p.contextTexture = 0
+	if context, ok := p.app.(interface {
+		CompositionBackdrop(string, render.Camera, imgui.Vec2) (uint32, bool)
+	}); ok {
+		if texture, visible := context.CompositionBackdrop(p.dmm.Path.Absolute, *p.canvas.Render().Camera, p.size); visible {
+			p.contextTexture = texture
+		}
+	}
+	p.canvas.SetTransparent(p.contextTexture != 0)
+	// APHELION EDIT ADDITION END
 	p.canvas.Process(p.size)
 
 	/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
@@ -360,6 +374,11 @@ func (p *PaneMap) showCanvas() {
 	texture := imgui.TextureID(p.canvas.Texture())
 	uvMin := imgui.Vec2{X: 0, Y: 1}
 	uvMax := imgui.Vec2{X: 1, Y: 0}
+	// APHELION EDIT ADDITION START - LOCKED SOURCE CONTEXT
+	if p.contextTexture != 0 {
+		imgui.WindowDrawList().AddImageV(imgui.TextureID(p.contextTexture), p.canvasControl.PosMin(), p.canvasControl.PosMax(), uvMin, uvMax, style.ColorWhitePacked)
+	}
+	// APHELION EDIT ADDITION END
 
 	imgui.WindowDrawList().AddImageV(
 		texture,
@@ -369,6 +388,13 @@ func (p *PaneMap) showCanvas() {
 	)
 	// APHELION EDIT ADDITION START - COLLABORATION
 	p.showCollaborationPresence()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LOCKED SOURCE CONTEXT
+	if p.contextTexture != 0 {
+		at := p.canvasControl.PosMin()
+		at.Y = p.canvasControl.PosMax().Y - 48
+		imgui.WindowDrawList().AddText(at, style.ColorWhitePacked, "Locked parent context — tools edit this source only")
+	}
 	// APHELION EDIT ADDITION END
 }
 

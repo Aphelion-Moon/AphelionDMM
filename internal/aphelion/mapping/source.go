@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -26,10 +27,12 @@ type Atom struct {
 	Vars map[string]string
 }
 type Identity struct {
+	StructuralHash                     string
 	Path, ContentHash, EnvironmentHash string
 	Environment                        *dmenv.Dme
 	DocumentID                         string
 	Revision                           uint64
+	Generation                         uint64
 }
 
 // Source owns immutable explicit atoms and a BYOND-coordinate grid. Consumers
@@ -124,7 +127,27 @@ func LoadSource(ctx context.Context, path string, environment *dmenv.Dme) (*Sour
 	}
 	accepted = true
 	s.tgm = data.IsTgm
+	s.Identity.StructuralHash = s.structuralHash()
 	return s, nil
+}
+
+// Stable across disk formatting and editor stable IDs. Channel comparison and
+// pin identity depend on explicit authored data, not serialization spelling.
+func (s *Source) structuralHash() string {
+	h := sha256.New()
+	e := json.NewEncoder(h)
+	_ = e.Encode(s.Size)
+	for _, p := range s.Points() {
+		_ = e.Encode(p)
+		for _, atom := range s.atomsAt(p) {
+			if atom.Vars == nil {
+				atom.Vars = map[string]string{}
+			}
+			_ = e.Encode(atom)
+		}
+		_ = e.Encode(nil)
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func (s *Source) Close() {

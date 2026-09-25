@@ -2,10 +2,12 @@ package mappingui
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/SpaiR/imgui-go"
@@ -23,7 +25,12 @@ type App interface {
 	ActiveMappingPath() string
 	DoLoadResource(string)
 }
+type acceptedProvider interface {
+	MappingRevisionKey([]string) string
+	CaptureMappingSources() map[string]mapping.AcceptedSource
+}
 type request struct {
+	accepted          map[string]mapping.AcceptedSource
 	generation        uint64
 	environment       *dmenv.Dme
 	parent, reference string
@@ -34,17 +41,18 @@ type request struct {
 	fixedChoices      map[string]int
 }
 type result struct {
-	request     request
-	catalog     *mapping.Catalog
-	sources     [2]*mapping.Source
-	displays    [2]*dmmap.Dmm
-	roots       []mapping.Root
-	diagnostics []mapping.Diagnostic
-	err         error
-	transform   *mapping.Transform
-	projection  *mapping.Projection
-	fixed       []mapping.FixedBinding
-	connectors  [2]int
+	dependencies []string
+	request      request
+	catalog      *mapping.Catalog
+	sources      [2]*mapping.Source
+	displays     [2]*dmmap.Dmm
+	roots        []mapping.Root
+	diagnostics  []mapping.Diagnostic
+	err          error
+	transform    *mapping.Transform
+	projection   *mapping.Projection
+	fixed        []mapping.FixedBinding
+	connectors   [2]int
 }
 
 func (r *result) close() { r.projection.Close(); r.catalog.Close() }
@@ -52,6 +60,7 @@ func (r *result) close() { r.projection.Close(); r.catalog.Close() }
 // Panel is a modeless source inspector. It owns no editable document, tools,
 // clipboard or history; opening a source for editing is an explicit separate action.
 type Panel struct {
+	author                            authoringUI
 	app                               App
 	open                              bool
 	environment                       *dmenv.Dme
@@ -78,6 +87,11 @@ type Panel struct {
 	showHelpers                       bool
 	policyRevision                    uint64
 	inspected                         util.Point
+	observedRevisions                 string
+	nextRevisionCheck                 time.Time
+	retryAccepted                     bool
+	contextPath, focusRoot            string
+	backdrop                          *canvas.Canvas
 }
 
 func New(app App) *Panel {
@@ -90,6 +104,10 @@ func (p *Panel) Open() {
 	}
 }
 func (p *Panel) release() {
+	if p.backdrop != nil {
+		p.backdrop.Dispose()
+		p.backdrop = nil
+	}
 	for i, v := range p.views {
 		if v != nil {
 			v.Dispose()
@@ -102,6 +120,7 @@ func (p *Panel) release() {
 	}
 }
 func (p *Panel) Invalidate() {
+	p.author.invalidate()
 	p.generation++
 	p.pending = nil
 	if p.cancel != nil {
@@ -111,6 +130,7 @@ func (p *Panel) Invalidate() {
 	p.choices = nil
 	p.fixedChoices = nil
 	p.scenario = mapping.Scenario{}
+	p.contextPath = ""
 }
 func (p *Panel) queue(anchor *util.Point) {
 	p.generation++
@@ -121,16 +141,38 @@ func (p *Panel) queue(anchor *util.Point) {
 	p.pending.scenario.Excluded = maps.Clone(p.scenario.Excluded)
 	p.pending.mapConfig = p.mapConfig
 	p.pending.fixedChoices = maps.Clone(p.fixedChoices)
+	if provider, ok := p.app.(acceptedProvider); ok {
+		p.pending.accepted = provider.CaptureMappingSources()
+		paths := []string{p.parentPath, p.referencePath}
+		if p.current != nil {
+			paths = p.current.dependencies
+		}
+		p.observedRevisions = provider.MappingRevisionKey(paths)
+		// An accepted base revision is an intentional editor change. Occurrence
+		// identities still invalidate any pins whose source or binding changed.
+		p.pending.scenario.BaseHash = ""
+	}
 	if p.cancel != nil {
 		p.cancel()
 	}
 	p.status = "Loading source snapshots…"
 }
 func (p *Panel) advance() {
+	p.author.advance()
 	if p.environment != p.app.LoadedEnvironment() {
 		p.Invalidate()
 		p.environment = p.app.LoadedEnvironment()
 		p.status = "Project changed; reopen references for this environment."
+	}
+	if p.open && (p.current != nil || p.retryAccepted) && time.Now().After(p.nextRevisionCheck) {
+		p.nextRevisionCheck = time.Now().Add(500 * time.Millisecond)
+		paths := []string{p.parentPath, p.referencePath}
+		if p.current != nil {
+			paths = p.current.dependencies
+		}
+		if provider, ok := p.app.(acceptedProvider); ok && (p.retryAccepted || provider.MappingRevisionKey(paths) != p.observedRevisions) {
+			p.queue(nil)
+		}
 	}
 	if p.results != nil {
 		select {
@@ -142,9 +184,17 @@ func (p *Panel) advance() {
 			} else if r.err != nil {
 				r.close()
 				p.status = r.err.Error()
+				p.retryAccepted = errors.Is(r.err, mapping.ErrAcceptedDeferred)
+			} else if !r.catalog.AcceptedCurrent() {
+				r.close()
+				p.queue(nil)
 			} else {
 				p.release()
 				p.current = &r
+				p.retryAccepted = false
+				if provider, ok := p.app.(acceptedProvider); ok {
+					p.observedRevisions = provider.MappingRevisionKey(r.dependencies)
+				}
 				if r.request.compose {
 					p.offset = [3]int32{}
 					p.scenario = r.projection.Scenario
@@ -163,7 +213,7 @@ func (p *Panel) advance() {
 						p.views[i].Render().BeginLevelBuild(d, 1)
 					}
 				}
-				p.status = "Read-only saved sources. Runtime initialization and asynchronous order are not simulated."
+				p.status = "Locked reference context; open source documents use accepted revisions. Runtime initialization and asynchronous order are not simulated."
 			}
 		default:
 		}
@@ -177,6 +227,8 @@ func (p *Panel) advance() {
 		p.results = results
 		go func() {
 			out := result{request: r, catalog: mapping.NewCatalog(r.environment)}
+			out.catalog.SetAcceptedSources(r.accepted)
+			out.request.accepted = nil
 			for i, path := range []string{r.parent, r.reference} {
 				if i == 1 && r.compose {
 					continue
@@ -228,6 +280,9 @@ func (p *Panel) advance() {
 			if ctx.Err() != nil {
 				out.err = ctx.Err()
 			}
+			if err := out.catalog.DeferredError(); err != nil {
+				out.err = err
+			}
 			if out.err == nil {
 				for i, source := range out.sources {
 					if source != nil {
@@ -235,6 +290,7 @@ func (p *Panel) advance() {
 					}
 				}
 			}
+			out.dependencies = out.catalog.SourcePaths()
 			results <- out
 		}()
 	}
@@ -284,6 +340,17 @@ func (p *Panel) controls() {
 			path = filepath.Join(p.environment.RootDir, path)
 		}
 		p.app.DoLoadResource(path)
+		p.contextPath = path
+	}
+	if p.contextPath != "" {
+		imgui.SameLine()
+		if imgui.Button("Detach locked parent context") {
+			p.contextPath = ""
+			if p.backdrop != nil {
+				p.backdrop.Dispose()
+				p.backdrop = nil
+			}
+		}
 	}
 	modes := []string{"Synchronized split", "Overlay", "Wipe", "Blink", "Structural differences", "Source bounds", "Reservations / suppression"}
 	if imgui.BeginCombo("Comparison", modes[p.mode]) {
@@ -354,6 +421,7 @@ func (p *Panel) controls() {
 						}
 						if imgui.Selectable(label) {
 							p.referencePath = candidate.Path
+							p.focusRoot = root.ID
 							if p.choices == nil {
 								p.choices = make(map[string]mapping.Choice)
 							}
@@ -387,17 +455,58 @@ func (p *Panel) controls() {
 		}
 		p.provenanceControls()
 	}
+	p.authoringControls()
 }
 
 func (p *Panel) ProcessLevelBuildBudget(b *render.LevelBuildBudget) bool {
-	for range 2 {
-		idx := p.visualCursor % 2
+	for range 3 {
+		idx := p.visualCursor % 3
 		p.visualCursor++
-		if v := p.views[idx]; v != nil && v.Render().ProcessLevelBuildBudget(b) {
+		v := p.backdrop
+		if idx < 2 {
+			v = p.views[idx]
+		}
+		if v != nil && v.Render().ProcessLevelBuildBudget(b) {
 			return true
 		}
 	}
 	return false
+}
+
+// Backdrop supplies pixels only. The editable pane's tools, picking, bounds and
+// command executor remain attached exclusively to its own source document.
+func (p *Panel) Backdrop(path string, camera render.Camera, size imgui.Vec2) (uint32, bool) {
+	if !p.open || p.results != nil || p.retryAccepted || p.current == nil || p.current.displays[0] == nil || p.contextPath == "" || !strings.EqualFold(filepath.Clean(path), filepath.Clean(p.contextPath)) {
+		return 0, false
+	}
+	offset := util.Point{X: int(p.offset[0]), Y: int(p.offset[1]), Z: int(p.offset[2])}
+	if p.current.projection != nil {
+		found := false
+		for _, placement := range p.current.projection.Placements {
+			if placement.Root.ID == p.focusRoot && strings.EqualFold(filepath.Clean(placement.Source.Path), filepath.Clean(path)) {
+				offset = placement.Transform.Offset
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0, false
+		}
+	}
+	if p.backdrop == nil {
+		p.backdrop = canvas.New()
+		p.backdrop.Render().SetUnitProcessor(p)
+	}
+	camera.ShiftX -= float32(offset.X * dmmap.WorldIconSize)
+	camera.ShiftY -= float32(offset.Y * dmmap.WorldIconSize)
+	camera.Level += offset.Z
+	*p.backdrop.Render().Camera = camera
+	if camera.Level < 1 || camera.Level > p.current.displays[0].MaxZ {
+		return 0, false
+	}
+	p.backdrop.Render().SetActiveLevel(p.current.displays[0], camera.Level)
+	p.backdrop.Process(size)
+	return p.backdrop.Texture(), true
 }
 
 func (p *Panel) compareViews() {

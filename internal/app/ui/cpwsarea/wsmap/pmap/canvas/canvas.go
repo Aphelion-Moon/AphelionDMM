@@ -28,7 +28,24 @@ type Canvas struct {
 	// APHELION EDIT ADDITION END
 
 	ClearColor Color
+	// APHELION EDIT ADDITION START - LOCKED SOURCE CONTEXT
+	transparent bool
+	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION START - LOCKED SOURCE CONTEXT
+func (c *Canvas) SetTransparent(transparent bool) {
+	if c.transparent != transparent {
+		c.transparent = transparent
+		c.width = 0
+	}
+	c.ClearColor.A = 1
+	if transparent {
+		c.ClearColor.A = 0
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func (c *Canvas) Texture() uint32 {
 	return c.texture
@@ -130,7 +147,14 @@ func (c *Canvas) createCanvasTexture() {
 	// No pixel unpack buffer is bound by the editor's rendering pipeline.
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - CANVAS RESIZE ALLOCATION - ORIGINAL: gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, int32(c.width), int32(c.height), 0, gl.RGB, gl.UNSIGNED_BYTE, gl.Ptr(make([]float32, int(c.width*c.height))))
-	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, int32(c.width), int32(c.height), 0, gl.RGB, gl.UNSIGNED_BYTE, nil)
+	// APHELION EDIT ADDITION START - LOCKED SOURCE CONTEXT
+	format := uint32(gl.RGB)
+	if c.transparent {
+		format = gl.RGBA
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - LOCKED SOURCE CONTEXT - ORIGINAL: gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGB, int32(c.width), int32(c.height), 0, gl.RGB, gl.UNSIGNED_BYTE, nil)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, int32(format), int32(c.width), int32(c.height), 0, format, gl.UNSIGNED_BYTE, nil)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
 	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
 	gl.BindTexture(gl.TEXTURE_2D, 0)
