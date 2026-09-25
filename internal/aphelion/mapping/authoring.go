@@ -292,7 +292,7 @@ func readConfigVersion(path string) ([]byte, diskversion.State, error) {
 	if err != nil {
 		return nil, diskversion.State{}, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	r := diskversion.NewReader(f)
 	data, err := io.ReadAll(io.LimitReader(r, (4<<20)+1))
 	if err != nil {
@@ -376,7 +376,7 @@ func (p *AuthoringProposal) AddModuleRecipe(root, configName, key string, enviro
 	return nil
 }
 
-var moduleAssignment = regexp.MustCompile("(?m)^[ \\t]*modules[ \\t]*=[ \\t]*\\[")
+var moduleAssignment = regexp.MustCompile(`(?m)^[ \t]*modules[ \t]*=[ \t]*\[`)
 
 // Only the array's insertion point changes. Decode-before/after comparison
 // verifies all other TOML values, while original text retains comments/order.

@@ -39,6 +39,7 @@ type moduleConfig struct {
 	Rooms      map[string]struct{ Modules []string }
 }
 type Catalog struct {
+	mapName        string
 	deferred       error
 	accepted       map[string]AcceptedSource
 	environment    *dmenv.Dme
@@ -46,6 +47,8 @@ type Catalog struct {
 	configs        map[string]*moduleConfig
 	candidateCount int
 }
+
+func (c *Catalog) MapName() string { return c.mapName }
 
 func NewCatalog(environment *dmenv.Dme) *Catalog {
 	return &Catalog{environment: environment, assets: make(map[string]*Source), configs: make(map[string]*moduleConfig)}

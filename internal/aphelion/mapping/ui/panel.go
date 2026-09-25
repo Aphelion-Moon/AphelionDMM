@@ -30,68 +30,83 @@ type acceptedProvider interface {
 	CaptureMappingSources() map[string]mapping.AcceptedSource
 }
 type request struct {
-	accepted          map[string]mapping.AcceptedSource
-	generation        uint64
-	environment       *dmenv.Dme
-	parent, reference string
-	anchor            *util.Point
-	compose           bool
-	scenario          mapping.Scenario
-	mapConfig         string
-	fixedChoices      map[string]int
+	thumbnail, scanProject bool
+	guidance               bool
+	accepted               map[string]mapping.AcceptedSource
+	generation             uint64
+	environment            *dmenv.Dme
+	parent, reference      string
+	anchor                 *util.Point
+	compose                bool
+	scenario               mapping.Scenario
+	mapConfig              string
+	fixedChoices           map[string]int
 }
 type result struct {
-	dependencies []string
-	request      request
-	catalog      *mapping.Catalog
-	sources      [2]*mapping.Source
-	displays     [2]*dmmap.Dmm
-	roots        []mapping.Root
-	diagnostics  []mapping.Diagnostic
-	err          error
-	transform    *mapping.Transform
-	projection   *mapping.Projection
-	fixed        []mapping.FixedBinding
-	connectors   [2]int
+	thumbnailSource     *mapping.Source
+	thumbnailDisplay    *dmmap.Dmm
+	thumbnailConnectors int
+	discovered          []string
+	advisory            *mapping.Advisory
+	dependencies        []string
+	request             request
+	catalog             *mapping.Catalog
+	sources             [2]*mapping.Source
+	displays            [2]*dmmap.Dmm
+	roots               []mapping.Root
+	diagnostics         []mapping.Diagnostic
+	err                 error
+	transform           *mapping.Transform
+	projection          *mapping.Projection
+	fixed               []mapping.FixedBinding
+	connectors          [2]int
 }
 
-func (r *result) close() { r.projection.Close(); r.catalog.Close() }
+func (r *result) close() { r.advisory.Close(); r.projection.Close(); r.catalog.Close() }
 
 // Panel is a modeless source inspector. It owns no editable document, tools,
 // clipboard or history; opening a source for editing is an explicit separate action.
 type Panel struct {
-	author                            authoringUI
-	app                               App
-	open                              bool
-	environment                       *dmenv.Dme
-	generation                        uint64
-	parentPath, referencePath, status string
-	pending                           *request
-	results                           chan result
-	cancel                            context.CancelFunc
-	current                           *result
-	views                             [2]*canvas.Canvas
-	visualCursor                      int
-	camera                            render.Camera
-	level                             int32
-	offset                            [3]int32
-	mode                              int32
-	alpha                             float32
-	wipe                              float32
-	viewSize                          imgui.Vec2
-	compose                           bool
-	choices                           map[string]mapping.Choice
-	mapConfig                         string
-	fixedChoices                      map[string]int
-	scenario                          mapping.Scenario
-	showHelpers                       bool
-	policyRevision                    uint64
-	inspected                         util.Point
-	observedRevisions                 string
-	nextRevisionCheck                 time.Time
-	retryAccepted                     bool
-	contextPath, focusRoot            string
-	backdrop                          *canvas.Canvas
+	thumbnail                              *canvas.Canvas
+	thumbnailRequested, scanNext           bool
+	discovered                             []string
+	browserFilter                          string
+	guidance                               bool
+	spawnSelection, spawnPage, spawnTarget int
+	author                                 authoringUI
+	app                                    App
+	open                                   bool
+	environment                            *dmenv.Dme
+	generation                             uint64
+	parentPath, referencePath, status      string
+	pending                                *request
+	results                                chan result
+	cancel                                 context.CancelFunc
+	current                                *result
+	views                                  [2]*canvas.Canvas
+	visualCursor                           int
+	camera                                 render.Camera
+	level                                  int32
+	offset                                 [3]int32
+	anchor                                 *util.Point
+	transformParent, transformReference    string
+	mode                                   int32
+	alpha                                  float32
+	wipe                                   float32
+	viewSize                               imgui.Vec2
+	compose                                bool
+	choices                                map[string]mapping.Choice
+	mapConfig                              string
+	fixedChoices                           map[string]int
+	scenario                               mapping.Scenario
+	showHelpers                            bool
+	policyRevision                         uint64
+	inspected                              util.Point
+	observedRevisions                      string
+	nextRevisionCheck                      time.Time
+	retryAccepted                          bool
+	contextPath, focusRoot                 string
+	backdrop                               *canvas.Canvas
 }
 
 func New(app App) *Panel {
@@ -103,7 +118,35 @@ func (p *Panel) Open() {
 		p.parentPath = p.app.ActiveMappingPath()
 	}
 }
+
+// OpenSources is the same explicit, read-only navigation used by the inspector's
+// path controls. It never opens an editable workspace implicitly.
+func (p *Panel) OpenSources(parent, reference string, anchor *util.Point) {
+	if p.environment != p.app.LoadedEnvironment() {
+		p.Invalidate()
+		p.environment = p.app.LoadedEnvironment()
+	}
+	p.parentPath, p.referencePath = parent, reference
+	p.open = true
+	p.queue(anchor)
+}
+
+func (p *Panel) OpenReferenceForEditing() {
+	if p.environment == nil || p.referencePath == "" {
+		return
+	}
+	path := p.referencePath
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(p.environment.RootDir, path)
+	}
+	p.app.DoLoadResource(path)
+	p.contextPath = path
+}
 func (p *Panel) release() {
+	if p.thumbnail != nil {
+		p.thumbnail.Dispose()
+		p.thumbnail = nil
+	}
 	if p.backdrop != nil {
 		p.backdrop.Dispose()
 		p.backdrop = nil
@@ -131,11 +174,30 @@ func (p *Panel) Invalidate() {
 	p.fixedChoices = nil
 	p.scenario = mapping.Scenario{}
 	p.contextPath = ""
+	p.discovered = nil
+	p.thumbnailRequested = false
+	p.anchor = nil
+	p.offset = [3]int32{}
+	p.transformParent, p.transformReference = "", ""
 }
 func (p *Panel) queue(anchor *util.Point) {
+	if p.transformParent != p.parentPath || p.transformReference != p.referencePath {
+		p.anchor = nil
+		p.offset = [3]int32{}
+		p.transformParent, p.transformReference = p.parentPath, p.referencePath
+	}
+	if anchor != nil {
+		copy := *anchor
+		p.anchor = &copy
+		p.offset = [3]int32{}
+	}
 	p.generation++
-	p.pending = &request{generation: p.generation, environment: p.environment, parent: p.parentPath, reference: p.referencePath, anchor: anchor}
+	p.pending = &request{generation: p.generation, environment: p.environment, parent: p.parentPath, reference: p.referencePath, anchor: p.anchor}
 	p.pending.compose = p.compose
+	p.pending.guidance = p.guidance
+	p.pending.thumbnail = p.thumbnailRequested
+	p.pending.scanProject = p.scanNext
+	p.scanNext = false
 	p.pending.scenario = p.scenario
 	p.pending.scenario.Choices = maps.Clone(p.choices)
 	p.pending.scenario.Excluded = maps.Clone(p.scenario.Excluded)
@@ -191,6 +253,14 @@ func (p *Panel) advance() {
 			} else {
 				p.release()
 				p.current = &r
+				if r.request.scanProject {
+					p.discovered = r.discovered
+				}
+				if r.thumbnailDisplay != nil {
+					p.thumbnail = canvas.New()
+					p.thumbnail.Render().SetUnitProcessor(p)
+					p.thumbnail.Render().BeginLevelBuild(r.thumbnailDisplay, 1)
+				}
 				p.retryAccepted = false
 				if provider, ok := p.app.(acceptedProvider); ok {
 					p.observedRevisions = provider.MappingRevisionKey(r.dependencies)
@@ -205,6 +275,8 @@ func (p *Panel) advance() {
 					p.level = int32(r.request.anchor.Z)
 					p.camera.ShiftX = -float32(r.request.anchor.X*dmmap.WorldIconSize) + 500
 					p.camera.ShiftY = -float32(r.request.anchor.Y*dmmap.WorldIconSize) + 500
+				} else if r.request.anchor != nil {
+					p.offset = [3]int32{}
 				}
 				for i, d := range r.displays {
 					if d != nil {
@@ -229,6 +301,13 @@ func (p *Panel) advance() {
 			out := result{request: r, catalog: mapping.NewCatalog(r.environment)}
 			out.catalog.SetAcceptedSources(r.accepted)
 			out.request.accepted = nil
+			if r.scanProject {
+				var err error
+				out.discovered, err = mapping.ScanProject(ctx, r.environment.RootDir)
+				if err != nil {
+					out.diagnostics = append(out.diagnostics, mapping.Diagnostic{Severity: "warning", Code: "project-scan", Message: err.Error()})
+				}
+			}
 			for i, path := range []string{r.parent, r.reference} {
 				if i == 1 && r.compose {
 					continue
@@ -249,7 +328,11 @@ func (p *Panel) advance() {
 				}
 			}
 			if out.err == nil && out.sources[0] != nil {
-				out.roots, out.diagnostics = out.catalog.Roots(ctx, out.sources[0], mapping.Transform{}, "")
+				var rootDiagnostics []mapping.Diagnostic
+				out.roots, rootDiagnostics = out.catalog.Roots(ctx, out.sources[0], mapping.Transform{}, "")
+				if !r.compose {
+					out.diagnostics = append(out.diagnostics, rootDiagnostics...)
+				}
 				if r.compose {
 					var fixed []mapping.FixedPlacement
 					var fixedDiagnostics []mapping.Diagnostic
@@ -261,7 +344,7 @@ func (p *Panel) advance() {
 						out.sources[1] = out.projection.Source
 						out.displays[1], out.err = out.sources[1].DisplayMap(ctx)
 						out.roots = out.projection.Roots
-						out.diagnostics = out.projection.Diagnostics
+						out.diagnostics = append(out.diagnostics, out.projection.Diagnostics...)
 						out.diagnostics = append(out.diagnostics, fixedDiagnostics...)
 						if r.mapConfig == "" {
 							out.diagnostics = append(out.diagnostics, mapping.Diagnostic{Severity: "warning", Code: "partial", Message: "Modular-only scenario: select a map configuration to resolve fixed templates and reservations."})
@@ -277,8 +360,47 @@ func (p *Panel) advance() {
 					out.transform = &transform
 				}
 			}
+			if out.err == nil && r.thumbnail && r.reference != "" {
+				path := r.reference
+				if !filepath.IsAbs(path) {
+					path = filepath.Join(r.environment.RootDir, path)
+				}
+				var err error
+				out.thumbnailSource, err = out.catalog.Load(ctx, path)
+				if err == nil {
+					out.thumbnailConnectors = len(out.thumbnailSource.Connectors())
+					size := out.thumbnailSource.Size
+					if size.X*size.Y > 65536 {
+						err = fmt.Errorf("thumbnail exceeds 65536-cell limit; use the full reference view")
+					} else {
+						out.thumbnailDisplay, err = out.thumbnailSource.DisplayMap(ctx)
+					}
+				}
+				if err != nil {
+					out.diagnostics = append(out.diagnostics, mapping.Diagnostic{Severity: "warning", Code: "thumbnail", Message: err.Error(), Source: path})
+				}
+			}
 			if ctx.Err() != nil {
 				out.err = ctx.Err()
+			}
+			if out.err == nil && r.guidance && out.sources[0] != nil {
+				source := out.sources[0]
+				if out.projection != nil {
+					source = out.projection.Source
+					seams, err := out.projection.AnalyzeSeams(ctx)
+					if err != nil {
+						out.diagnostics = append(out.diagnostics, mapping.Diagnostic{Severity: "warning", Code: "seam-unavailable", Message: err.Error()})
+					} else {
+						out.diagnostics = append(out.diagnostics, seams...)
+					}
+				}
+				var err error
+				out.advisory, err = source.AnalyzeSpawns(ctx, out.catalog.MapName())
+				if err != nil {
+					out.diagnostics = append(out.diagnostics, mapping.Diagnostic{Severity: "warning", Code: "spawn-unavailable", Message: err.Error()})
+				} else {
+					out.diagnostics = append(out.diagnostics, out.advisory.Diagnostics...)
+				}
 			}
 			if err := out.catalog.DeferredError(); err != nil {
 				out.err = err
@@ -330,17 +452,16 @@ func (p *Panel) controls() {
 	if imgui.Checkbox("Assemble selected scenario", &p.compose) {
 		p.queue(nil)
 	}
-	if imgui.Button("Open / refresh references") {
+	if imgui.Checkbox("Analyze authored seams and spawn candidates", &p.guidance) {
 		p.queue(nil)
 	}
+	if imgui.Button("Open / refresh references") {
+		p.OpenSources(p.parentPath, p.referencePath, nil)
+	}
+	p.browserControls()
 	imgui.SameLine()
 	if imgui.Button("Open reference for editing") && p.referencePath != "" {
-		path := p.referencePath
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(p.environment.RootDir, path)
-		}
-		p.app.DoLoadResource(path)
-		p.contextPath = path
+		p.OpenReferenceForEditing()
 	}
 	if p.contextPath != "" {
 		imgui.SameLine()
@@ -366,9 +487,15 @@ func (p *Panel) controls() {
 	imgui.SliderFloat("Wipe", &p.wipe, 0, 1)
 	imgui.InputInt("Destination Z", &p.level)
 	p.level = max(1, p.level)
-	imgui.InputInt("Offset X", &p.offset[0])
-	imgui.InputInt("Offset Y", &p.offset[1])
-	imgui.InputInt("Offset Z", &p.offset[2])
+	if imgui.InputInt("Offset X", &p.offset[0]) {
+		p.anchor = nil
+	}
+	if imgui.InputInt("Offset Y", &p.offset[1]) {
+		p.anchor = nil
+	}
+	if imgui.InputInt("Offset Z", &p.offset[2]) {
+		p.anchor = nil
+	}
 	if imgui.Checkbox("Show source helpers", &p.showHelpers) {
 		p.policyRevision++
 	}
@@ -400,6 +527,7 @@ func (p *Panel) controls() {
 				imgui.PushID(root.ID)
 				if imgui.TreeNode(fmt.Sprintf("%s at %d,%d,%d (%d slots)", root.Key, root.Destination.X, root.Destination.Y, root.Destination.Z, len(root.Candidates))) {
 					imgui.TextWrapped(root.Config + " / " + root.Key)
+					p.alternativeControls(root)
 					if imgui.Button("Go to root") {
 						p.navigate(root.Destination)
 					}
@@ -454,15 +582,19 @@ func (p *Panel) controls() {
 			imgui.TreePop()
 		}
 		p.provenanceControls()
+		p.advisoryControls()
 	}
 	p.authoringControls()
 }
 
 func (p *Panel) ProcessLevelBuildBudget(b *render.LevelBuildBudget) bool {
-	for range 3 {
-		idx := p.visualCursor % 3
+	for range 4 {
+		idx := p.visualCursor % 4
 		p.visualCursor++
 		v := p.backdrop
+		if idx == 3 {
+			v = p.thumbnail
+		}
 		if idx < 2 {
 			v = p.views[idx]
 		}

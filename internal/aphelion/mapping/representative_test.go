@@ -59,4 +59,22 @@ func TestRepresentativeTramComposition(t *testing.T) {
 		}
 	}
 	t.Logf("base_hash=%s roots=%d nested=%d placements=%d fixed=%d diagnostics=%d elapsed=%s", base.Identity.ContentHash, len(roots), nested, len(projection.Placements), len(fixed), len(projection.Diagnostics), time.Since(started))
+	advisory, err := projection.Source.AnalyzeSpawns(context.Background(), catalog.MapName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer advisory.Close()
+	if len(advisory.Spawns) != 26 {
+		t.Fatalf("area-spawn metadata contract: got %d datums", len(advisory.Spawns))
+	}
+	for _, spawn := range advisory.Spawns {
+		if len(spawn.Rule.Unresolved) > 0 {
+			t.Errorf("unresolved metadata %s: %v", spawn.Rule.Path, spawn.Rule.Unresolved)
+		}
+	}
+	seams, err := projection.AnalyzeSeams(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("advisory datums=%d spawn diagnostics=%d grouped seam diagnostics=%d", len(advisory.Spawns), len(advisory.Diagnostics), len(seams))
 }

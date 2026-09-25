@@ -70,6 +70,7 @@ func (c *Catalog) Fixed(ctx context.Context, base *Source, mapConfigPath string,
 		fail("trait-z", "Trait records do not resolve every local source Z", path)
 		return
 	}
+	c.mapName = config.MapName
 	object := c.environment.Objects["/datum/controller/subsystem/automapper"]
 	if object == nil || object.Vars == nil {
 		fail("automapper-config", "Loaded environment has no resolved automapper config_file", path)
@@ -173,7 +174,7 @@ func readSmallConfig(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(io.LimitReader(file, (4<<20)+1))
 	if err != nil {
 		return nil, err

@@ -38,14 +38,15 @@ type Identity struct {
 // Source owns immutable explicit atoms and a BYOND-coordinate grid. Consumers
 // receive copies; rendering receives a separate transient map without an Editor.
 type Source struct {
-	Identity   Identity
-	Size       util.Point
-	Origin     util.Point
-	grid       map[util.Point]dmmdata.Key
-	dictionary map[dmmdata.Key][]Atom
-	disk       diskversion.State
-	lease      *resources.Reservation
-	tgm        bool
+	Identity      Identity
+	Size          util.Point
+	Origin        util.Point
+	grid          map[util.Point]dmmdata.Key
+	dictionary    map[dmmdata.Key][]Atom
+	disk          diskversion.State
+	lease         *resources.Reservation
+	displayLeases []*resources.Reservation
+	tgm           bool
 }
 
 func LoadSource(ctx context.Context, path string, environment *dmenv.Dme) (*Source, error) {
@@ -153,6 +154,10 @@ func (s *Source) structuralHash() string {
 func (s *Source) Close() {
 	if s != nil {
 		s.lease.Release()
+		for _, lease := range s.displayLeases {
+			lease.Release()
+		}
+		s.displayLeases = nil
 	}
 }
 func (s *Source) CheckFresh() error {
@@ -174,6 +179,25 @@ func (s *Source) Cell(p util.Point) []Atom { return cloneAtoms(s.atomsAt(p)) }
 // DisplayMap is a private projection: it has no source filepath, backup,
 // authoritative document, command history, selection, or save route.
 func (s *Source) DisplayMap(ctx context.Context) (*dmmap.Dmm, error) {
+	bytes := uint64(s.Size.X) * uint64(s.Size.Y) * uint64(s.Size.Z) * 128
+	for _, key := range s.grid {
+		bytes += uint64(len(s.dictionary[key])) * 128
+	}
+	for _, atoms := range s.dictionary {
+		for _, atom := range atoms {
+			bytes += uint64(len(atom.Vars)) * 128
+		}
+	}
+	lease, err := resources.DefaultBudget().Reserve(bytes + 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	complete := false
+	defer func() {
+		if !complete {
+			lease.Release()
+		}
+	}()
 	d := &dmmap.Dmm{MaxX: s.Size.X, MaxY: s.Size.Y, MaxZ: s.Size.Z}
 	d.Tiles = make([]*dmmap.Tile, d.MaxX*d.MaxY*d.MaxZ)
 	prefabs := make(map[dmmdata.Key][]*dmmprefab.Prefab, len(s.dictionary))
@@ -204,6 +228,8 @@ func (s *Source) DisplayMap(ctx context.Context) (*dmmap.Dmm, error) {
 		}
 		d.Tiles[n] = t
 	}
+	complete = true
+	s.displayLeases = append(s.displayLeases, lease)
 	return d, nil
 }
 

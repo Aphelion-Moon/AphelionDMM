@@ -8,11 +8,28 @@ import (
 	"github.com/SpaiR/imgui-go"
 	"sdmm/internal/aphelion/mapping"
 	"sdmm/internal/dmapi/dmenv"
+	"sdmm/internal/util"
 )
 
 type fixtureApp struct {
 	env    *dmenv.Dme
 	opened []string
+}
+
+func TestReferenceTransformIsBoundToSourceAndRefresh(t *testing.T) {
+	p := New(&fixtureApp{env: &dmenv.Dme{}})
+	anchor := util.Point{X: 5, Y: 7, Z: 1}
+	p.OpenSources("parent.dmm", "module.dmm", &anchor)
+	p.offset = [3]int32{4, 6, 0}
+	p.queue(nil)
+	if p.pending.anchor == nil || *p.pending.anchor != anchor {
+		t.Fatal("accepted-source refresh lost anchor")
+	}
+	p.referencePath = "unrelated.dmm"
+	p.queue(nil)
+	if p.pending.anchor != nil || p.offset != [3]int32{} {
+		t.Fatal("new reference inherited old placement")
+	}
 }
 
 func (a *fixtureApp) LoadedEnvironment() *dmenv.Dme { return a.env }
