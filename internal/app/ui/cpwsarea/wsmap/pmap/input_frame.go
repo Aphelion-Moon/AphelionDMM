@@ -16,6 +16,15 @@ import (
 // geometry is current before tools run; camera, picking and overlays precede GL.
 func (p *PaneMap) ResolveCanvasInput() {
 	p.processCanvasCamera()
+	if !p.canvas.Render().LevelReady(p.activeLevel) {
+		p.pointerSamples = nil
+		p.lastSampleValid = false
+		p.canvasState.SetMousePosition(-1, -1, -1)
+		p.canvasState.SetHoveredInstance(nil)
+		p.processCanvasOverlayFlick()
+		p.processCanvasOverlayAreasZones()
+		return
+	}
 	owner := activePane == p || activePane == nil && lastActivePane == p
 	if !owner {
 		p.pointerSamples = nil
@@ -95,7 +104,7 @@ func (p *PaneMap) ResolveCanvasInput() {
 
 func (p *PaneMap) resolvePointerPick() {
 	var hovered *dmminstance.Instance
-	if p.canvasControl.Active() || tools.OwnsGesture(p.editor) {
+	if p.canvas.Render().LevelReady(p.activeLevel) && (p.canvasControl.Active() || tools.OwnsGesture(p.editor)) {
 		hovered = p.canvas.Render().PickAt(p.canvasState.RelMouseX(), p.canvasState.RelMouseY(), p.activeLevel, func(i *dmminstance.Instance) bool {
 			return i != nil && i.Prefab() != nil && p.app.PathsFilter().IsVisiblePath(i.Prefab().Path())
 		})

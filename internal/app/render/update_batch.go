@@ -25,7 +25,20 @@ func (r *Render) EndUpdateBatch(dmm *dmmap.Dmm) {
 		for coord := range points {
 			coords = append(coords, coord)
 		}
+		if !r.admitGeometry(dmm, level, coords, false) {
+			r.evictGeometry(level)
+			continue
+		}
+		if len(coords) == 0 {
+			coords = nil
+		} else if r.bucket.Level(level) == nil {
+			r.bucket.PrepareLevel(dmm, level)
+			r.BeginLevelBuild(dmm, r.Camera.Level)
+		}
 		r.bucket.UpdateLevel(dmm, level, coords)
+		if len(points) == 0 {
+			r.markLevelReady(level)
+		}
 	}
 	r.updates.levels = nil
 }

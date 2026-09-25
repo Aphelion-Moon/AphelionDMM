@@ -29,8 +29,7 @@ func (e *Editor) StampEnvironmentMatches(stamp *stamps.Stamp) bool {
 	if stamp == nil {
 		return false
 	}
-	hash, err := mapadapter.EnvironmentHash(e.app.LoadedEnvironment())
-	return err == nil && hash == stamp.EnvironmentHash()
+	return e.authoritative.EnvironmentHash != "" && e.authoritative.EnvironmentHash == stamp.EnvironmentHash()
 }
 
 // StartStamp does not change the clipboard or commit an edit. Explicit consent

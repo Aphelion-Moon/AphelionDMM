@@ -28,10 +28,18 @@ func (t *ToolGrab) trackSelectionMask(before editing.Selection, discardUnchanged
 		t.selectionHistory = editing.NewMaskSelectionHistory(before)
 	}
 	history, owner := t.selectionHistory, ed.Dmm()
+	var working *editing.WorkingSelection
+	if source, ok := ed.(workingSelectionOwner); ok {
+		working = source.WorkingSelection()
+		working.SetHistory(before.Level(), history)
+	}
 	change := history.Add(before.Bounds())
 	change.SetSelection(before)
 	changed := func(applied bool) {
 		change.SetApplied(applied)
+		if working != nil && working.History(before.Level()) == history {
+			working.Set(history.Selection())
+		}
 		// A new explicit selection or another map owns its own geometry. A newer
 		// open mouse gesture keeps its preview until release/cancellation.
 		if t.selectionHistory == history && ed != nil && ed.Dmm() == owner && !t.dragging {
@@ -55,6 +63,7 @@ func (t *ToolGrab) trackSelectionMask(before editing.Selection, discardUnchanged
 	}
 	history.DiscardUnappliedTail(change)
 	t.refreshSelectionHistory(true)
+	t.publishSelection()
 	return err
 }
 

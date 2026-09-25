@@ -1,6 +1,7 @@
 package menu
 
 import (
+	"sdmm/internal/aphelion/filterprofiles"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/ui/shortcut"
 	"sdmm/internal/dmapi/dm"
@@ -9,6 +10,7 @@ import (
 	"sdmm/internal/imguiext/icon"
 	"sdmm/internal/imguiext/style"
 	w "sdmm/internal/imguiext/widget"
+	"sdmm/internal/util"
 	/* APHELION EDIT REMOVAL START - EDITABLE SHORTCUTS
 	"sdmm/internal/platform"
 	APHELION EDIT REMOVAL END */
@@ -390,23 +392,33 @@ func (m *Menu) SetUpdateError() {
 }
 
 func (m *Menu) doToggleArea() {
-	m.app.PathsFilter().TogglePath("/area")
+	if err := filterprofiles.Toggle(m.app, m.app.PathsFilter(), "/area"); err != nil {
+		util.ShowErrorDialog(err.Error())
+	}
 }
 
 func (m *Menu) doToggleTurf() {
-	m.app.PathsFilter().TogglePath("/turf")
+	if err := filterprofiles.Toggle(m.app, m.app.PathsFilter(), "/turf"); err != nil {
+		util.ShowErrorDialog(err.Error())
+	}
 }
 
 func (m *Menu) doToggleObject() {
-	m.app.PathsFilter().TogglePath("/obj")
+	if err := filterprofiles.Toggle(m.app, m.app.PathsFilter(), "/obj"); err != nil {
+		util.ShowErrorDialog(err.Error())
+	}
 }
 
 func (m *Menu) doToggleMob() {
-	m.app.PathsFilter().TogglePath("/mob")
+	if err := filterprofiles.Toggle(m.app, m.app.PathsFilter(), "/mob"); err != nil {
+		util.ShowErrorDialog(err.Error())
+	}
 }
 
 func (m *Menu) doShowAll() {
-	m.app.PathsFilter().Clear()
+	if err := filterprofiles.ShowAll(m.app, m.app.PathsFilter()); err != nil {
+		util.ShowErrorDialog(err.Error())
+	}
 }
 
 func (m *Menu) isAreaToggled() bool {

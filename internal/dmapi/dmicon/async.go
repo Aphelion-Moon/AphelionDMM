@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"path/filepath"
 	"sdmm/internal/aphelion/iconassets"
+	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/util"
 	"time"
 )
@@ -84,10 +85,15 @@ func (i *IconsCache) cancelPending() {
 // ProcessUploads is called before UI construction, never from a worker or a
 // draw callback. CPU decode is serialized and graphics work yields each frame.
 func (i *IconsCache) ProcessUploads() {
+	budget := resources.FrameWorkRemaining(2 * time.Millisecond)
+	if budget == 0 {
+		return
+	}
+	defer resources.ChargeFrameWork(time.Now())
 	if i.async.ctx == nil {
 		return
 	}
-	deadline := time.Now().Add(2 * time.Millisecond)
+	deadline := time.Now().Add(budget)
 	for len(i.async.waiting) > 0 {
 		key := i.async.waiting[0]
 		if !i.async.worker.Submit(iconassets.Request{Context: i.async.ctx, Key: key, Path: filepath.Join(i.rootDirPath, key)}) {
@@ -179,8 +185,16 @@ func (i *IconsCache) publishIcon(current *iconBuild) {
 		delete(i.async.sprites[current.key], key)
 		count++
 		if count == 256 {
+			// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+			i.revision++
+			// APHELION EDIT ADDITION END
 			return
 		}
+	}
+	if count > 0 {
+		// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+		i.revision++
+		// APHELION EDIT ADDITION END
 	}
 	i.icons[current.key] = current.dmi
 	delete(i.async.pending, current.key)

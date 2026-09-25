@@ -15,6 +15,12 @@ type editBubbleState struct {
 
 func (p *PaneMap) showEditStatus() {
 	message, recovery, busy := p.editor.EditStatus(tools.OwnsGesture(p.editor))
+	if message == "" && p.canvas.Render().LevelLoading() {
+		message = fmt.Sprintf("Preparing Z %d view…", p.activeLevel)
+		if p.canvas.Render().GeometryWaiting() {
+			message = "View preparation is waiting for render memory. Map data remains available."
+		}
+	}
 	if !busy && !recovery && activePane == p && p.editor.HasPastePlacement() {
 		if grab, ok := tools.Selected().(*tools.ToolGrab); ok && grab.PlacementError() != nil {
 			message = grab.PlacementError().Error()

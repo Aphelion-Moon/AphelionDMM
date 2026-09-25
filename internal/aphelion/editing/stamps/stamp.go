@@ -239,8 +239,12 @@ func (d document) validate() error {
 	if !utf8.ValidString(d.Name) || strings.TrimSpace(d.Name) == "" || utf8.RuneCountInString(d.Name) > 128 || strings.ContainsFunc(d.Name, unicode.IsControl) {
 		return fmt.Errorf("stamp name must contain 1 through 128 printable characters")
 	}
-	if err := model.ValidateSHA256("stamp environment hash", d.EnvironmentHash); err != nil {
-		return err
+	// Empty provenance is retained for legacy/external clipboard data. It never
+	// matches a loaded environment and requires explicit placement acknowledgement.
+	if d.EnvironmentHash != "" {
+		if err := model.ValidateSHA256("stamp environment hash", d.EnvironmentHash); err != nil {
+			return err
+		}
 	}
 	if d.Width < 1 || d.Height < 1 || d.Width > model.MaxMapDimension || d.Height > model.MaxMapDimension || len(d.Tiles) == 0 || len(d.Tiles) > d.Width*d.Height {
 		return fmt.Errorf("stamp dimensions or tile count exceed supported limits")

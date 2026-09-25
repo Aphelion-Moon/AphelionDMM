@@ -2,6 +2,9 @@ package cpenvironment
 
 import (
 	"fmt"
+	// APHELION EDIT ADDITION START - FILTER PROFILES
+	"sdmm/internal/aphelion/filterprofiles"
+	// APHELION EDIT ADDITION END
 	"strings"
 
 	"sdmm/internal/imguiext/style"
@@ -34,6 +37,12 @@ func (e *Environment) Process(int32) {
 		imgui.TextDisabled("No environment loaded")
 	} else {
 		e.showControls()
+		// APHELION EDIT ADDITION START - FILTER PROFILES
+		e.showFilterProfiles()
+		if e.filterProfileStatus != "" {
+			imgui.TextWrapped(e.filterProfileStatus)
+		}
+		// APHELION EDIT ADDITION END
 		e.showTree()
 		e.postProcess()
 	}
@@ -251,7 +260,10 @@ func (e *Environment) showVisibilityCheckbox(node *treeNode) {
 
 	imgui.PushStyleVarVec2(imgui.StyleVarFramePadding, e.calcTreeNodePadding(node.name))
 	if imgui.Checkbox(fmt.Sprint("##node_visibility_", node.orig.Path), &value) {
-		e.app.PathsFilter().TogglePath(node.orig.Path)
+		// APHELION EDIT CHANGE - FILTER PROFILES - ORIGINAL: e.app.PathsFilter().TogglePath(node.orig.Path)
+		if err := e.SetFilterVisibility(node.orig.Path, filterprofiles.ScopeSubtree, value); err != nil {
+			e.filterProfileStatus = err.Error()
+		}
 	}
 
 	imgui.PopStyleVar()

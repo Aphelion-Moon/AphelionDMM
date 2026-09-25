@@ -12,6 +12,7 @@ import (
 	"sdmm/internal/aphelion/collab/mapadapter"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/diagnostics/uistage"
+	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/app/command"
 	"sdmm/internal/util"
 
@@ -523,16 +524,19 @@ func (e *Editor) refreshCollaborationView(activeLevel int, coords []model.Coord,
 	defer uistage.Begin(uistage.Refresh).End()
 	e.pMap.Snapshot().Sync()
 	e.updateAreasZones()
-	points := make([]util.Point, 0, len(coords))
-	for _, coord := range coords {
-		points = append(points, util.Point{X: coord.X, Y: coord.Y, Z: coord.Z})
-	}
-	if len(points) == 0 {
-		for _, tile := range visible.Tiles {
-			points = append(points, util.Point{X: tile.Coord.X, Y: tile.Coord.Y, Z: tile.Coord.Z})
+	if len(coords) == 0 {
+		// A full projection replaces map contents in place; old inactive-Z
+		// buckets and partially built chunks belong to the previous snapshot.
+		if renderer := e.pMap.Canvas().Render(); renderer != nil {
+			renderer.InvalidateLevelBuilds(e.dmm)
 		}
+	} else {
+		points := make([]util.Point, 0, len(coords))
+		for _, coord := range coords {
+			points = append(points, util.Point{X: coord.X, Y: coord.Y, Z: coord.Z})
+		}
+		e.updateBucket(activeLevel, points)
 	}
-	e.updateBucket(activeLevel, points)
 	e.dmm.PersistPrefabs()
 	e.app.SyncPrefabs()
 	e.app.SyncVarEditor()
@@ -574,6 +578,7 @@ func (e *Editor) resetAttachment() {
 // Close fences queued UI completions before the pane releases its resources.
 func (e *Editor) Close() {
 	e.resetAttachment()
+	e.workingSelection = editing.WorkingSelection{}
 	e.mapViewClosed = true
 	e.executor = nil
 }

@@ -136,11 +136,17 @@ func OwnsGesture(owner editor) bool { return ed == owner && active }
 
 func SetEditor(editor editor) {
 	// APHELION EDIT ADDITION START - TOOL GESTURE OWNERSHIP
-	if ed != editor {
+	changed := ed != editor
+	if changed {
 		DeactivateEditor(ed)
 	}
 	// APHELION EDIT ADDITION END
 	ed = editor
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	if changed {
+		BindSelectionLevel(editor)
+	}
+	// APHELION EDIT ADDITION END
 }
 
 // APHELION EDIT ADDITION START - TOOL GESTURE OWNERSHIP
@@ -173,6 +179,8 @@ func ReleaseEditor(owner editor) {
 	// Cancel Grab/placement while its editor is still usable. Other tool state
 	// is discarded without onStop: disposal must not submit another operation.
 	tools[TNGrab].OnDeselect()
+	tools[TNGrab].(*ToolGrab).Reset()
+	tools[TNDelete].(*ToolDelete).cancelShape()
 	*tools[TNAdd].(*ToolAdd) = *newAdd()
 	*tools[TNFill].(*ToolFill) = *newFill()
 	*tools[TNMove].(*ToolMove) = *newMove()
@@ -232,6 +240,11 @@ func processFrame(altBehaviour bool, pendingSamples bool) {
 	}
 
 	Selected().setAltBehaviour(altBehaviour)
+	// APHELION EDIT ADDITION START - MAPPER GESTURES
+	grab := tools[TNGrab].(*ToolGrab)
+	grab.ctrlSelection, grab.altSelection = imguiext.IsCtrlDown(), altBehaviour
+	tools[TNFill].(*ToolFill).border = grab.ctrlSelection
+	// APHELION EDIT ADDITION END
 	Selected().process()
 	processSelectedToolStart()
 	if !pendingSamples {
@@ -246,6 +259,11 @@ func OnMouseMove() {
 }
 
 func SelectedTiles() []util.Point {
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	if s := SelectionForEditor(ed); s.Len() > 0 {
+		return s.Coordinates()
+	}
+	// APHELION EDIT ADDITION END
 	if selectTool, ok := Selected().(*ToolGrab); ok {
 		// APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
 		if selectTool.HasSelectedArea() {

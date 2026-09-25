@@ -171,7 +171,16 @@ func (p *PaneMap) ActiveLevel() int {
 }
 
 func (p *PaneMap) SetActiveLevel(activeLevel int) {
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	if p.activeLevel == activeLevel {
+		return
+	}
+	tools.DeactivateEditor(p.editor)
+	// APHELION EDIT ADDITION END
 	p.activeLevel = activeLevel
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	tools.BindSelectionLevel(p.editor)
+	// APHELION EDIT ADDITION END
 }
 
 func (p *PaneMap) Size() imgui.Vec2 {
@@ -233,12 +242,10 @@ func newPaneMap(app App, dmm *dmmap.Dmm, prepared *editor.PreparedOpen) *PaneMap
 
 	p.canvas.Render().SetOverlay(p.canvasOverlay)
 	p.canvas.Render().SetUnitProcessor(p)
-	// APHELION EDIT CHANGE - OWNED MAP OPEN - ORIGINAL: p.canvas.Render().UpdateBucket(p.dmm, p.activeLevel)
-	if prepared == nil {
-		p.canvas.Render().UpdateBucket(p.dmm, p.activeLevel)
-	} else {
-		p.canvas.Render().BeginLevelBuild(p.dmm, p.activeLevel)
-	}
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	// Register every Z and build progressively on all open paths.
+	p.canvas.Render().BeginLevelBuild(p.dmm, p.activeLevel)
+	// APHELION EDIT ADDITION END
 
 	p.mouseChangeCbId = app.AddMouseChangeCallback(p.mouseChangeCallback)
 	p.addShortcuts()
@@ -248,18 +255,8 @@ func newPaneMap(app App, dmm *dmmap.Dmm, prepared *editor.PreparedOpen) *PaneMap
 
 func (p *PaneMap) Process() {
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
-	// Admit input only after a newly selected level has complete pick geometry.
+	// Refresh foreground priority; WsArea advances the shared frame budget.
 	p.canvas.Render().SetActiveLevel(p.dmm, p.activeLevel)
-	if p.canvas.Render().LevelLoading() {
-		p.canvas.Render().ProcessLevelBuild()
-		// A level switch during an older build waits for that build, then starts
-		// the requested level before allowing any canvas action.
-		p.canvas.Render().SetActiveLevel(p.dmm, p.activeLevel)
-		if p.canvas.Render().LevelLoading() {
-			imgui.TextDisabled("Preparing map view…")
-			return
-		}
-	}
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COLLABORATION
 	p.editor.ProcessCollaborationUpdates()
@@ -471,7 +468,8 @@ func (p *PaneMap) reloadCanvas() {
 	p.canvas.Render().Camera = oldCamera
 	p.canvas.Render().SetOverlay(p.canvasOverlay)
 	p.canvas.Render().SetUnitProcessor(p)
-	p.canvas.Render().UpdateBucket(p.dmm, p.activeLevel)
+	// APHELION EDIT CHANGE - OWNED MAP OPEN - ORIGINAL: p.canvas.Render().UpdateBucket(p.dmm, p.activeLevel)
+	p.canvas.Render().BeginLevelBuild(p.dmm, p.activeLevel)
 	p.canvasState.SetMaxX(p.dmm.MaxX)
 	p.canvasState.SetMaxY(p.dmm.MaxY)
 }
@@ -483,5 +481,8 @@ func (p *PaneMap) OnMapSizeChange() {
 	}
 	// APHELION EDIT ADDITION END
 	p.reloadCanvas()
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	tools.BindSelectionLevel(p.editor)
+	// APHELION EDIT ADDITION END
 	p.pSettings.DropSessionMapSize()
 }

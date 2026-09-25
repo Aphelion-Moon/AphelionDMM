@@ -9,6 +9,9 @@ import (
 
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/prefs"
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	"sdmm/internal/app/render"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/workspace"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap"
 	"sdmm/internal/dmapi/dmenv"
@@ -111,6 +114,15 @@ func (ws *WsMap) Process() {
 	ws.tryCompleteSaveAcknowledgement()
 	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION START - OWNED MAP OPEN
+func (ws *WsMap) ProcessLevelBuildBudget(budget *render.LevelBuildBudget) bool {
+	r := ws.paneMap.Canvas().Render()
+	r.SetActiveLevel(ws.paneMap.Dmm(), ws.paneMap.ActiveLevel())
+	return r.ProcessLevelBuildBudget(budget)
+}
+
+// APHELION EDIT ADDITION END
 
 func (ws *WsMap) Dispose() {
 	// APHELION EDIT ADDITION START - RESPONSIVE_SAVE

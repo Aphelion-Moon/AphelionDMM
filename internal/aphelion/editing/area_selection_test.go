@@ -25,6 +25,30 @@ func TestAreaMaskConnectedGlobalAndExplicitOverrides(t *testing.T) {
 	if err != nil || all.Len() != 4 {
 		t.Fatalf("global mask: %+v %v", all, err)
 	}
+	for _, global := range []bool{false, true} {
+		query, err := NewAreaSelectionQuery(m, cells[0], global)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if partial, done := query.Step(1); done || partial.Len() != 0 {
+			t.Fatal("area query published partial membership")
+		}
+		var result Selection
+		for steps := 0; steps < 100; steps++ {
+			var done bool
+			result, done = query.Step(1)
+			if done {
+				break
+			}
+		}
+		want := connected
+		if global {
+			want = all
+		}
+		if !reflect.DeepEqual(result.Coordinates(), want.Coordinates()) {
+			t.Fatal("bounded query changed area matching")
+		}
+	}
 	m.GetTile(util.Point{X: 3, Y: 1, Z: 1}).InstancesAdd(area)
 	if all.Len() != 4 {
 		t.Fatal("persistent mask grew after area edit")

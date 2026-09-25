@@ -12,6 +12,9 @@ import (
 )
 
 type PasteData struct {
+	// APHELION EDIT ADDITION START - CLIPBOARD PROVENANCE
+	EnvironmentHash string
+	// APHELION EDIT ADDITION END
 	Filter dm.PathsFilter
 	Buffer []dmmap.Tile
 }
@@ -34,6 +37,9 @@ func (c *Clipboard) Copy(pathsFilter *dm.PathsFilter, dmm *dmmap.Dmm, tiles []ut
 	if len(tiles) == 0 {
 		return
 	}
+	// APHELION EDIT ADDITION START - CLIPBOARD PROVENANCE
+	c.pasteData.EnvironmentHash = ""
+	// APHELION EDIT ADDITION END
 
 	// APHELION EDIT CHANGE - BOUNDED CLIPBOARD LOGGING - ORIGINAL: log.Printf("copy tiles to the clipboard buffer: %v", tiles)
 	log.Debug().Int("tiles", len(tiles)).Msg("copy tiles to the clipboard buffer")
@@ -67,6 +73,11 @@ func (c *Clipboard) Copy(pathsFilter *dm.PathsFilter, dmm *dmmap.Dmm, tiles []ut
 		return c.pasteData.Buffer[i].Coord.X < c.pasteData.Buffer[j].Coord.X
 	})
 }
+
+// APHELION EDIT ADDITION START - CLIPBOARD PROVENANCE
+func (c *Clipboard) SetEnvironmentHash(hash string) { c.pasteData.EnvironmentHash = hash }
+
+// APHELION EDIT ADDITION END
 
 func (c *Clipboard) Buffer() PasteData {
 	return c.pasteData

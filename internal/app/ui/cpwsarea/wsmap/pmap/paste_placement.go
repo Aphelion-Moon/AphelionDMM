@@ -28,6 +28,9 @@ func (p *PaneMap) showPastePlacementControls() {
 		modes := []string{"Only Overwrite With Data", "Apply Over", "Replace, Including Blanks"}
 		if imgui.BeginCombo("Paste mode", modes[policy.Mode]) {
 			for index, name := range modes {
+				if p.editor.RandomFillPreview() && editing.PasteMode(index) == editing.ReplaceIncludingBlanks {
+					continue
+				}
 				if imgui.SelectableV(name, policy.Mode == editing.PasteMode(index), 0, imgui.Vec2{}) {
 					policy.Mode = editing.PasteMode(index)
 					p.editor.SetPastePolicy(policy)

@@ -83,6 +83,7 @@ func TestGrabNudgeRejectsInvalidMovesWithoutMutation(t *testing.T) {
 		t.Fatal("nudged during a mouse gesture")
 	}
 	g.OnDeselect()
+	g.Reset() // Explicit deselect; leaving a tool now preserves membership.
 	if err := g.Nudge(util.Point{X: 1}); err == nil {
 		t.Fatal("nudged without a selection")
 	}

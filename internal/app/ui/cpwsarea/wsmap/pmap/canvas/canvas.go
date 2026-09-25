@@ -58,12 +58,22 @@ func (c *Canvas) Dispose() {
 	if c.disposeQueued {
 		return
 	}
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	if c.render != nil {
+		c.render.CancelLevelBuilds()
+	}
+	// APHELION EDIT ADDITION END
 	c.disposeQueued = true
 	frameBuffer, texture := c.frameBuffer, c.texture
 	// APHELION EDIT ADDITION END
 	// Run later, so it will be cleared in the next frame.
 	// Otherwise, we will see graphics artifacts.
 	window.RunLater(func() {
+		// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+		if c.render != nil {
+			c.render.ReleaseRetainedSubmissions()
+		}
+		// APHELION EDIT ADDITION END
 		log.Print("disposing...")
 		// APHELION EDIT CHANGE - CANVAS LIFETIME - ORIGINAL: gl.DeleteFramebuffers(1, &c.frameBuffer)
 		gl.DeleteFramebuffers(1, &frameBuffer)

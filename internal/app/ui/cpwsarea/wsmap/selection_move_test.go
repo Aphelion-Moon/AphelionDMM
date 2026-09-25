@@ -84,6 +84,9 @@ func newSelectionWorkspace(t *testing.T) (*WsMap, *selectionTestApp) {
 	app := &selectionTestApp{saveTestApp: &saveTestApp{environment: environment, commands: command.NewStorage(), jobs: make(chan func(), 8)}, clipboard: dmmclip.New()}
 	app.commands.SetStack(path)
 	ws := New(app, m)
+	for !ws.Map().Canvas().Render().LevelReady(1) {
+		ws.Map().Canvas().Render().ProcessLevelBuild()
+	}
 	t.Cleanup(ws.Map().Editor().Close)
 	return ws, app
 }

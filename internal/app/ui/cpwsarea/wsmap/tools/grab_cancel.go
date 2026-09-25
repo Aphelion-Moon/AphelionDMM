@@ -9,6 +9,25 @@ import (
 )
 
 func cancelGrabOnEscape() {
+	if !shortcut.BackgroundInputBlocked() && !imgui.CurrentIO().WantTextInput() && imgui.IsKeyPressedV(int(glfw.KeyEscape), false) {
+		switch t := Selected().(type) {
+		case *ToolAdd:
+			if t.shapeStroke != nil {
+				t.OnDeselect()
+				return
+			}
+		case *ToolDelete:
+			if t.shapeStroke != nil {
+				t.OnDeselect()
+				return
+			}
+		case *ToolFill:
+			if t.dragging {
+				t.OnDeselect()
+				return
+			}
+		}
+	}
 	grab, ok := Selected().(*ToolGrab)
 	if !ok || grab.Stale() || shortcut.BackgroundInputBlocked() || imgui.CurrentIO().WantTextInput() {
 		return

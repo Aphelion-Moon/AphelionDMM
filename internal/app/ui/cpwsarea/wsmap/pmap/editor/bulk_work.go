@@ -67,6 +67,10 @@ func (e *Editor) trySchedulePrefabBatch(old, replacement *dmmprefab.Prefab, labe
 }
 
 func (e *Editor) tryScheduleSelectionDelete(selection editing.Selection) bool {
+	return e.tryScheduleSelectionDeleteWithFilter(selection, e.app.PathsFilter().Copy())
+}
+
+func (e *Editor) tryScheduleSelectionDeleteWithFilter(selection editing.Selection, filter dm.PathsFilter) bool {
 	local, ok := e.executor.(localEditExecutor)
 	if !ok || e.sessionOwned || selection.Len() <= directLocalTiles {
 		return false
@@ -74,7 +78,6 @@ func (e *Editor) tryScheduleSelectionDelete(selection editing.Selection) bool {
 	if !e.CanStartMapEdit() {
 		return true
 	}
-	filter := e.app.PathsFilter().Copy()
 	visit := func(visitor func(model.Coord)) {
 		selection.Visit(func(p util.Point) { visitor(model.Coord{X: p.X, Y: p.Y, Z: p.Z}) })
 	}

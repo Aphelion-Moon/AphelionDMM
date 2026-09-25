@@ -15,6 +15,7 @@ import (
 	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/app/render"
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
+	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/util"
 )
@@ -48,6 +49,7 @@ type pasteSession struct {
 	level                 int
 	source                []dmmap.Tile
 	visible               func(string) bool
+	viewFilter            dm.PathsFilter
 	sourceFactory         pasteSourceFactory
 	releaseSource         func()
 	reservation           *resources.Reservation
@@ -56,6 +58,7 @@ type pasteSession struct {
 	orientation           editing.Orientation
 	preparedOrientation   editing.Orientation
 	policy                editing.PastePolicy
+	preserveEmpty         bool
 	request               uint64
 	prepared              uint64
 	sourcePrepared        bool
@@ -104,6 +107,7 @@ func (e *Editor) beginPasteSession(source []dmmap.Tile, visible func(string) boo
 		return fmt.Errorf("paste requires an available selected level")
 	}
 	p := &pasteSession{generation: e.attachmentGeneration, level: target.Z, source: source, visible: visible, sourceFactory: factory, releaseSource: release, target: target, orientation: editing.IdentityOrientation(), policy: editing.PastePolicy{Channels: editing.AllChannels}, request: 1, phase: pastePreparing, results: make(chan pasteWorkResult, 1)}
+	p.viewFilter = e.app.PathsFilter().Copy()
 	e.paste = p
 	e.startPasteWorker(p)
 	return nil
@@ -177,6 +181,9 @@ func (e *Editor) PastePolicy() (editing.PastePolicy, bool) {
 }
 func (e *Editor) SetPastePolicy(policy editing.PastePolicy) {
 	if p := e.paste; p != nil && p.intent == nil && p.phase != pasteResolving {
+		if p.preserveEmpty && policy.Mode == editing.ReplaceIncludingBlanks {
+			policy.Mode = editing.OnlyOverwriteWithData
+		}
 		p.policy = policy
 		p.err = nil
 	}
@@ -189,6 +196,9 @@ func (e *Editor) PastePlacementPending() bool {
 // but a click is not. Preparing new source never silently consumes that click.
 func (e *Editor) ConfirmPastePlacement() bool {
 	p := e.paste
+	if e.refreshPasteVisibility(p) {
+		return false
+	}
 	if p == nil || p.generation != e.attachmentGeneration || p.phase == pasteResolving || p.intent != nil || p.target.Z != p.level {
 		return false
 	}
@@ -268,6 +278,7 @@ func (e *Editor) ProcessPasteWork() {
 	if p == nil {
 		return
 	}
+	e.refreshPasteVisibility(p)
 	if p.generation != e.attachmentGeneration {
 		e.discardPasteWithoutRestore()
 		return
@@ -336,6 +347,7 @@ func (e *Editor) startPasteWorker(p *pasteSession) {
 	p.workerBusy = true
 	p.phase = pastePreparing
 	source, visible, factory, reservation := p.source, p.visible, p.sourceFactory, p.reservation
+	viewFilter := p.viewFilter.Copy()
 	orientation, request, first := p.orientation, p.request, !p.sourcePrepared
 	releaseSource := p.releaseSource
 	p.releaseSource = nil
@@ -396,7 +408,7 @@ func (e *Editor) startPasteWorker(p *pasteSession) {
 			r.err = err
 			return
 		}
-		r.payload, r.err = editing.CompilePlacementPayload(ctx, transformed, visible)
+		r.payload, r.err = editing.CompilePlacementPayload(ctx, transformed, func(path string) bool { return visible(path) && viewFilter.IsVisiblePath(path) })
 	}()
 }
 
@@ -418,7 +430,7 @@ func (e *Editor) preparePastePresentation(p *pasteSession) {
 			return false
 		}
 		before := e.authoritativeTiles[model.Coord{X: coord.X, Y: coord.Y, Z: coord.Z}]
-		return editing.CheckComposition(before, intent, p.policy, p.visible) == nil && p.policy.Suppresses(u.Instance().Prefab().Path(), intent, p.visible)
+		return editing.CheckComposition(before, intent, p.policy, p.effectiveVisibility()) == nil && p.policy.Suppresses(u.Instance().Prefab().Path(), intent, p.effectiveVisibility())
 	}
 	presentation.Visible = func(a render.Appearance) bool {
 		if !validTarget() || !e.app.PathsFilter().IsVisiblePath(a.Path) {
@@ -429,7 +441,7 @@ func (e *Editor) preparePastePresentation(p *pasteSession) {
 			return false
 		}
 		before := e.authoritativeTiles[model.Coord{X: p.target.X + a.Coord.X, Y: p.target.Y + a.Coord.Y, Z: p.target.Z}]
-		return editing.CheckComposition(before, intent, p.policy, p.visible) == nil
+		return editing.CheckComposition(before, intent, p.policy, p.effectiveVisibility()) == nil
 	}
 	p.presentationBuild = &presentationBuild{
 		presentation: presentation,
@@ -503,7 +515,7 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 	if local, ok := e.executor.(localEditExecutor); ok && !e.sessionOwned {
 		// All mutation entry points are fenced by localWork, so this model map
 		// remains read-only until preparation has relinquished it to publication.
-		base, payload, policy, visible := e.authoritativeTiles, p.payload, p.policy, p.visible
+		base, payload, policy, visible := e.authoritativeTiles, p.payload, p.policy, p.effectiveVisibility()
 		generation := e.attachmentGeneration
 		p.phase = pasteResolving
 		e.retainPasteCommit(p)
@@ -563,7 +575,7 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 		}
 		return
 	}
-	changes, err := p.payload.BuildPlacementChanges(context.Background(), target, p.policy, p.visible, func(coord model.Coord) (model.TileState, bool) {
+	changes, err := p.payload.BuildPlacementChanges(context.Background(), target, p.policy, p.effectiveVisibility(), func(coord model.Coord) (model.TileState, bool) {
 		state, ok := e.authoritativeTiles[coord]
 		return state, ok
 	})
@@ -696,6 +708,7 @@ func (e *Editor) discardPasteWithoutRestore() {
 		r.SetPresentation(nil)
 	}
 	e.paste = nil
+	e.randomFill = nil
 }
 
 func (e *Editor) retainPasteCommit(p *pasteSession) {

@@ -5,6 +5,7 @@ import (
 	// APHELION EDIT ADDITION START - BOUNDED FILL
 	"context"
 	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	// APHELION EDIT ADDITION END
 
@@ -27,6 +28,20 @@ type ToolFill struct {
 	fillArea util.Bounds
 
 	dragging bool
+	// APHELION EDIT ADDITION START - SHARED SHAPES
+	shape       editing.ShapeDescriptor
+	selection   editing.Selection
+	restriction editing.Selection
+	restrict    bool
+	random      bool
+	palette     editing.RandomPalette
+	seed        uint64
+	density     float64
+	filter      dm.PathsFilter
+	prefab      *dmmprefab.Prefab
+	replace     bool
+	border      bool
+	// APHELION EDIT ADDITION END
 }
 
 func (ToolFill) Name() string {
@@ -43,6 +58,12 @@ func (t *ToolFill) Stale() bool {
 
 func (t *ToolFill) process() {
 	if t.active() {
+		// APHELION EDIT ADDITION START - SHARED SHAPES
+		if t.shape.Kind != editing.ShapeRectangle || t.shape.Outline || t.restrict {
+			showShapeSelection(t.selection)
+			return
+		}
+		// APHELION EDIT ADDITION END
 		if t.AltBehaviour() {
 			ed.OverlayPushArea(t.fillArea, overlay.ColorToolFillAltTileFill, overlay.ColorToolFillAltTileBorder)
 		} else {
@@ -52,7 +73,22 @@ func (t *ToolFill) process() {
 }
 
 func (t *ToolFill) onStart(coord util.Point) {
-	if _, ok := ed.SelectedPrefab(); ok {
+	// APHELION EDIT ADDITION START - RANDOM FILL
+	if !t.beginRandomFill() {
+		return
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - SHARED SHAPES - ORIGINAL: if _, ok := ed.SelectedPrefab(); ok {
+	if _, ok := ed.SelectedPrefab(); ok || t.random {
+		// APHELION EDIT ADDITION START - SHARED SHAPES
+		t.shape = currentShape()
+		t.shape.Outline = t.shape.Outline || t.border
+		t.filter = brushFilter()
+		t.prefab, _ = ed.SelectedPrefab()
+		t.replace = t.AltBehaviour()
+		t.restriction = SelectionForEditor(ed)
+		t.restrict = shapeRestricted()
+		// APHELION EDIT ADDITION END
 		t.dragging = true
 		t.start = coord
 		t.onMove(coord)
@@ -68,15 +104,77 @@ func (t *ToolFill) onMove(coord util.Point) {
 	t.fillArea.Y1 = float32(math.Min(float64(t.start.Y), float64(coord.Y)))
 	t.fillArea.X2 = float32(math.Max(float64(t.start.X), float64(coord.X)))
 	t.fillArea.Y2 = float32(math.Max(float64(t.start.Y), float64(coord.Y)))
+	// APHELION EDIT ADDITION START - SHARED SHAPES
+	d := t.shape
+	d.Width = int(t.fillArea.X2-t.fillArea.X1) + 1
+	d.Height = int(t.fillArea.Y2-t.fillArea.Y1) + 1
+	if d.Kind == editing.ShapeCircle {
+		d.Width = min(d.Width, d.Height)
+		d.Height = d.Width
+	}
+	selection, err := editing.ShapeSelection(d, util.Point{X: int(t.fillArea.X1), Y: int(t.fillArea.Y1), Z: t.start.Z})
+	if err == nil {
+		selection = editing.ClipSelection(selection, ed.Dmm().MaxX, ed.Dmm().MaxY)
+		if t.restrict {
+			selection = editing.CombineSelection(selection, t.restriction, editing.SelectionIntersect)
+		}
+		t.selection = selection
+	}
+	// APHELION EDIT ADDITION END
 }
 
 func (t *ToolFill) onStop(util.Point) {
 	if !t.active() {
 		return
 	}
+	// APHELION EDIT ADDITION START - RANDOM FILL
+	if t.random {
+		selection, anchor, palette, seed, density := t.selection, t.start, t.palette, t.seed, t.density
+		filter := t.filter
+		t.OnDeselect()
+		if owner, ok := ed.(interface {
+			StartRandomFillWithFilter(editing.Selection, editing.RandomPalette, uint64, float64, util.Point, dm.PathsFilter) error
+		}); ok {
+			if err := owner.StartRandomFillWithFilter(selection, palette, seed, density, anchor, filter); err != nil {
+				util.ShowErrorDialog(err.Error())
+			}
+			return
+		}
+		if owner, ok := ed.(randomFillOwner); ok {
+			if err := owner.StartRandomFill(selection, palette, seed, density, anchor); err != nil {
+				util.ShowErrorDialog(err.Error())
+			}
+		}
+		return
+	}
+	// APHELION EDIT ADDITION END
 
 	// Fill the area.
+	// APHELION EDIT ADDITION START - SHARED SHAPES
+	if _, ok := ed.(interface {
+		FillSelectionWithFilter(editing.Selection, *dmmprefab.Prefab, bool, dm.PathsFilter) error
+	}); ok {
+		if t.selection.Len() > 0 {
+			if err := fillShape(t.selection, t.prefab, t.replace, t.filter); err != nil {
+				util.ShowErrorDialog(err.Error())
+			}
+		}
+		t.OnDeselect()
+		return
+	}
+	// APHELION EDIT ADDITION END
 	if prefab, ok := ed.SelectedPrefab(); ok {
+		// APHELION EDIT ADDITION START - SHARED SHAPES
+		if t.shape.Kind != editing.ShapeRectangle || t.shape.Outline || t.restrict {
+			if t.selection.Len() > 0 {
+				if err := fillShape(t.selection, t.prefab, t.replace, t.filter); err != nil {
+					util.ShowErrorDialog(err.Error())
+				}
+			}
+			t.OnDeselect()
+			return
+		}
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - BOUNDED FILL
 		if owner, ok := ed.(interface {
 			TryScheduleFill(util.Bounds, int, *dmmprefab.Prefab, bool, bool) bool
@@ -140,3 +238,16 @@ func (t *ToolFill) onStop(util.Point) {
 func (t *ToolFill) active() bool {
 	return !t.start.Equals(0, 0, 0)
 }
+
+// APHELION EDIT ADDITION START - SHARED SHAPES
+func (t *ToolFill) OnDeselect() {
+	t.dragging = false
+	t.start = util.Point{}
+	t.selection = editing.Selection{}
+	t.restriction = editing.Selection{}
+	t.palette = editing.RandomPalette{}
+	t.prefab = nil
+	t.filter = dm.PathsFilter{}
+}
+
+// APHELION EDIT ADDITION END

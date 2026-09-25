@@ -6,6 +6,7 @@ import (
 	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	// APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
+	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/util"
 	// APHELION EDIT ADDITION END
 	"sdmm/internal/imguiext/icon"
@@ -156,11 +157,40 @@ func (p *PaneMap) showToolsPanel() {
 	}
 	// Paste controls follow the stable first row; progress belongs to the bubble.
 	p.showPastePlacementControls()
+	p.showShapeControls()
+	if tools.PreparingShape() {
+		imgui.Text("Preparing shape... Escape cancels")
+	}
+	p.showRandomFillControls()
+	if p.editor != nil {
+		imgui.Checkbox("Restrict to selection", &p.editor.WorkingSelection().Restrict)
+	}
+	if p.editor != nil && p.editor.WorkingSelection().Get(p.activeLevel).Len() != 0 {
+		w.Button("Clear selection", p.DoDeselect).Build()
+	}
 	if tools.IsSelected(tools.TNGrab) {
 		grab := tools.Selected().(*tools.ToolGrab)
+		if grab.SelectingArea() {
+			imgui.Text("Finding area selection... Escape cancels")
+		}
+		settings := p.app.Prefs().Mapper
+		if settings != nil {
+			grab.AreaMode, grab.AllMatchingAreas = settings.AreaMode, settings.AllMatchingAreas
+		}
 		imgui.Checkbox("Area selection", &grab.AreaMode)
 		if grab.AreaMode {
 			imgui.Checkbox("All matching areas on this level", &grab.AllMatchingAreas)
+		}
+		if settings != nil {
+			settings.AreaMode, settings.AllMatchingAreas = grab.AreaMode, grab.AllMatchingAreas
+		}
+		for op, label := range []string{"Replace", "Add", "Subtract", "Intersect"} {
+			if op > 0 {
+				imgui.SameLine()
+			}
+			if imgui.RadioButton(label+"##selection-operation", grab.SelectionOperation == editing.SelectionOperation(op)) {
+				grab.SelectionOperation = editing.SelectionOperation(op)
+			}
 		}
 	}
 	// APHELION EDIT ADDITION END

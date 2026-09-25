@@ -7,6 +7,16 @@ import (
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 )
 
+// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+func (p *PaneMap) RenderPolicyRevision() uint64 {
+	if filter := p.app.PathsFilter(); filter != nil {
+		return filter.PolicyRevision()
+	}
+	return 0
+}
+
+// APHELION EDIT ADDITION END
+
 func (p *PaneMap) ProcessUnit(u unit.Unit) bool {
 	if p.app.PathsFilter().IsHiddenPath(u.Instance().Prefab().Path()) {
 		return false

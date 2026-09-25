@@ -93,6 +93,9 @@ func (a *app) loadPreferencesConfig() {
 		cfg.Shortcuts = &hotkeys.Settings{}
 	}
 	shortcut.UseSettings(cfg.Shortcuts)
+	if cfg.Mapper == nil {
+		cfg.Mapper = &editing.MapperSettings{Density: 1, Seed: "1", Palette: editing.RandomPalette{Version: 1, Name: "Palette"}}
+	}
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION GRID STEP
 	cfg.Editor.SelectionMoveStep = editing.NormalizeSelectionMoveStep(cfg.Editor.SelectionMoveStep)

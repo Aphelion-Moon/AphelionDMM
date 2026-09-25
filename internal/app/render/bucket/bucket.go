@@ -1,6 +1,9 @@
 package bucket
 
 import (
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	"slices"
+	// APHELION EDIT ADDITION END
 	"sort"
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	"sdmm/internal/aphelion/diagnostics/uistage"
@@ -42,6 +45,16 @@ func (b *Bucket) UpdateLevel(dmm *dmmap.Dmm, levelValue int, tilesToUpdate []uti
 func (b *Bucket) Level(level int) *level.Level {
 	return b.levels[level]
 }
+
+// APHELION EDIT ADDITION START - OWNED MAP OPEN
+func (b *Bucket) Reset() { b.Levels = nil; b.levels = make(map[int]*level.Level) }
+
+func (b *Bucket) DropLevel(z int) {
+	delete(b.levels, z)
+	b.Levels = slices.DeleteFunc(b.Levels, func(level int) bool { return level == z })
+}
+
+// APHELION EDIT ADDITION END
 
 func (b *Bucket) getOrCreateLevel(dmm *dmmap.Dmm, levelValue int) *level.Level {
 	if l, ok := b.levels[levelValue]; ok {

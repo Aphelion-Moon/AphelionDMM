@@ -48,13 +48,23 @@ type ToolGrab struct {
 
 	mode tSelectMode
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
-	previewMove      *editing.SelectionMove
-	selectionHistory *editing.SelectionHistory
-	placement        *grabPlacement
-	selection        editing.Selection
-	selectionOwner   *dmmap.Dmm
-	AreaMode         bool
-	AllMatchingAreas bool
+	previewMove         *editing.SelectionMove
+	selectionHistory    *editing.SelectionHistory
+	placement           *grabPlacement
+	selection           editing.Selection
+	selectionOwner      *dmmap.Dmm
+	AreaMode            bool
+	AllMatchingAreas    bool
+	SelectionOperation  editing.SelectionOperation
+	selectionOperation  editing.SelectionOperation
+	gestureSelection    editing.Selection
+	selectionAnchor     util.Point
+	toggleClick         bool
+	ctrlSelection       bool
+	altSelection        bool
+	shape               editing.ShapeDescriptor
+	areaQuery           *editing.AreaSelectionQuery
+	areaQueryGeneration uint64
 	// APHELION EDIT ADDITION END
 }
 
@@ -70,7 +80,19 @@ func (t *ToolGrab) HasSelectedArea() bool {
 	return t.fillStart != util.Point{}
 }
 
+// APHELION EDIT ADDITION START - PERSISTENT SELECTION
 func (t *ToolGrab) Reset() {
+	// Explicit deselect is independent of cancellation/tool switching.
+	if source, ok := ed.(workingSelectionOwner); ok {
+		source.WorkingSelection().Clear(source.ActiveLevel())
+	}
+	t.resetGesture()
+}
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: func (t *ToolGrab) Reset() {
+func (t *ToolGrab) resetGesture() {
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	if t.placement != nil {
 		if t.placement.controller != nil {
@@ -85,6 +107,8 @@ func (t *ToolGrab) Reset() {
 	t.selectionHistory = nil
 	t.selection = editing.Selection{}
 	t.selectionOwner = nil
+	t.gestureSelection = editing.Selection{}
+	t.areaQuery = nil
 	if t.previewMove != nil {
 		if owner, ok := ed.(selectionMovePreviewOwner); ok {
 			_ = owner.FinishSelectionMovePreview(t.previewMove, true)
@@ -112,11 +136,12 @@ func newGrab() *ToolGrab {
 
 func (t *ToolGrab) Stale() bool {
 	// APHELION EDIT CHANGE - PASTE PLACEMENT - ORIGINAL: return !t.dragging
-	return !t.dragging && !t.Placing() && (t.previewMove == nil || t.previewMove.Closed())
+	return t.areaQuery == nil && !t.dragging && !t.Placing() && (t.previewMove == nil || t.previewMove.Closed())
 }
 
 func (ToolGrab) AltBehaviour() bool {
-	return false
+	// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: return false
+	return true
 }
 
 func (t *ToolGrab) SelectArea(tiles []util.Point) {
@@ -137,6 +162,7 @@ func (t *ToolGrab) SelectArea(tiles []util.Point) {
 	t.stopMoveArea()
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	t.mode = tSelectModeMoveArea
+	t.publishSelection()
 	// APHELION EDIT ADDITION END
 }
 
@@ -150,6 +176,9 @@ func (t *ToolGrab) PreSelectArea(tiles []util.Point) {
 }
 
 func (t *ToolGrab) process() {
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	t.processAreaQuery()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	t.processPlacement()
 	// APHELION EDIT ADDITION END
@@ -168,9 +197,25 @@ func (t *ToolGrab) process() {
 }
 
 func (t *ToolGrab) onStart(coord util.Point) {
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	if t.areaQuery != nil {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	if t.Placing() {
 		t.clickPlacement(coord)
+		return
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	t.gestureSelection = t.Selection()
+	if t.ctrlSelection || t.altSelection || t.SelectionOperation != editing.SelectionReplace {
+		op := t.SelectionOperation
+		if t.ctrlSelection {
+			op = editing.SelectionAdd
+		}
+		t.startSelectionGesture(coord, op, t.altSelection || t.AreaMode && !t.ctrlSelection, t.ctrlSelection && !t.altSelection)
 		return
 	}
 	// APHELION EDIT ADDITION END
@@ -185,6 +230,11 @@ func (t *ToolGrab) onStart(coord util.Point) {
 }
 
 func (t *ToolGrab) startSelectArea(coord util.Point) {
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	t.startSelectionGesture(coord, editing.SelectionReplace, t.AreaMode, false)
+	return
+	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - PERSISTENT SELECTION
 	t.Reset()
 	// APHELION EDIT ADDITION START - AREA SELECTION
 	if t.AreaMode {
@@ -203,6 +253,7 @@ func (t *ToolGrab) startSelectArea(coord util.Point) {
 	// APHELION EDIT ADDITION END
 	t.fillStart = coord
 	t.onMove(coord)
+	APHELION EDIT REMOVAL END */
 }
 
 func (t *ToolGrab) startMoveArea(coord util.Point) {
@@ -228,20 +279,51 @@ func (t *ToolGrab) startMoveArea(coord util.Point) {
 }
 
 func (t *ToolGrab) onMove(coord util.Point) {
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	if t.areaQuery != nil {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	if t.Placing() {
 		t.UpdatePlacement(coord)
 		return
 	}
 	// APHELION EDIT ADDITION END
-	if !t.active() {
+	// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: if !t.active() {
+	if !t.active() && !t.dragging {
 		return
 	}
 
 	switch t.mode {
 	case tSelectModeSelectArea:
+		/* APHELION EDIT REMOVAL START - PERSISTENT SELECTION
 		x, y := float64(t.fillStart.X), float64(t.fillStart.Y)
 		t.selectArea(x, y, x, y, coord)
+		APHELION EDIT REMOVAL END */
+		// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+		anchor := t.selectionAnchor
+		area := util.Bounds{X1: float32(anchor.X), Y1: float32(anchor.Y), X2: float32(coord.X), Y2: float32(coord.Y)}
+		selection := editing.RectangleSelection(area, anchor.Z)
+		if t.shape.Kind != editing.ShapeRectangle || t.shape.Outline {
+			d := t.shape
+			bounds := selection.Bounds()
+			d.Width = int(bounds.X2-bounds.X1) + 1
+			d.Height = int(bounds.Y2-bounds.Y1) + 1
+			if d.Kind == editing.ShapeCircle {
+				d.Width = min(d.Width, d.Height)
+				d.Height = d.Width
+			}
+			if shaped, err := editing.ShapeSelection(d, util.Point{X: int(bounds.X1), Y: int(bounds.Y1), Z: anchor.Z}); err == nil {
+				selection = shaped
+			}
+		}
+		op := t.selectionOperation
+		if t.toggleClick && coord == anchor && t.gestureSelection.Contains(coord) {
+			op = editing.SelectionSubtract
+		}
+		t.setSelection(editing.CombineSelection(t.gestureSelection, selection, op))
+		// APHELION EDIT ADDITION END
 	case tSelectModeMoveArea:
 		t.moveArea(coord)
 	}
@@ -318,7 +400,14 @@ func (t *ToolGrab) moveArea(coord util.Point) {
 }
 
 func (t *ToolGrab) onStop(util.Point) {
-	if !t.active() {
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	if t.areaQuery != nil {
+		t.dragging = false
+		return
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: if !t.active() {
+	if !t.active() && !t.dragging {
 		return
 	}
 
@@ -350,6 +439,9 @@ func (t *ToolGrab) onStop(util.Point) {
 	}
 
 	t.dragging = false
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	t.publishSelection()
+	// APHELION EDIT ADDITION END
 }
 
 func (t *ToolGrab) stopSelectArea() {
@@ -378,7 +470,8 @@ func (t *ToolGrab) OnDeselect() {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	t.Reset()
+	// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: t.Reset()
+	t.CancelGesture()
 }
 
 func (t *ToolGrab) active() bool {
@@ -422,6 +515,9 @@ func (t *ToolGrab) setSelection(s editing.Selection) {
 	t.fillAreaInit = s.Bounds()
 	t.fillStart = util.Point{X: int(s.Bounds().X1), Y: int(s.Bounds().Y1), Z: s.Level()}
 	t.initTiles = nil
+	if s.Len() == 0 {
+		t.fillStart = util.Point{}
+	}
 }
 func (t *ToolGrab) SelectMask(points []util.Point) error {
 	s, err := editing.MaskSelection(points)
@@ -433,6 +529,7 @@ func (t *ToolGrab) SelectMask(points []util.Point) error {
 		t.setSelection(s)
 		t.mode = tSelectModeMoveArea
 	}
+	t.publishSelection()
 	return nil
 }
 

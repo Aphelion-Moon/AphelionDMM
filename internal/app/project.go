@@ -136,6 +136,9 @@ func (a *app) forceLoadEnvironment(path string, callback func()) {
 		a.projectConfig().AddProject(path)
 		a.loadedEnvironment = env
 		a.pathsFilter = newPathsFilter(env)
+		// APHELION EDIT ADDITION START - FILTER PROFILES
+		a.layout.Environment.BindFilterEnvironment(env)
+		// APHELION EDIT ADDITION END
 
 		dmicon.Cache.SetRootDirPath(env.RootDir)
 		dmmap.Init(env)
@@ -229,7 +232,11 @@ func makeLoadingDialog(path string) dialog.Type {
 // Configure paths filter to access a newly opened environment.
 func newPathsFilter(env *dmenv.Dme) *dm.PathsFilter {
 	return dm.NewPathsFilter(func(path string) []string {
-		return env.Objects[path].DirectChildren
+		// APHELION EDIT CHANGE - FILTER PROFILES - ORIGINAL: return env.Objects[path].DirectChildren
+		if object := env.Objects[path]; object != nil {
+			return object.DirectChildren
+		}
+		return nil
 	})
 }
 

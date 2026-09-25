@@ -91,12 +91,12 @@ func TestHeldToolsRespectGrabMouseOwnership(t *testing.T) {
 	io.KeyRelease(int(glfw.KeyS))
 	io.KeyRelease(int(glfw.KeyD))
 	frame(false, 2, 2)
-	// A fresh key press now owns temporary selection and clears Grab geometry,
+	// A fresh key press now owns the temporary tool, preserving Grab membership,
 	// but it must not alter the completed map operation or its undo history.
 	io.KeyPress(int(glfw.KeyS))
 	frame(false, 2, 2)
-	if !tools.IsSelected(tools.TNPick) || grab.HasSelectedArea() {
-		t.Fatal("fresh S press did not select Pick and clear Grab")
+	if !tools.IsSelected(tools.TNPick) || !grab.HasSelectedArea() {
+		t.Fatal("fresh S press did not select Pick and preserve Grab")
 	}
 	io.KeyPress(int(glfw.KeyD))
 	frame(false, 2, 2)

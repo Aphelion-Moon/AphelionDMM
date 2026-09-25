@@ -10,6 +10,9 @@ import (
 // PickAt follows the same layer/chunk/unit order as drawing. It deliberately
 // excludes presentation sprites and does not invoke mutating hover callbacks.
 func (r *Render) PickAt(x, y, level int, eligible func(*dmminstance.Instance) bool) *dmminstance.Instance {
+	if !r.LevelReady(level) {
+		return nil
+	}
 	visible := r.bucket.Level(level)
 	if visible == nil {
 		return nil

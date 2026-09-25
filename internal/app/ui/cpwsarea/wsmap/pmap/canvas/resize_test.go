@@ -1,6 +1,7 @@
 package canvas
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
 	"os"
@@ -10,7 +11,15 @@ import (
 	"github.com/SpaiR/imgui-go"
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
+	"sdmm/internal/aphelion/rendercache"
+	"sdmm/internal/app/render"
 	"sdmm/internal/app/render/brush"
+	"sdmm/internal/app/render/bucket/level/chunk"
+	"sdmm/internal/app/render/bucket/level/chunk/unit"
+	"sdmm/internal/dmapi/dmmap"
+	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
+	"sdmm/internal/dmapi/dmmap/dmminstance"
+	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 )
 
@@ -132,6 +141,177 @@ func TestCanvasResizePixelsAndAllocation(t *testing.T) {
 		t.Fatalf("canvas resize allocates pixel-sized CPU storage: %d bytes/iteration", bytes)
 	}
 }
+
+// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+func TestRetainedBrushSubmissionMatchesStreamPainterOrder(t *testing.T) {
+	resizeContext(t)
+	c := resizeCanvas(t)
+	size := imgui.Vec2{X: 16, Y: 16}
+	c.Process(size)
+	reset := func() {
+		gl.BindFramebuffer(gl.FRAMEBUFFER, c.frameBuffer)
+		gl.Viewport(0, 0, int32(size.X), int32(size.Y))
+		gl.ClearColor(1, 0, 1, 1)
+		gl.Clear(gl.COLOR_BUFFER_BIT)
+	}
+	base := func() { brush.RectFilled(2, 2, 8, 8, util.MakeColor(1, 0, 0, 1)) }
+	blueOverlay := func() { brush.RectFilled(5, 5, 10, 10, util.MakeColor(0, 0, 1, 1)) }
+	const shiftX, shiftY, scale = 2.0, 1.0, 1.25
+
+	reset()
+	base()
+	blueOverlay()
+	brush.Draw(size.X, size.Y, shiftX, shiftY, scale)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	want := c.ReadPixels()
+
+	submission := brush.CaptureSubmission(base)
+	if submission == nil {
+		t.Fatal("base primitives produced no retained submission")
+	}
+	cache := rendercache.New()
+	key := rendercache.Key{Chunk: chunk.New(1, 1, 1, 1, 32), Layer: rendercache.LayerKey(1)}
+	versions := rendercache.Versions{Chunk: 1, Policy: 2, Appearance: 3}
+	if !cache.Put(key, versions, submission) {
+		t.Fatal("retained submission was not stored")
+	}
+	entry, ok := cache.Get(key, versions)
+	if !ok || entry.Submission != submission {
+		t.Fatal("unchanged cache key did not reuse the retained submission")
+	}
+	defer func() { cache.Clear(); cache.DisposeRetired() }()
+	reset()
+	entry.Submission.Draw(size.X, size.Y, shiftX, shiftY, scale)
+	blueOverlay()
+	brush.Draw(size.X, size.Y, shiftX, shiftY, scale)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	got := c.ReadPixels()
+	if !bytes.Equal(got, want) {
+		t.Fatal("retained static submission changed pixels or painter order")
+	}
+	if code := gl.GetError(); code != gl.NO_ERROR {
+		t.Fatalf("GL error after retained submission: 0x%x", code)
+	}
+}
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT ADDITION START - RETAINED RENDER CACHE COUNTERS
+
+type retainedTestPolicy struct {
+	revision uint64
+	visible  bool
+}
+
+func (p *retainedTestPolicy) ProcessUnit(unit.Unit) bool   { return p.visible }
+func (p *retainedTestPolicy) RenderPolicyRevision() uint64 { return p.revision }
+
+func retainedTestPrefab(color string) *dmmprefab.Prefab {
+	vars := &dmvars.MutableVariables{}
+	vars.Put("color", color)
+	vars.Put("layer", "1")
+	vars.Put("alpha", "255")
+	return dmmprefab.New(dmmprefab.IdNone, "/obj/retained-cache-test", vars.ToImmutable())
+}
+
+func retainedTestMap() (*dmmap.Dmm, *dmminstance.Instance) {
+	point := util.Point{X: 1, Y: 1, Z: 1}
+	tile := &dmmap.Tile{Coord: point}
+	instance := dmminstance.New(point, retainedTestPrefab(`"#ff0000"`))
+	tile.Set(dmmap.Instances{instance})
+	return &dmmap.Dmm{MaxX: 1, MaxY: 1, MaxZ: 1, Tiles: []*dmmap.Tile{tile}}, instance
+}
+
+func TestRetainedRenderCacheWarmReuseAndInvalidation(t *testing.T) {
+	resizeContext(t)
+	previousIconSize := dmmap.WorldIconSize
+	dmmap.WorldIconSize = 32
+	t.Cleanup(func() { dmmap.WorldIconSize = previousIconSize })
+
+	c := resizeCanvas(t)
+	r := c.Render()
+	defer r.ReleaseRetainedSubmissions()
+	size := imgui.Vec2{X: 96, Y: 96}
+	dmm, instance := retainedTestMap()
+	r.SetActiveLevel(dmm, 1)
+	r.UpdateBucketV(dmm, 1, nil)
+
+	// A ready empty presentation selects the existing stream renderer while
+	// producing no ghost geometry, giving the same scene a native baseline.
+	streamFrame := func() []byte {
+		r.SetPresentation(&render.Presentation{Anchor: util.Point{Z: 1}, Ready: true})
+		c.Process(size)
+		pixels := c.ReadPixels()
+		r.SetPresentation(nil)
+		return pixels
+	}
+	baseline := streamFrame()
+	if got := r.RetainedCacheStats(); got.Builds != 0 || got.UploadBytes != 0 {
+		t.Fatalf("stream baseline unexpectedly built retained geometry: %+v", got)
+	}
+
+	c.Process(size)
+	warmPixels := c.ReadPixels()
+	if !bytes.Equal(warmPixels, baseline) {
+		t.Fatal("retained Render.Draw changed native pixels from stream baseline")
+	}
+	warm := r.RetainedCacheStats()
+	if warm.Builds != 1 || warm.UploadBytes == 0 {
+		t.Fatalf("first retained draw did not record one static upload: %+v", warm)
+	}
+
+	c.Process(size)
+	if got := r.RetainedCacheStats(); got.Builds != warm.Builds || got.UploadBytes != warm.UploadBytes || got.Hits <= warm.Hits {
+		t.Fatalf("unchanged warm draw rebuilt or uploaded geometry: before=%+v after=%+v", warm, got)
+	}
+
+	// Camera state belongs to the draw transform, not the map-space cache key.
+	r.Camera.Translate(8, 4)
+	cameraBaseline := streamFrame()
+	c.Process(size)
+	if got := c.ReadPixels(); !bytes.Equal(got, cameraBaseline) {
+		t.Fatal("camera movement changed retained pixels from stream baseline")
+	}
+	cameraStats := r.RetainedCacheStats()
+	if cameraStats.Builds != warm.Builds || cameraStats.UploadBytes != warm.UploadBytes || cameraStats.Hits <= warm.Hits {
+		t.Fatalf("camera movement rebuilt a valid map-space submission: before=%+v after=%+v", warm, cameraStats)
+	}
+
+	policy := &retainedTestPolicy{revision: 1, visible: true}
+	r.SetUnitProcessor(policy)
+	c.Process(size)
+	policyWarm := r.RetainedCacheStats()
+	policy.visible = false
+	policy.revision++
+	policyBaseline := streamFrame()
+	c.Process(size)
+	if got := c.ReadPixels(); !bytes.Equal(got, policyBaseline) {
+		t.Fatal("policy change failed to reproduce stream-rendered pixels")
+	}
+	policyChanged := r.RetainedCacheStats()
+	if policyChanged.Invalidations != policyWarm.Invalidations+1 || policyChanged.Builds != policyWarm.Builds+1 {
+		t.Fatalf("policy revision did not invalidate and rebuild one chunk-layer: before=%+v after=%+v", policyWarm, policyChanged)
+	}
+
+	// Start a fresh default-policy cache, then change the existing map object
+	// and rebuild just its owning chunk to exercise the chunk revision fence.
+	r.SetUnitProcessor(nil)
+	c.Process(size)
+	editWarm := r.RetainedCacheStats()
+	instance.SetPrefab(retainedTestPrefab(`"#00ff00"`))
+	r.UpdateBucketV(dmm, 1, []util.Point{{X: 1, Y: 1, Z: 1}})
+	editBaseline := streamFrame()
+	c.Process(size)
+	if got := c.ReadPixels(); !bytes.Equal(got, editBaseline) {
+		t.Fatal("chunk edit failed to reproduce stream-rendered pixels")
+	}
+	editChanged := r.RetainedCacheStats()
+	if editChanged.Invalidations != editWarm.Invalidations+1 || editChanged.Builds != editWarm.Builds+1 {
+		t.Fatalf("chunk revision did not invalidate and rebuild one chunk-layer: before=%+v after=%+v", editWarm, editChanged)
+	}
+}
+
+// APHELION EDIT ADDITION END - RETAINED RENDER CACHE COUNTERS
 
 // One process selects one fixed fixture size. Alternate dimensions force every
 // timed Canvas.Process call to resize; Finish includes completion of GPU work.

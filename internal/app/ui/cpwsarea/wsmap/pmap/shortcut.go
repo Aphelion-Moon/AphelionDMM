@@ -1,6 +1,10 @@
 package pmap
 
 import (
+	// APHELION EDIT ADDITION START - FILTER PROFILES
+	"sdmm/internal/aphelion/filterprofiles"
+	"sdmm/internal/util"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/app/ui/shortcut"
 	"sdmm/internal/platform"
@@ -166,27 +170,46 @@ func (p *PaneMap) addShortcuts() {
 
 func (p *PaneMap) doToggleArea() {
 	log.Print("do toggle /area")
-	p.app.PathsFilter().TogglePath("/area")
+	// APHELION EDIT CHANGE - FILTER PROFILES - ORIGINAL: p.app.PathsFilter().TogglePath("/area")
+	if err := filterprofiles.Toggle(p.app, p.app.PathsFilter(), "/area"); err != nil {
+		util.ShowErrorDialog(err.Error())
+	}
 }
 
 func (p *PaneMap) doToggleTurf() {
 	log.Print("do toggle /turf")
-	p.app.PathsFilter().TogglePath("/turf")
+	// APHELION EDIT CHANGE - FILTER PROFILES - ORIGINAL: p.app.PathsFilter().TogglePath("/turf")
+	if err := filterprofiles.Toggle(p.app, p.app.PathsFilter(), "/turf"); err != nil {
+		util.ShowErrorDialog(err.Error())
+	}
 }
 
 func (p *PaneMap) doToggleObject() {
 	log.Print("do toggle /obj")
-	p.app.PathsFilter().TogglePath("/obj")
+	// APHELION EDIT CHANGE - FILTER PROFILES - ORIGINAL: p.app.PathsFilter().TogglePath("/obj")
+	if err := filterprofiles.Toggle(p.app, p.app.PathsFilter(), "/obj"); err != nil {
+		util.ShowErrorDialog(err.Error())
+	}
 }
 
 func (p *PaneMap) doToggleMob() {
 	log.Print("do toggle /mob")
-	p.app.PathsFilter().TogglePath("/mob")
+	// APHELION EDIT CHANGE - FILTER PROFILES - ORIGINAL: p.app.PathsFilter().TogglePath("/mob")
+	if err := filterprofiles.Toggle(p.app, p.app.PathsFilter(), "/mob"); err != nil {
+		util.ShowErrorDialog(err.Error())
+	}
 }
 
 func (p *PaneMap) DoDeselect() {
 	log.Print("do deselect")
-	tools.Tools()[tools.TNGrab].OnDeselect()
+	// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: tools.Tools()[tools.TNGrab].OnDeselect()
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	grab := tools.Tools()[tools.TNGrab].(*tools.ToolGrab)
+	grab.OnDeselect()
+	if !grab.Placing() {
+		grab.Reset()
+	}
+	// APHELION EDIT ADDITION END
 }
 
 func (p *PaneMap) doMoveCameraUp() {

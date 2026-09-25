@@ -10,12 +10,14 @@ import (
 // their coordinates. The editor/tool owning it supplies document identity.
 // Bounds never grant permission to write a hole in a mask.
 type Selection struct {
-	area    util.Bounds
-	z       int
-	points  []util.Point
-	members map[util.Point]struct{}
-	offset  util.Point
-	runs    []util.Bounds
+	area     util.Bounds
+	z        int
+	points   []util.Point
+	members  map[util.Point]struct{}
+	offset   util.Point
+	runs     []util.Bounds
+	runBased bool
+	runCount int
 }
 
 func RectangleSelection(area util.Bounds, z int) Selection {
@@ -66,8 +68,11 @@ func MaskSelection(points []util.Point) (Selection, error) {
 }
 func (s Selection) Bounds() util.Bounds { return s.area }
 func (s Selection) Level() int          { return s.z }
-func (s Selection) Sparse() bool        { return s.members != nil }
+func (s Selection) Sparse() bool        { return s.members != nil || s.runBased }
 func (s Selection) Len() int {
+	if s.runBased {
+		return s.runCount
+	}
 	if s.Sparse() {
 		return len(s.points)
 	}
@@ -77,6 +82,19 @@ func (s Selection) Len() int {
 	return (int(s.area.X2-s.area.X1) + 1) * (int(s.area.Y2-s.area.Y1) + 1)
 }
 func (s Selection) Contains(p util.Point) bool {
+	if s.runBased {
+		if p.Z != s.z {
+			return false
+		}
+		p = p.Minus(s.offset)
+		i := sort.Search(len(s.runs), func(i int) bool { return s.runs[i].X1 >= float32(p.X) })
+		for ; i < len(s.runs) && s.runs[i].X1 == float32(p.X); i++ {
+			if s.runs[i].Contains(float32(p.X), float32(p.Y)) {
+				return true
+			}
+		}
+		return false
+	}
 	if s.Sparse() {
 		_, ok := s.members[p.Minus(s.offset)]
 		return ok
@@ -84,6 +102,14 @@ func (s Selection) Contains(p util.Point) bool {
 	return p.Z == s.z && s.z != 0 && s.area.Contains(float32(p.X), float32(p.Y))
 }
 func (s Selection) Visit(visit func(util.Point)) {
+	if s.runBased {
+		s.VisitRuns(func(r util.Bounds) {
+			for y := int(r.Y1); y <= int(r.Y2); y++ {
+				visit(util.Point{X: int(r.X1), Y: y, Z: s.z})
+			}
+		})
+		return
+	}
 	if s.Sparse() {
 		for _, p := range s.points {
 			visit(p.Plus(s.offset))

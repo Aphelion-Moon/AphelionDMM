@@ -148,6 +148,11 @@ func newNativeMapWorkspace(t *testing.T, sourcePath, dmePath string) (*wsmap.WsM
 	a := &mouseNetworkApp{environment: environment, commands: command.NewStorage(), queued: make(chan struct{}, 8)}
 	a.commands.SetStack(path)
 	ws := wsmap.New(a, m)
+	// These gesture fixtures start with warm geometry. Prepared-open has a
+	// separate cold scheduler test; production advances work in WsArea.
+	for !ws.Map().Canvas().Render().LevelReady(1) {
+		ws.Map().Canvas().Render().ProcessLevelBuild()
+	}
 	t.Cleanup(func() { ws.Map().OnDeactivate(); ws.Dispose(); window.DrainFrameJobsForTest() })
 	ws.Map().OnActivate()
 	io := imgui.CurrentIO()
@@ -461,6 +466,7 @@ func mouseWorkspaceFrame(t *testing.T, ws *wsmap.WsMap, mouse func(uint, uint)) 
 		window.DrainFrameJobsForTest()
 		pane.Editor().ProcessCollaborationUpdates()
 		pane.Editor().ProcessPasteWork()
+		pane.Canvas().Render().ProcessLevelBuild()
 		window.RunRepeatJobsForTest()
 		imgui.SetNextWindowPos(imgui.Vec2{})
 		imgui.SetNextWindowSize(imgui.Vec2{X: 128, Y: 128})

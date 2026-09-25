@@ -56,7 +56,7 @@ func TestSearchOversizedSubmissionRetainsDraftAndAllowsRetry(t *testing.T) {
 	}
 	// Reuse the same executor after reconnection; the smaller action must keep
 	// the ordinary one-operation history and actor-scoped inverse path.
-	transport := &selectionTransport{sent: make(chan protocol.ClientEnvelope, 8)}
+	transport := &selectionTransport{sent: make(chan protocol.ClientEnvelope, 8), ws: ws, app: app}
 	network.Suspend(nil)
 	if err := network.Resume(transport); err != nil {
 		t.Fatal(err)

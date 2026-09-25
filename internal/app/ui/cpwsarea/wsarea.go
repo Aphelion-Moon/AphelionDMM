@@ -51,6 +51,9 @@ type WsArea struct {
 	activeWsContentId string
 
 	workspaces []*workspace.Workspace
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	levelBuildCursor int
+	// APHELION EDIT ADDITION END
 }
 
 // APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP

@@ -56,7 +56,9 @@ func TestNativeUIStageTrace(t *testing.T) {
 	}
 	workload.End()
 	trace.Stop()
-	for _, name := range []uistage.Stage{uistage.CaptureTile, uistage.Commit, uistage.Dispatch, uistage.Refresh, uistage.BucketBuild, uistage.CanvasDraw} {
+	// Nudge submits an immutable proposal through the local worker. Its stages
+	// differ from the legacy speculative capture/network-dispatch path.
+	for _, name := range []uistage.Stage{uistage.LocalPrepare, uistage.LocalApply, uistage.LocalRefresh, uistage.BucketBuild, uistage.CanvasDraw} {
 		if !bytes.Contains(data.Bytes(), []byte(name)) {
 			t.Errorf("native workload did not emit stage %q", name)
 		}

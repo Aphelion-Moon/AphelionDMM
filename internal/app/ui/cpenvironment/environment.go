@@ -1,6 +1,9 @@
 package cpenvironment
 
 import (
+	// APHELION EDIT ADDITION START - FILTER PROFILES
+	"sdmm/internal/aphelion/filterprofiles"
+	// APHELION EDIT ADDITION END
 	"strings"
 
 	"sdmm/internal/app/config"
@@ -53,6 +56,15 @@ type Environment struct {
 	component.Component
 
 	app App
+	// APHELION EDIT ADDITION START - FILTER PROFILES
+	filterProfileMissing                                                                  string
+	filterProfiles                                                                        filterprofiles.Session
+	filterProfileEnvironment                                                              *dmenv.Dme
+	filterProfileProjectKey                                                               string
+	filterProfileChoice, filterProfileName, filterProfileStatus, filterProfileConfigError string
+	filterCompileGeneration                                                               uint64
+	filterCompilePending                                                                  bool
+	// APHELION EDIT ADDITION END
 
 	shortcuts shortcut.Shortcuts
 
@@ -105,6 +117,7 @@ APHELION EDIT REMOVAL END */
 
 // APHELION EDIT ADDITION START - OBJECT TREE FILTER CLIPPING
 func (e *Environment) Free() {
+	e.invalidateFilterProfiles()
 	e.treeId++
 	e.treeNodes = make(map[string]*treeNode)
 	e.filteredTreeNodes = nil

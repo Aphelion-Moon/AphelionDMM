@@ -12,6 +12,7 @@ import (
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 	collabui "sdmm/internal/aphelion/collab/ui"
+	"sdmm/internal/aphelion/filterprofiles"
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/render"
 	"sdmm/internal/app/ui/cpwsarea/wsmap"
@@ -189,6 +190,23 @@ func (a *app) CommandStorage() *command.Storage {
 func (a *app) PathsFilter() *dm.PathsFilter {
 	return a.pathsFilter
 }
+
+// APHELION EDIT ADDITION START - FILTER PROFILES
+// SetFilterVisibility applies an idempotent local view action through the profile session.
+func (a *app) SetFilterVisibility(path string, scope filterprofiles.Scope, visible bool) error {
+	environment := a.LoadedEnvironment()
+	if environment == nil || scope == filterprofiles.ScopeSubtree && environment.Objects[path] == nil {
+		return fmt.Errorf("type %q is not present in the loaded environment", path)
+	}
+	if a.pathsFilter == nil {
+		return errors.New("visibility filter is unavailable")
+	}
+	return a.layout.Environment.SetFilterVisibility(path, scope, visible)
+}
+
+func (a *app) ShowAllFilterVisibility() error { return a.layout.Environment.ShowAllFilterVisibility() }
+
+// APHELION EDIT ADDITION END
 
 // Clipboard returns *dmmap.Clipboard for the application.
 func (a *app) Clipboard() *dmmclip.Clipboard {

@@ -102,6 +102,7 @@ func TestNativeWorkspaceLifecycle(t *testing.T) {
 			imgui.SetNextWindowFocus()
 			imgui.BeginV("Workspace lifetime probe", nil, imgui.WindowFlagsNoTitleBar|imgui.WindowFlagsNoResize|imgui.WindowFlagsNoMove|imgui.WindowFlagsNoScrollbar)
 			current.Process()
+			current.Map().Canvas().Render().ProcessLevelBuild()
 			imgui.End()
 		}
 	}})

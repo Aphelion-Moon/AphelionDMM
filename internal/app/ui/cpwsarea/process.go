@@ -1,6 +1,9 @@
 package cpwsarea
 
 import (
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	"sdmm/internal/app/render"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/workspace"
 
 	"github.com/SpaiR/imgui-go"
@@ -15,10 +18,38 @@ func (w *WsArea) Process(dockId int32) {
 	}
 
 	w.processWorkspaces(int(dockId))
+	// APHELION EDIT ADDITION START - OWNED MAP OPEN
+	w.processLevelBuilds()
+	// APHELION EDIT ADDITION END
 
 	w.switchFocusedWorkspace(tmpFocusedWs)
 	tmpFocusedWs = nil
 }
+
+// APHELION EDIT ADDITION START - OWNED MAP OPEN
+func (w *WsArea) processLevelBuilds() {
+	if len(w.workspaces) == 0 {
+		return
+	}
+	b := render.NewLevelBuildBudget()
+	cursor := w.levelBuildCursor % len(w.workspaces)
+	idle := 0
+	for b.Available() && idle < len(w.workspaces) {
+		ws := w.workspaces[cursor]
+		processor, ok := ws.Content().(interface {
+			ProcessLevelBuildBudget(*render.LevelBuildBudget) bool
+		})
+		if ok && processor.ProcessLevelBuildBudget(b) {
+			idle = 0
+		} else {
+			idle++
+		}
+		cursor = (cursor + 1) % len(w.workspaces)
+	}
+	w.levelBuildCursor = cursor
+}
+
+// APHELION EDIT ADDITION END
 
 func (w *WsArea) processWorkspaces(dockId int) {
 	var workspacesToClose []*workspace.Workspace

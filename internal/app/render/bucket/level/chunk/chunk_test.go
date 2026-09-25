@@ -52,6 +52,25 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+func TestChunkRevisionAdvancesAfterGeometryRebuild(t *testing.T) {
+	dmm := newChunkTestMap(1, 1, 1)
+	c := New(1, 1, 1, 1, 32)
+	if c.Revision() != 0 {
+		t.Fatalf("initial revision=%d, want 0", c.Revision())
+	}
+	c.Update(dmm, 1)
+	if c.Revision() != 1 {
+		t.Fatalf("revision after first rebuild=%d, want 1", c.Revision())
+	}
+	c.Update(dmm, 1)
+	if c.Revision() != 2 {
+		t.Fatalf("revision after second rebuild=%d, want 2", c.Revision())
+	}
+}
+
+// APHELION EDIT ADDITION END
+
 func TestUpdateIncludesSpriteOverhangAndRebuildsBoundsPerLevel(t *testing.T) {
 	if chunkTestWindow == nil {
 		t.Skip("set APHELIONDMM_GL_TEST=1 for the native sprite-bounds fixture")

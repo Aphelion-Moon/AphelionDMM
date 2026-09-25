@@ -10,6 +10,7 @@ import (
 
 	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/diagnostics/uistage"
 	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/app/render/bucket/level/chunk"
 	"sdmm/internal/util"
@@ -52,13 +53,17 @@ func (e *Editor) startLocalWork(execution localEditExecutor, applyDisplay bool, 
 		}
 		var changes []model.TileChange
 		if err == nil {
+			stage := uistage.Begin(uistage.LocalPrepare)
 			changes, err = prepare(ctx, reservation)
+			stage.End()
 		}
 		if err == nil {
 			err = reservation.Resize(localChangesBytes(changes))
 		}
 		if err == nil {
+			stage := uistage.Begin(uistage.LocalApply)
 			w.accepted, err = execution.ApplyLocal(ctx, engine.LocalRequest{Version: version, Changes: changes})
+			stage.End()
 		}
 		if err == nil {
 			// Adjacent installation groups refresh each affected render chunk once.
@@ -92,6 +97,7 @@ func (e *Editor) startLocalWork(execution localEditExecutor, applyDisplay bool, 
 }
 
 func (e *Editor) continueLocalWork(w *localWork) {
+	defer uistage.Begin(uistage.LocalRefresh).End()
 	if e.localWork != w || w.generation != e.attachmentGeneration || e.mapViewClosed {
 		e.finishLocalWork(w, fmt.Errorf("editor ownership changed"))
 		return

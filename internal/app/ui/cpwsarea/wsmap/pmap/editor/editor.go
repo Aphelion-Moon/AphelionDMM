@@ -45,10 +45,12 @@ type Editor struct {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 	selectionMove           *editing.Move
+	workingSelection        editing.WorkingSelection
 	selectionMoveGeneration uint64
 	selectionMovePreview    *selectionMoveSession
 	selectionOutcome        func(bool)
 	paste                   *pasteSession
+	randomFill              *randomFillDefinition
 	heldPresentation        *heldPresentation
 	// APHELION EDIT ADDITION START - BYTE-BOUNDED EDIT WORK
 	workBudget *resources.Budget

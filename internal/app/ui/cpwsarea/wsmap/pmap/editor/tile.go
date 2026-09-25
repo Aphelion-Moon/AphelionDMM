@@ -19,6 +19,7 @@ func (e *Editor) TileCopySelected() {
 	}
 	// APHELION EDIT ADDITION END
 	e.app.Clipboard().Copy(e.app.PathsFilter(), e.dmm, tools.SelectedTiles())
+	e.app.Clipboard().SetEnvironmentHash(e.authoritative.EnvironmentHash)
 }
 
 // TilePasteSelected does a paste to the currently hovered tile.
@@ -107,7 +108,7 @@ func (e *Editor) TileCutSelected() {
 // Respects a dm.PathsFilter state.
 func (e *Editor) TileDeleteSelected() {
 	// APHELION EDIT ADDITION START - LOCAL BULK PREPARATION
-	if grab, ok := tools.Selected().(*tools.ToolGrab); ok && grab.HasSelectedArea() && e.tryScheduleSelectionDelete(grab.Selection()) {
+	if selection := tools.SelectionForEditor(e); selection.Len() > 0 && e.tryScheduleSelectionDelete(selection) {
 		return
 	}
 	// APHELION EDIT ADDITION END

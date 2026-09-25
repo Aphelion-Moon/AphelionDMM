@@ -35,7 +35,7 @@ func (t *ToolGrab) PlacementError() error {
 }
 
 func (t *ToolGrab) StartPlacement(owner editor, move *editing.Move, coord util.Point) {
-	t.Reset()
+	t.resetGesture()
 	t.placement = &grabPlacement{owner: owner, move: move}
 	t.UpdatePlacement(coord)
 }
@@ -45,7 +45,7 @@ func (t *ToolGrab) StartPreparedPlacement(owner editor, coord util.Point) bool {
 	if !ok {
 		return false
 	}
-	t.Reset()
+	t.resetGesture()
 	t.placement = &grabPlacement{owner: owner, controller: controller}
 	t.UpdatePlacement(coord)
 	return true
@@ -58,7 +58,7 @@ func (t *ToolGrab) UpdatePlacement(coord util.Point) {
 	}
 	if p.controller != nil {
 		if p.controller.PastePlacementClosed() || ed != p.owner {
-			t.Reset()
+			t.CancelGesture()
 			return
 		}
 		p.last = coord
@@ -71,7 +71,7 @@ func (t *ToolGrab) UpdatePlacement(coord util.Point) {
 		return
 	}
 	if p.move.Closed() {
-		t.Reset()
+		t.CancelGesture()
 		return
 	}
 	if p.last == coord && p.controller == nil {
@@ -117,6 +117,7 @@ func (t *ToolGrab) ConfirmPlacement() bool {
 	t.capturePlacementSelection(p)
 	history := editing.NewMaskSelectionHistory(t.Selection())
 	t.selectionHistory = history
+	t.publishSelection()
 	changed := func(applied bool) {
 		if !applied && ed == p.owner && t.selectionHistory == history && !t.Placing() && !t.dragging {
 			t.Reset()
@@ -156,8 +157,13 @@ func (t *ToolGrab) confirmPreparedIntent(p *grabPlacement) bool {
 			t.capturePlacementSelection(p)
 			history = editing.NewMaskSelectionHistory(t.Selection())
 			t.selectionHistory = history
+			t.publishSelection()
 		} else if !applied && ed == p.owner && (t.placement == p || history != nil && t.selectionHistory == history && !t.Placing() && !t.dragging) {
-			t.Reset()
+			if t.placement == p {
+				t.CancelGesture()
+			} else {
+				t.Reset()
+			}
 		}
 	}
 	accepted := false
@@ -198,10 +204,10 @@ func (t *ToolGrab) CancelPlacement() {
 			}
 			t.placement.controller.CancelPastePlacement()
 			t.placement = nil
-			t.Reset()
+			t.CancelGesture()
 			return
 		}
-		t.Reset()
+		t.CancelGesture()
 	}
 }
 
@@ -211,11 +217,11 @@ func (t *ToolGrab) processPlacement() {
 	}
 	if t.placement.controller != nil {
 		if t.placement.controller.PastePlacementClosed() || ed != t.placement.owner {
-			t.Reset()
+			t.CancelGesture()
 			return
 		}
 	} else if t.placement.move == nil || t.placement.move.Closed() || ed != t.placement.owner {
-		t.Reset()
+		t.CancelGesture()
 		return
 	}
 	if cs == nil || imgui.CurrentIO().WantTextInput() {

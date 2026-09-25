@@ -1,7 +1,10 @@
 package prefs
 
 // APHELION EDIT ADDITION START - EDITABLE SHORTCUTS
-import "sdmm/internal/aphelion/hotkeys"
+import (
+	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/aphelion/hotkeys"
+)
 
 // APHELION EDIT ADDITION END
 
@@ -12,6 +15,7 @@ type Prefs struct {
 	Application Application
 	// APHELION EDIT ADDITION START - EDITABLE SHORTCUTS
 	Shortcuts *hotkeys.Settings
+	Mapper    *editing.MapperSettings
 	// APHELION EDIT ADDITION END
 }
 

@@ -5,6 +5,9 @@ import (
 	"image/png"
 	"os"
 	"time"
+	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+	"sdmm/internal/aphelion/editing"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/canvas"
@@ -69,15 +72,23 @@ func (p *Panel) showScreenshot() {
 
 func (p *Panel) createScreenshot() {
 	p.sessionScreenshot.saving = true
-	selectedTool := tools.Selected()
+	// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: selectedTool := tools.Selected()
+	var selection editing.Selection
 
 	boundX, boundY := float32(0), float32(0)
 
 	var width, height int
 	if cfg.InSelectionMode {
+		/* APHELION EDIT REMOVAL START - PERSISTENT SELECTION
 		hasSelectedArea := selectedTool.Name() == tools.TNGrab && selectedTool.(*tools.ToolGrab).HasSelectedArea()
 		if hasSelectedArea {
-			bounds := selectedTool.(*tools.ToolGrab).Bounds() //get grab tool bounds, so we can calculate boundX and boundY
+			bounds := selectedTool.(*tools.ToolGrab).Bounds()
+		APHELION EDIT REMOVAL END */
+		// APHELION EDIT ADDITION START - PERSISTENT SELECTION
+		selection = p.screenshotSelection()
+		if selection.Len() != 0 {
+			bounds := selection.Bounds()
+			// APHELION EDIT ADDITION END
 			width, height = (int(bounds.X2-bounds.X1)+1)*dmmap.WorldIconSize, (int(bounds.Y2-bounds.Y1)+1)*dmmap.WorldIconSize
 			boundX = -float32((int(bounds.X1) - 1) * dmmap.WorldIconSize) //now change bounds so we can use them in Translate
 			boundY = -float32((int(bounds.Y1) - 1) * dmmap.WorldIconSize)
@@ -97,7 +108,8 @@ func (p *Panel) createScreenshot() {
 	c.ClearColor = canvas.Color{} // Empty clear color with no alpha
 	c.Render().Camera.Level = p.editor.ActiveLevel()
 	c.Render().Camera.Translate(boundX, boundY)
-	c.Render().SetUnitProcessor(p)
+	// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: c.Render().SetUnitProcessor(p)
+	c.Render().SetUnitProcessor(screenshotPolicy{selection: selection, filter: p.app.PathsFilter().Copy()})
 	for level := 1; level <= p.editor.ActiveLevel(); level++ {
 		c.Render().UpdateBucket(p.editor.Dmm(), level) // Prepare for render all available levels
 	}

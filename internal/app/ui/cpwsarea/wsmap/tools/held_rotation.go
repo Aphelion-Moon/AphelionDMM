@@ -69,6 +69,9 @@ func (t *ToolAdd) showHeld() {
 	}
 }
 func (t *ToolAdd) OnDeselect() {
+	t.shapeStroke = nil
+	t.shapeReleased = false
+	t.shapePrefab = nil
 	t.held = editing.HeldPrefab{}
 	if owner, ok := ed.(interface {
 		PreviewHeldPrefab(*dmmprefab.Prefab, util.Point, bool)

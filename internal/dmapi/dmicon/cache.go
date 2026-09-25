@@ -18,10 +18,16 @@ type IconsCache struct {
 	// APHELION EDIT ADDITION START - ASYNC ICONS
 	asynchronous bool
 	async        asyncIcons
+	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+	revision uint64
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION END
 }
 
 func (i *IconsCache) Free() {
+	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+	i.revision++
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - ASYNC ICONS
 	i.cancelPending()
 	// APHELION EDIT ADDITION END
@@ -32,6 +38,12 @@ func (i *IconsCache) Free() {
 	i.rootDirPath = ""
 	i.icons = make(map[string]*Dmi)
 }
+
+// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+// Revision changes when cached textures or pending sprite handles change.
+func (i *IconsCache) Revision() uint64 { return i.revision }
+
+// APHELION EDIT ADDITION END
 
 func (i *IconsCache) SetRootDirPath(rootDirPath string) {
 	// APHELION EDIT ADDITION START - ASYNC ICONS

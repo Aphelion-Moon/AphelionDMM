@@ -5,10 +5,43 @@ import (
 	"reflect"
 	"testing"
 
+	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 )
+
+func TestShapeEraseNativeOverhangStaysInsideSelection(t *testing.T) {
+	ws, app := newSelectionWorkspace(t)
+	e := ws.Map().Editor()
+	outside := util.Point{X: 1, Y: 1, Z: 1}
+	inside := util.Point{X: 2, Y: 1, Z: 1}
+	i := e.Dmm().GetTile(outside).Instances()[2]
+	vars := dmvars.Set(dmvars.Set(i.Prefab().Vars(), "pixel_x", "24"), "layer", "10")
+	e.InstanceReplace(i, dmmprefab.New(dmmprefab.IdNone, i.Prefab().Path(), vars))
+	e.CommitOperation("offset fixture")
+	ws.Map().Canvas().Render().UpdateBucket(e.Dmm(), 1)
+	before := resizeSnapshot(t, e)
+	selection := editing.RectangleSelection(util.Bounds{X1: 2, Y1: 1, X2: 2, Y2: 1}, 1)
+	fence, err := e.BeginShapeDelete(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, found, err := e.PickShapeDeleteTarget(inside, selection, e.BrushFilter(), fence)
+	if err != nil || !found || target.Coord != inside {
+		t.Fatal("shape picked outside exact membership", target, found, err)
+	}
+	if err = e.EraseShape(selection, false, e.BrushFilter(), fence, editing.ShapeDeleteTargets{string(target.StableID): target.Coord}); err != nil {
+		t.Fatal(err)
+	}
+	if len(e.Dmm().GetTile(outside).Instances()) != 3 || len(e.Dmm().GetTile(inside).Instances()) != 2 {
+		t.Fatal("shape erased overhang source outside its footprint")
+	}
+	app.commands.UndoV(e.Dmm().Path.Absolute)
+	if !reflect.DeepEqual(before.Tiles, resizeSnapshot(t, e).Tiles) {
+		t.Fatal("shape undo changed identities")
+	}
+}
 
 func TestEraseStrokeNativeCoverageAndSingleUndo(t *testing.T) {
 	for _, all := range []bool{false, true} {

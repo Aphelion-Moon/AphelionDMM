@@ -7,6 +7,88 @@ import (
 	"github.com/go-gl/mathgl/mgl32"
 )
 
+// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+// Submission stores ordered immutable brush geometry in static GPU buffers.
+type Submission struct {
+	vao, vbo, ebo uint32
+	calls         []batchCall
+	bytes         int
+}
+
+// CaptureSubmission records brush primitives while leaving the frame batch intact.
+func CaptureSubmission(build func()) *Submission {
+	previous := batching
+	captured := &Batching{}
+	batching = captured
+	defer func() { batching = previous }()
+
+	build()
+	captured.flush()
+	if len(captured.data) == 0 {
+		return nil
+	}
+
+	submission := &Submission{calls: append([]batchCall(nil), captured.calls...)}
+	submission.bytes = len(captured.data)*platform.FloatSize + len(captured.indices)*4
+	gl.GenVertexArrays(1, &submission.vao)
+	gl.GenBuffers(1, &submission.vbo)
+	gl.GenBuffers(1, &submission.ebo)
+	gl.BindVertexArray(submission.vao)
+	gl.BindBuffer(gl.ARRAY_BUFFER, submission.vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, len(captured.data)*platform.FloatSize, gl.Ptr(captured.data), gl.STATIC_DRAW)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, submission.ebo)
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(captured.indices)*4, gl.Ptr(captured.indices), gl.STATIC_DRAW)
+	initAttributesFor(submission.vao, submission.vbo)
+	return submission
+}
+
+func (s *Submission) ByteSize() int {
+	if s == nil {
+		return 0
+	}
+	return s.bytes
+}
+
+func (s *Submission) Dispose() {
+	if s == nil || s.vao == 0 {
+		return
+	}
+	gl.DeleteVertexArrays(1, &s.vao)
+	gl.DeleteBuffers(1, &s.vbo)
+	gl.DeleteBuffers(1, &s.ebo)
+	s.vao, s.vbo, s.ebo = 0, 0, 0
+}
+
+// Draw flushes earlier stream geometry to preserve painter order.
+func (s *Submission) Draw(w, h, x, y, z float32) {
+	if s == nil || s.vao == 0 || len(s.calls) == 0 {
+		return
+	}
+	Draw(w, h, x, y, z)
+	gl.UseProgram(program)
+	gl.BindVertexArray(s.vao)
+	mtxTransform := transformationMatrix(w, h, x, y, z)
+	gl.UniformMatrix4fv(uniformLocationTransform, 1, false, &mtxTransform[0])
+	for _, c := range s.calls {
+		if c.texture != 0 {
+			gl.Uniform1i(uniformLocationHasTexture, 1)
+			gl.BindTexture(gl.TEXTURE_2D, c.texture)
+		} else {
+			gl.Uniform1i(uniformLocationHasTexture, 0)
+		}
+		switch c.mode {
+		case mtRect:
+			gl.DrawElementsWithOffset(gl.TRIANGLES, c.len, gl.UNSIGNED_INT, uintptr(c.offset))
+		case mtLine:
+			gl.DrawElementsWithOffset(gl.LINES, c.len, gl.UNSIGNED_INT, uintptr(c.offset))
+		}
+	}
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+}
+
+// APHELION EDIT ADDITION END - RETAINED SUBMISSIONS
+
 func Draw(w, h, x, y, z float32) {
 	// Ensure that the latest batch state is persisted.
 	batching.flush()

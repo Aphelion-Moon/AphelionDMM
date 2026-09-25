@@ -149,8 +149,8 @@ func TestGrabCancelRestoresPreview(t *testing.T) {
 	if !reflect.DeepEqual(e.m, &before) {
 		t.Fatal("deselect left a speculative move in the map")
 	}
-	if g.HasSelectedArea() || !g.Stale() || e.commits != 0 {
-		t.Fatal("cancel retained an active gesture")
+	if !g.HasSelectedArea() || !g.Stale() || e.commits != 0 || g.Bounds().X1 != 1 {
+		t.Fatal("cancel lost committed membership or retained an active gesture")
 	}
 }
 

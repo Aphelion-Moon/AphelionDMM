@@ -8,6 +8,7 @@ import (
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/aphelion/resources"
+	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/util"
 )
@@ -15,13 +16,16 @@ import (
 // FillSelection shares placement composition: hidden channels survive,
 // singletons replace, and collections append or replace as explicitly chosen.
 func (e *Editor) FillSelection(selection editing.Selection, prefab *dmmprefab.Prefab, replace bool) error {
+	return e.FillSelectionWithFilter(selection, prefab, replace, e.app.PathsFilter().Copy())
+}
+
+func (e *Editor) FillSelectionWithFilter(selection editing.Selection, prefab *dmmprefab.Prefab, replace bool, filter dm.PathsFilter) error {
 	if !e.CanStartMapEdit() || selection.Level() != e.pMap.ActiveLevel() {
 		return fmt.Errorf("finish the current edit on the visible level")
 	}
 	if selection.Len() == 0 || prefab == nil || prefab.Vars() == nil {
 		return fmt.Errorf("select tiles and a prefab first")
 	}
-	filter := e.app.PathsFilter().Copy()
 	if !filter.IsVisiblePath(prefab.Path()) {
 		return fmt.Errorf("the selected prefab is excluded by the current filter")
 	}
@@ -95,7 +99,7 @@ func (e *Editor) FillSelection(selection editing.Selection, prefab *dmmprefab.Pr
 		})
 		return changes, failure
 	}
-	if local, ok := e.executor.(localEditExecutor); ok && !e.sessionOwned {
+	if local, ok := e.executor.(localEditExecutor); ok && !e.sessionOwned && selection.Len() > directLocalTiles {
 		generation := e.attachmentGeneration
 		return e.startLocalWork(local, true, 1024, prepare, func(accepted engine.LocalAcceptance, backward []model.TileChange, err error) {
 			if generation != e.attachmentGeneration || e.mapViewClosed {
@@ -127,6 +131,10 @@ func (e *Editor) FillSelection(selection editing.Selection, prefab *dmmprefab.Pr
 		coords[i] = util.Point{X: c.Coord.X, Y: c.Coord.Y, Z: c.Coord.Z}
 	}
 	if !e.TryBeginTileChange(coords...) {
+		if e.collaborationErr != nil {
+			e.CommitOperation(label) // Reports the retained capture failure exactly once.
+			return nil
+		}
 		return fmt.Errorf("unable to capture selection")
 	}
 	for _, change := range changes {

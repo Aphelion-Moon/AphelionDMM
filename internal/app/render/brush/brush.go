@@ -84,9 +84,17 @@ func initBuffers() {
 	log.Print("buffers initialized")
 }
 
-func initAttributes() {
-	gl.BindVertexArray(vao)
-	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+func initAttributes() { initAttributesFor(vao, vbo) }
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT CHANGE - RETAINED SUBMISSIONS - ORIGINAL: func initAttributes() {
+func initAttributesFor(vertexArray, vertexBuffer uint32) {
+	// APHELION EDIT CHANGE - RETAINED SUBMISSIONS - ORIGINAL: gl.BindVertexArray(vao)
+	gl.BindVertexArray(vertexArray)
+	// APHELION EDIT CHANGE - RETAINED SUBMISSIONS - ORIGINAL: gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vertexBuffer)
 
 	var offset int32
 	for idx, attr := range attrsList.attrs {

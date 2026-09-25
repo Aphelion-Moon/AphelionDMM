@@ -139,6 +139,8 @@ func (e *Editor) installResizeCheckpoint(expected resizeCheckpoint, target *resi
 	e.documentID = snapshot.DocumentID
 	e.collaborationErr = nil
 	*e.dmm = candidate
+	// Resize installs a new document identity, including when undo restores it.
+	e.workingSelection = editing.WorkingSelection{}
 	e.setAuthoritative(snapshot)
 	if e.pMap.ActiveLevel() > snapshot.MaxZ {
 		e.pMap.SetActiveLevel(snapshot.MaxZ)

@@ -65,6 +65,11 @@ func Close(dialog Type) {
 	log.Print("closing dialog:", dialog.Name())
 	for idx, t := range opened {
 		if dialog.Name() == t.Name() {
+			// APHELION EDIT ADDITION START - CANCELLABLE DIALOG WORK
+			if closer, ok := t.(interface{ OnClose() }); ok {
+				closer.OnClose()
+			}
+			// APHELION EDIT ADDITION END
 			log.Print("dialog closed:", dialog.Name())
 			// Clear the removed interface so closed records and callbacks can be collected.
 			// APHELION EDIT CHANGE - DIALOG LIFETIME - ORIGINAL: opened = append(opened[:idx], opened[idx+1:]...)

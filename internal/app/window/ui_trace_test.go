@@ -134,12 +134,28 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 		imgui.SetNextWindowFocus()
 		imgui.BeginV("Native frame probe", nil, imgui.WindowFlagsNoTitleBar|imgui.WindowFlagsNoResize|imgui.WindowFlagsNoMove|imgui.WindowFlagsNoScrollbar)
 		ws.Process()
+		ws.Map().Canvas().Render().ProcessLevelBuild()
 		imgui.End()
 	}})
 	var frameTimes []time.Duration
 	frame := func() { start := time.Now(); runFrame(); frameTimes = append(frameTimes, time.Since(start)) }
 	frame()
 	frame()
+	coldGeometry := time.Now()
+	for {
+		ready := true
+		for z := 1; z <= e.Dmm().MaxZ; z++ {
+			ready = ready && ws.Map().Canvas().Render().LevelReady(z)
+		}
+		if ready {
+			break
+		}
+		if time.Since(coldGeometry) > 90*time.Second {
+			t.Fatal("automatic all-Z preparation did not settle")
+		}
+		frame()
+	}
+	t.Logf("all_z_geometry_settle_ms=%.3f", float64(time.Since(coldGeometry).Microseconds())/1000)
 	if mapPath != "" {
 		cold := time.Now()
 		for dmicon.Cache.Loading() && time.Since(cold) < 90*time.Second {
@@ -200,7 +216,7 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 				break
 			}
 			if time.Since(start) > 10*time.Second {
-				t.Fatalf("%s did not settle: revision=%d want=%d jobs=%d", name, current, revision+1, window.PendingFrameJobsForTest())
+				t.Fatalf("%s did not settle: revision=%d want=%d jobs=%d tool=%s selection=%d stale=%t ready=%t", name, current, revision+1, window.PendingFrameJobsForTest(), tools.Selected().Name(), grab.Selection().Len(), grab.Stale(), e.CanStartMapEdit())
 			}
 			runtime.Gosched()
 			frame()
@@ -240,6 +256,7 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	initialPixels = sha256.Sum256(ws.Map().Canvas().ReadPixels())
+	t.Logf("retained_cache_before=%+v", ws.Map().Canvas().Render().RetainedCacheStats())
 	checkPixels = true
 	frameTimes = nil
 	operationTimes = nil
@@ -271,6 +288,7 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 		}
 	}
 	metrics("frame_cpu_and_present", frameTimes)
+	t.Logf("retained_cache_after=%+v", ws.Map().Canvas().Render().RetainedCacheStats())
 	metrics("action_to_gpu_complete", operationTimes)
 	if output := os.Getenv("APHELION_UI_TRACE_OUTPUT"); output != "" {
 		file, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)

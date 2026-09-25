@@ -22,7 +22,16 @@ type Chunk struct {
 	// APHELION EDIT ADDITION END
 
 	UnitsByLayers map[float32][]unit.Unit
+	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+	revision uint64
+	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+// Revision changes whenever Update replaces this chunk's unit geometry.
+func (c *Chunk) Revision() uint64 { return c.revision }
+
+// APHELION EDIT ADDITION END
 
 func New(x1, y1, x2, y2, iconSize float32) *Chunk {
 	return &Chunk{
@@ -73,6 +82,9 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int) {
 	c.UnitsByLayers = unitsByLayers
 	// APHELION EDIT ADDITION START - RENDER CULLING
 	c.ViewBounds = viewBounds
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
+	c.revision++
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - QUIET FRAME WORK - ORIGINAL: log.Printf("chunk level [%d] updated: %v", level, c.MapBounds)
 	log.Debug().Int("level", level).Interface("bounds", c.MapBounds).Msg("chunk updated")

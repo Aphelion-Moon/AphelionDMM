@@ -2,6 +2,9 @@ package window
 
 import (
 	"time"
+	// APHELION EDIT ADDITION START - SHARED FRAME PREPARATION
+	"sdmm/internal/aphelion/resources"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	"sdmm/internal/aphelion/diagnostics/uistage"
 	// APHELION EDIT ADDITION END
@@ -50,6 +53,10 @@ func (w *Window) runFrame() {
 		return
 	}
 	w.frameRunning = true
+	// APHELION EDIT ADDITION START - SHARED FRAME PREPARATION
+	resources.BeginFrameWork()
+	defer resources.EndFrameWork()
+	// APHELION EDIT ADDITION END
 	defer func() { w.frameRunning = false }()
 	// Consume native input before ImGui resolves the current frame's ownership.
 	w.canReplayFrame = w.completedFrame
@@ -91,7 +98,14 @@ func runLaterJobs() {
 }
 APHELION EDIT REMOVAL END */
 // APHELION EDIT ADDITION START - BOUNDED DEFERRED WORK
-func runLaterJobs() { runLaterJobsBudget(64, 2*time.Millisecond) }
+func runLaterJobs() {
+	budget := resources.FrameWorkRemaining(2 * time.Millisecond)
+	if budget == 0 {
+		return
+	}
+	defer resources.ChargeFrameWork(time.Now())
+	runLaterJobsBudget(64, budget)
+}
 
 // APHELION EDIT ADDITION END
 
