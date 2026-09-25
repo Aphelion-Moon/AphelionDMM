@@ -48,13 +48,17 @@ func (e *Environment) showFilterProfiles() {
 	}
 	imgui.EndDisabled()
 	imgui.SameLine()
-	imgui.BeginDisabledV(e.filterCompilePending || e.filterProfileConfigError != "")
-	imgui.BeginDisabledV(!custom || active.ID != selected.ID)
+	// The pinned ImGui version overwrites its single alpha backup on nested
+	// BeginDisabled calls. Keep sibling scopes so pending compilation cannot
+	// permanently fade unrelated windows on every frame.
+	readOnly := e.filterCompilePending || e.filterProfileConfigError != ""
+	imgui.BeginDisabledV(readOnly || !custom || active.ID != selected.ID)
 	if imgui.Button("Save Changes") && custom && active.ID == selected.ID {
 		e.saveCurrent(selected.ID, selected.Name)
 	}
 	imgui.EndDisabled()
 	imgui.SameLine()
+	imgui.BeginDisabledV(readOnly)
 	if imgui.Button("Save As") {
 		e.saveCurrentAs()
 	}
