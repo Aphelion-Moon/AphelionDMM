@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strings"
 
+	"sdmm/internal/aphelion/diagnostics/uistage"
 	"sdmm/internal/aphelion/filterprofiles"
 	"sdmm/internal/app/window"
 	"sdmm/internal/dmapi/dm"
@@ -117,6 +118,7 @@ func (e *Environment) startVisibilityWorker() {
 		publish = scheduler.RunLater
 	}
 	go func() {
+		compile := uistage.Begin(uistage.FilterCompile)
 		next := captured.Fork()
 		prepared := dm.NewPathsFilterEmpty()
 		var err error
@@ -134,7 +136,10 @@ func (e *Environment) startVisibilityWorker() {
 		case "redo-visibility":
 			err = next.RedoVisibility(environment, prepared)
 		}
+		compile.End()
 		publish(func() {
+			publication := uistage.Begin(uistage.FilterPublish)
+			defer publication.End()
 			e.filterWorkerActive = false
 			valid := generation == e.filterCompileGeneration && environment == e.filterProfileEnvironment && environment == e.app.LoadedEnvironment()
 			if valid {

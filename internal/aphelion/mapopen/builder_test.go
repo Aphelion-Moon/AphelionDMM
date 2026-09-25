@@ -42,3 +42,31 @@ func TestBuilderYieldsAndPreservesUnknownDuplicateInstances(t *testing.T) {
 		t.Fatal("cancel ignored")
 	}
 }
+
+func TestInternDeadlineProgressBeyondOldCapAndCancellation(t *testing.T) {
+	dmmap.PrefabStorage.Free()
+	t.Cleanup(dmmap.PrefabStorage.Free)
+	prefabs := make([]*dmmprefab.Prefab, 600)
+	for i := range prefabs {
+		prefabs[i] = dmmprefab.New(0, "/obj/unknown", dmvars.FromParent(nil))
+	}
+	data := &dmmdata.DmmData{Dictionary: dmmdata.DataDictionary{"a": prefabs}}
+	b := NewBuilder(&dmenv.Dme{Objects: map[string]*dmenv.Object{}}, data, "")
+	tick := time.Unix(0, 0)
+	b.now = func() time.Time { tick = tick.Add(time.Nanosecond); return tick }
+	first := b.InternUntil(context.Background(), tick.Add(8*time.Nanosecond))
+	if first.Done || first.Reason != "deadline" || b.member == 0 {
+		t.Fatalf("deadline did not yield with progress: %+v", first)
+	}
+	member := b.member
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stopped := b.InternUntil(ctx, tick.Add(time.Second))
+	if stopped.Reason != "cancelled" || b.member != member {
+		t.Fatal("cancelled slice changed interning state")
+	}
+	last := b.InternUntil(context.Background(), tick.Add(time.Second))
+	if !last.Done || last.Items <= 256 || last.Reason != "complete" {
+		t.Fatalf("adequate slice retained the old cap: %+v", last)
+	}
+}

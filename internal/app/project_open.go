@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime/trace"
 	"time"
 
 	"github.com/SpaiR/imgui-go"
+	"sdmm/internal/aphelion/diagnostics/uistage"
 	"sdmm/internal/aphelion/mapopen"
 	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/app/ui/cpwsarea/workspace"
@@ -31,6 +33,9 @@ type mapOpenRequest struct {
 	cancel                                      context.CancelFunc
 	builder                                     *mapopen.Builder
 	started                                     time.Time
+	traceTask                                   *trace.Task
+	internItems, internSlices                   int
+	internTime, longestInternItem               time.Duration
 }
 type mapOpenResult struct {
 	data        *dmmdata.DmmData
@@ -51,7 +56,9 @@ func (a *app) enqueueMapOpen(path string, ws *workspace.Workspace) {
 		}
 	}
 	request := &mapOpenRequest{path: path, backupDir: a.backupDir, environmentName: a.environmentName(), environment: a.loadedEnvironment, workspace: ws, results: make(chan mapOpenResult, 1)}
-	request.ctx, request.cancel = context.WithCancel(context.Background())
+	request.ctx, request.traceTask = trace.NewTask(context.Background(), "aphelion.map.open")
+	request.ctx, request.cancel = context.WithCancel(request.ctx)
+	trace.Log(request.ctx, "state", "queued")
 	if ws != nil {
 		request.contentID = ws.Content().Id()
 	}
@@ -68,9 +75,15 @@ func (a *app) startNextMapOpen() {
 	a.mapOpenQueue = a.mapOpenQueue[1:]
 	a.mapOpenActive = request
 	request.started = time.Now()
+	trace.Log(request.ctx, "state", "source-start")
 	path, backupDir, environmentName := request.path, request.backupDir, request.environmentName
 	results := request.results
-	go func() { results <- prepareMapOpen(path, backupDir, environmentName) }()
+	go func() {
+		region := trace.StartRegion(request.ctx, string(uistage.MapSource))
+		result := prepareMapOpen(path, backupDir, environmentName)
+		region.End()
+		results <- result
+	}()
 }
 
 // Loading one map does not place a modal over unrelated open documents.
@@ -103,6 +116,13 @@ func prepareMapOpen(path, backupDir, environmentName string) (result mapOpenResu
 	}
 	result.backup = backup.Name()
 	defer func() {
+		flush := uistage.Begin(uistage.MapFlush)
+		defer flush.End()
+		if result.err == nil {
+			if err := backup.Sync(); err != nil {
+				result.err = fmt.Errorf("flush map backup: %w", err)
+			}
+		}
 		closeErr := backup.Close()
 		if result.err == nil && closeErr != nil {
 			result.err = fmt.Errorf("close map backup: %w", closeErr)
@@ -117,9 +137,6 @@ func prepareMapOpen(path, backupDir, environmentName string) (result mapOpenResu
 		result.err = fmt.Errorf("parse map and capture backup: %w", result.err)
 		return
 	}
-	if err := backup.Sync(); err != nil {
-		result.err = fmt.Errorf("flush map backup: %w", err)
-	}
 	return
 }
 
@@ -133,7 +150,23 @@ func (a *app) processMapOpen() {
 			a.finishMapOpen(request)
 			return
 		}
-		if !request.builder.InternStep(256, time.Now().Add(2*time.Millisecond)) {
+		allowance := resources.FrameWorkRemaining(2 * time.Millisecond)
+		if allowance <= 0 {
+			return
+		}
+		started := time.Now()
+		intern := trace.StartRegion(request.ctx, string(uistage.MapIntern))
+		progress := request.builder.InternUntil(request.ctx, started.Add(allowance))
+		intern.End()
+		request.internSlices++
+		request.internItems += progress.Items
+		request.internTime += time.Since(started)
+		request.longestInternItem = max(request.longestInternItem, progress.LongestItem)
+		if trace.IsEnabled() {
+			trace.Logf(request.ctx, "intern", "items=%d reason=%s longest=%s", progress.Items, progress.Reason, progress.LongestItem)
+		}
+		resources.ChargeFrameWork(started)
+		if !progress.Done {
 			return
 		}
 		builder, ctx, environment, results := request.builder, request.ctx, request.environment, request.results
@@ -142,7 +175,9 @@ func (a *app) processMapOpen() {
 			result := mapOpenResult{}
 			result.reservation, result.err = resources.DefaultBudget().Reserve(builder.EstimateBytes())
 			if result.err == nil {
+				tiles := trace.StartRegion(ctx, string(uistage.MapTiles))
 				dmm, unknown, err := builder.Build(ctx)
+				tiles.End()
 				result.unknown, result.err = unknown, err
 				if err == nil {
 					result.prepared, result.err = editor.PrepareOpen(ctx, environment, dmm)
@@ -170,8 +205,8 @@ func (a *app) processMapOpen() {
 			request.builder = mapopen.NewBuilder(request.environment, result.data, result.backup)
 			return
 		}
-		a.finishMapOpen(request)
 		if result.err != nil {
+			a.finishMapOpen(request)
 			err := result.err
 			dialog.Open(dialog.TypeCustom{Title: "Unable to open map", Layout: w.Layout{
 				w.Text("The map was not installed. " + err.Error()),
@@ -179,7 +214,10 @@ func (a *app) processMapOpen() {
 			}})
 			return
 		}
+		install := trace.StartRegion(request.ctx, string(uistage.MapInstall))
 		a.installOpenMap(request.path, request.workspace, result.prepared.Dmm(), result.unknown, result.prepared)
+		install.End()
+		a.finishMapOpen(request)
 	default:
 	}
 }
@@ -189,6 +227,10 @@ func (a *app) mapOpenCurrent(request *mapOpenRequest) bool {
 		(request.workspace == nil || a.layout != nil && a.layout.WsArea.OwnsWorkspaceContent(request.workspace, request.contentID))
 }
 func (a *app) finishMapOpen(request *mapOpenRequest) {
+	if request.traceTask != nil {
+		trace.Logf(request.ctx, "intern-total", "items=%d slices=%d execution=%s longest=%s", request.internItems, request.internSlices, request.internTime, request.longestInternItem)
+		request.traceTask.End()
+	}
 	if request.cancel != nil {
 		request.cancel()
 	}
@@ -204,6 +246,9 @@ func (a *app) cancelMapOpens() {
 		}
 	}
 	for _, request := range a.mapOpenQueue {
+		if request.traceTask != nil {
+			request.traceTask.End()
+		}
 		if request.cancel != nil {
 			request.cancel()
 		}

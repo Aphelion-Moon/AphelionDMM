@@ -7,7 +7,7 @@ import (
 )
 
 func NewPrepared(app App, prepared *editor.PreparedOpen) *WsMap {
-	hash, revision := prepared.Hash, prepared.Revision()
+	hash, revision := prepared.Hash(), prepared.Revision()
 	ws := &WsMap{app: app, paneMap: pmap.NewPrepared(app, prepared), savedMapHash: hash, savedRevision: revision}
 	ws.savedGeneration, _ = ws.paneMap.Editor().SaveVersion()
 	return ws

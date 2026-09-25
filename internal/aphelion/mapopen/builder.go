@@ -23,6 +23,7 @@ type Builder struct {
 	keys        []dmmdata.Key
 	key, member int
 	unknown     map[string]*dmmprefab.Prefab
+	now         func() time.Time
 }
 
 func NewBuilder(environment *dmenv.Dme, data *dmmdata.DmmData, backup string) *Builder {
@@ -33,9 +34,36 @@ func NewBuilder(environment *dmenv.Dme, data *dmmdata.DmmData, backup string) *B
 	return b
 }
 func (b *Builder) InternStep(limit int, deadline time.Time) bool {
+	return b.intern(context.Background(), limit, deadline).Done
+}
+
+// InternProgress describes one owner-thread slice, including indivisible work
+// that may overrun its deadline. It never transfers the partially built map.
+type InternProgress struct {
+	Done        bool
+	Items       int
+	Reason      string
+	LongestItem time.Duration
+}
+
+func (b *Builder) InternUntil(ctx context.Context, deadline time.Time) InternProgress {
+	return b.intern(ctx, 1<<20, deadline)
+}
+
+func (b *Builder) intern(ctx context.Context, limit int, deadline time.Time) (progress InternProgress) {
+	now := b.now
+	if now == nil {
+		now = time.Now
+	}
 	for count := 0; count < limit && b.key < len(b.keys); count++ {
-		if count%32 == 0 && time.Now().After(deadline) {
-			break
+		if ctx.Err() != nil {
+			progress.Reason = "cancelled"
+			return
+		}
+		start := now()
+		if !start.Before(deadline) {
+			progress.Reason = "deadline"
+			return
 		}
 		prefabs := b.data.Dictionary[b.keys[b.key]]
 		if b.member == len(prefabs) {
@@ -53,8 +81,17 @@ func (b *Builder) InternStep(limit int, deadline time.Time) bool {
 		}
 		prefabs[b.member] = dmmap.PrefabStorage.Put(prefab)
 		b.member++
+		progress.Items++
+		if elapsed := now().Sub(start); elapsed > progress.LongestItem {
+			progress.LongestItem = elapsed
+		}
 	}
-	return b.key == len(b.keys)
+	progress.Done = b.key == len(b.keys)
+	progress.Reason = "defensive-cap"
+	if progress.Done {
+		progress.Reason = "complete"
+	}
+	return
 }
 func (b *Builder) Build(ctx context.Context) (*dmmap.Dmm, map[string]*dmmprefab.Prefab, error) {
 	if b.key != len(b.keys) {

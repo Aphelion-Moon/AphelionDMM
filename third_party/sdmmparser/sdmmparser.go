@@ -10,6 +10,9 @@ package sdmmparser
 */
 import "C"
 import (
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	// APHELION EDIT ADDITION END
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,7 +60,17 @@ func ParseEnvironment(environmentPath string) (*ObjectTreeType, error) {
 	nativePath := C.CString(environmentPath)
 	defer C.free(unsafe.Pointer(nativePath))
 
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	// Native parsing, constant resolution, tree export and serialization are one
+	// FFI call here; the label must not imply separate measured native phases.
+	native := uistage.Begin("aphelion.parser.native_parse_export_serialize")
+	// APHELION EDIT ADDITION END
 	nativeStr := C.SdmmParseEnvironment(nativePath)
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	native.End()
+	transfer := uistage.Begin("aphelion.parser.native_transfer_decode")
+	defer transfer.End()
+	// APHELION EDIT ADDITION END
 	defer C.SdmmFreeStr(nativeStr)
 
 	str := C.GoString(nativeStr)

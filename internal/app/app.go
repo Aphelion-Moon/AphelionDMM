@@ -50,7 +50,11 @@ func Start() {
 	logDir := initializeLogs(internalDir)
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	if path := os.Getenv("APHELIONDMM_UI_TRACE"); path != "" {
-		if recording, err := uistage.StartFile(path, 30*time.Second); err != nil {
+		duration, durationErr := uistage.RecordingDuration(os.Getenv("APHELIONDMM_UI_TRACE_DURATION"))
+		if durationErr != nil {
+			log.Error().Err(durationErr).Msg("Unable to start UI execution trace")
+		}
+		if recording, err := uistage.StartFile(path, duration); err != nil {
 			log.Error().Err(err).Msg("Unable to start UI execution trace")
 		} else {
 			defer func() {
@@ -58,7 +62,7 @@ func Start() {
 					log.Error().Err(err).Msg("Unable to finish UI execution trace")
 				}
 			}()
-			log.Info().Msg("UI execution trace enabled for up to 30 seconds")
+			log.Info().Dur("duration", duration).Msg("UI execution trace enabled")
 		}
 	}
 	// APHELION EDIT ADDITION END

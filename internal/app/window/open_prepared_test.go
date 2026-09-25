@@ -49,7 +49,7 @@ func TestNativePreparedOpenPublishesWholeAuthorityBeforeBoundedGeometry(t *testi
 	case <-time.After(10 * time.Second):
 		t.Fatal("owned preparation stalled")
 	}
-	expected := prepared.Hash
+	expected := prepared.Hash()
 	ws := wsmap.NewPrepared(app, prepared)
 	t.Cleanup(ws.Dispose)
 	snapshot, err := ws.Map().Editor().SaveSnapshot(context.Background())

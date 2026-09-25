@@ -19,6 +19,19 @@ type Recording struct {
 	err      error
 }
 
+// RecordingDuration keeps ordinary captures short while allowing a whole slow
+// environment import and subsequent map open in one bounded recording.
+func RecordingDuration(value string) (time.Duration, error) {
+	if value == "" {
+		return 30 * time.Second, nil
+	}
+	duration, err := time.ParseDuration(value)
+	if err != nil || duration <= 0 || duration > 5*time.Minute {
+		return 0, fmt.Errorf("trace duration must be positive and at most five minutes")
+	}
+	return duration, nil
+}
+
 func StartFile(path string, duration time.Duration) (*Recording, error) {
 	if duration <= 0 || duration > 5*time.Minute {
 		return nil, fmt.Errorf("trace duration must be positive and at most five minutes")

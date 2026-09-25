@@ -1,6 +1,9 @@
 package dmenv
 
 import (
+	// APHELION EDIT ADDITION START - ENVIRONMENT GENERATION FINGERPRINT
+	"sdmm/internal/aphelion/envload"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	"sdmm/internal/aphelion/diagnostics/uistage"
 	// APHELION EDIT ADDITION END
@@ -17,6 +20,11 @@ type Dme struct {
 	RootDir  string
 	RootFile string
 	Objects  map[string]*Object
+	// APHELION EDIT ADDITION START - ENVIRONMENT GENERATION FINGERPRINT
+	// Set only after native reconstruction and parent linkage. Parsed environments
+	// are read-only after publication; manually assembled fixtures remain uncached.
+	fingerprint string
+	// APHELION EDIT ADDITION END
 }
 
 func New(path string) (*Dme, error) {
@@ -38,6 +46,9 @@ func New(path string) (*Dme, error) {
 		return nil, err
 	}
 
+	// APHELION EDIT ADDITION START - UI STAGE TRACE
+	reconstruct := uistage.Begin(uistage.EnvironmentReconstruct)
+	// APHELION EDIT ADDITION END
 	traverseTree0(objectTreeType, "", nil, &dme)
 
 	for _, object := range dme.Objects {
@@ -49,8 +60,35 @@ func New(path string) (*Dme, error) {
 		}
 	}
 
+	// APHELION EDIT ADDITION START - ENVIRONMENT GENERATION FINGERPRINT
+	reconstruct.End()
+	fingerprint := uistage.Begin(uistage.EnvironmentFingerprint)
+	dme.fingerprint, err = dme.EnvironmentHash()
+	fingerprint.End()
+	if err != nil {
+		return nil, err
+	}
+	// APHELION EDIT ADDITION END
 	return &dme, nil
 }
+
+// APHELION EDIT ADDITION START - ENVIRONMENT GENERATION FINGERPRINT
+func (d *Dme) EnvironmentHash() (string, error) {
+	if d.fingerprint != "" {
+		return d.fingerprint, nil
+	}
+	objects := make(map[string]*dmvars.Variables, len(d.Objects))
+	for path, object := range d.Objects {
+		if object != nil {
+			objects[path] = object.Vars
+		} else {
+			objects[path] = nil
+		}
+	}
+	return envload.Fingerprint(objects)
+}
+
+// APHELION EDIT ADDITION END
 
 func nameFromPath(path string, parentName string) string {
 	if parentName == "" && len(path) > 1 {

@@ -1,6 +1,9 @@
 package mapadapter
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"testing"
 
 	"sdmm/internal/dmapi/dmenv"
@@ -24,6 +27,19 @@ func TestEnvironmentHashIsCanonical(t *testing.T) {
 		t.Fatalf("environment hashes differ: %q != %q", leftHash, rightHash)
 	}
 
+	// Retain the previous byte framing as an independent compatibility oracle.
+	var encoded bytes.Buffer
+	writeAdapterString(&encoded, "apheliondmm.environment.v1")
+	writeAdapterUint64(&encoded, 1)
+	writeAdapterString(&encoded, "/obj/foo")
+	writeAdapterUint64(&encoded, 2)
+	for _, value := range []string{"dir", "2", "icon", "'foo.dmi'"} {
+		writeAdapterString(&encoded, value)
+	}
+	digest := sha256.Sum256(encoded.Bytes())
+	if leftHash != hex.EncodeToString(digest[:]) {
+		t.Fatal("canonical environment framing changed")
+	}
 	changedVars := &dmvars.MutableVariables{}
 	changedVars.Put("dir", "4")
 	changedVars.Put("icon", "'foo.dmi'")

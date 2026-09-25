@@ -3,10 +3,12 @@ package editor
 
 import (
 	"context"
+	"fmt"
 	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/executor"
 	"sdmm/internal/aphelion/collab/mapadapter"
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/diagnostics/uistage"
 	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap"
@@ -18,14 +20,16 @@ import (
 type PreparedOpen struct {
 	editor        *Editor
 	Compatibility *dmmsnap.DmmSnap
-	Hash          string
+	hash          string
 }
 
 func PrepareOpen(ctx context.Context, environment *dmenv.Dme, dmm *dmmap.Dmm) (*PreparedOpen, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	fingerprint := uistage.Begin(uistage.EnvironmentFingerprint)
 	environmentHash, err := mapadapter.EnvironmentHash(environment)
+	fingerprint.End()
 	if err != nil {
 		return nil, err
 	}
@@ -37,14 +41,18 @@ func PrepareOpen(ctx context.Context, environment *dmenv.Dme, dmm *dmmap.Dmm) (*
 	if err != nil {
 		return nil, err
 	}
+	importRegion := uistage.Begin(uistage.MapImport)
 	snapshot, err := mapadapter.Import(dmm, documentID, environmentHash)
+	importRegion.End()
 	if err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	validation := uistage.Begin(uistage.MapDocument)
 	document, err := engine.NewUnsharedDocument(snapshot)
+	validation.End()
 	if err != nil {
 		return nil, err
 	}
@@ -53,17 +61,22 @@ func PrepareOpen(ctx context.Context, environment *dmenv.Dme, dmm *dmmap.Dmm) (*
 		return nil, err
 	}
 	e := &Editor{dmm: dmm, documentID: documentID, actorID: actorID, executor: local, workBudget: resources.DefaultBudget()}
+	indexes := uistage.Begin(uistage.MapIndexes)
 	e.setAuthoritative(snapshot)
 	e.updateAreasZones()
-	hash, err := snapshot.Hash()
-	if err != nil {
-		return nil, err
+	indexes.End()
+	hash, available := document.CachedHash()
+	if !available {
+		return nil, fmt.Errorf("prepared document has no validated initial hash")
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return &PreparedOpen{editor: e, Compatibility: dmmsnap.New(dmm), Hash: hash}, nil
+	compatibility := uistage.Begin(uistage.MapCompatibility)
+	defer compatibility.End()
+	return &PreparedOpen{editor: e, Compatibility: dmmsnap.New(dmm), hash: hash}, nil
 }
+func (p *PreparedOpen) Hash() string             { return p.hash }
 func (p *PreparedOpen) Dmm() *dmmap.Dmm          { return p.editor.dmm }
 func (p *PreparedOpen) Revision() model.Revision { return p.editor.authoritative.Revision }
 func NewPrepared(app app, attachedMap attachedMap, p *PreparedOpen) *Editor {
