@@ -1,5 +1,7 @@
 aead.dev/minisign v0.2.0 h1:kAWrq/hBRu4AARY6AlciO83xhNnW9UaC8YipS2uhLPk=
 aead.dev/minisign v0.2.0/go.mod h1:zdq6LdSd9TbuSxchxwhpA9zEb9YXcVGoE8JakuiGaIQ=
+github.com/BurntSushi/toml v1.5.0 h1:W5quZX/G/csjUnuI8SUYlsHs9M38FC7znL0lIO+DvMg=
+github.com/BurntSushi/toml v1.5.0/go.mod h1:ukJfTF/6rtPPRCnwkur4qwRxa8vTRFBF0uk2lLoLwho=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/SpaiR/imgui-go v1.12.1-0.20220214190844-a0bad21e1c5d h1:QajPUffv+BBqNu54DrL/YrO8RP1BGTfGhPNnoPt1ERk=
 github.com/SpaiR/imgui-go v1.12.1-0.20220214190844-a0bad21e1c5d/go.mod h1:bzOQqDbRE58xRB4EGTlUrIhCTWxNvU7YtJckrFf+HpM=

@@ -62,6 +62,9 @@ type app interface {
 
 	// Window
 	DoResetLayout()
+	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
+	DoOpenCompositionInspector()
+	// APHELION EDIT ADDITION END
 
 	// Help
 	DoOpenChangelog()
@@ -324,6 +327,9 @@ func (m *Menu) Process() {
 		}),
 
 		w.Menu("Window", w.Layout{
+			// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
+			w.MenuItem("Composition Inspector", m.app.DoOpenCompositionInspector).IconEmpty(),
+			// APHELION EDIT ADDITION END
 			// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut("F5").
 			w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut(shortcut.Label("menu#DoResetLayout")).
 				Icon(icon.WindowRestore),

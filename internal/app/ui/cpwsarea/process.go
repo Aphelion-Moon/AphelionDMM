@@ -28,26 +28,40 @@ func (w *WsArea) Process(dockId int32) {
 
 // APHELION EDIT ADDITION START - OWNED MAP OPEN
 func (w *WsArea) processLevelBuilds() {
-	if len(w.workspaces) == 0 {
+	count := len(w.workspaces)
+	if w.visualCompanion != nil {
+		count++
+	}
+	if count == 0 {
 		return
 	}
 	b := render.NewLevelBuildBudget()
-	cursor := w.levelBuildCursor % len(w.workspaces)
+	cursor := w.levelBuildCursor % count
 	idle := 0
-	for b.Available() && idle < len(w.workspaces) {
-		ws := w.workspaces[cursor]
-		processor, ok := ws.Content().(interface {
+	for b.Available() && idle < count {
+		var processor interface {
 			ProcessLevelBuildBudget(*render.LevelBuildBudget) bool
-		})
-		if ok && processor.ProcessLevelBuildBudget(b) {
+		}
+		if cursor == len(w.workspaces) {
+			processor = w.visualCompanion
+		} else {
+			processor, _ = w.workspaces[cursor].Content().(interface {
+				ProcessLevelBuildBudget(*render.LevelBuildBudget) bool
+			})
+		}
+		if processor != nil && processor.ProcessLevelBuildBudget(b) {
 			idle = 0
 		} else {
 			idle++
 		}
-		cursor = (cursor + 1) % len(w.workspaces)
+		cursor = (cursor + 1) % count
 	}
 	w.levelBuildCursor = cursor
 }
+
+func (w *WsArea) SetVisualCompanion(companion interface {
+	ProcessLevelBuildBudget(*render.LevelBuildBudget) bool
+}) { w.visualCompanion = companion }
 
 // APHELION EDIT ADDITION END
 

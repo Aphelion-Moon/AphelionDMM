@@ -1,6 +1,9 @@
 package cpwsarea
 
 import (
+	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
+	"sdmm/internal/app/render"
+	// APHELION EDIT ADDITION END
 	"fmt"
 	// APHELION EDIT ADDITION START - WORKSPACE LIFETIME
 	"slices"
@@ -53,6 +56,9 @@ type WsArea struct {
 	workspaces []*workspace.Workspace
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	levelBuildCursor int
+	visualCompanion  interface {
+		ProcessLevelBuildBudget(*render.LevelBuildBudget) bool
+	}
 	// APHELION EDIT ADDITION END
 }
 

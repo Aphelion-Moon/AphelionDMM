@@ -401,6 +401,11 @@ func (a *app) collaborationProjectReplacementGuard() (func() bool, error) {
 func (a *app) freeEnvironmentResources() {
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	a.cancelMapOpens()
+	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
+	if a.layout.Composition != nil {
+		a.layout.Composition.Invalidate()
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION END
 	log.Print("free environment resources...")
 

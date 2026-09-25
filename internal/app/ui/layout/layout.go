@@ -1,6 +1,9 @@
 package layout
 
 import (
+	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
+	mappingui "sdmm/internal/aphelion/mapping/ui"
+	// APHELION EDIT ADDITION END
 	collabui "sdmm/internal/aphelion/collab/ui"
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/ui/cpenvironment"
@@ -16,6 +19,9 @@ import (
 )
 
 type app interface {
+	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
+	mappingui.App
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COLLABORATION
 	collabui.PanelApp
 	// APHELION EDIT ADDITION END
@@ -64,6 +70,9 @@ type Layout struct {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	Collaboration *collabui.Panel
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
+	Composition *mappingui.Panel
+	// APHELION EDIT ADDITION END
 
 	tmpNextShowNode  []string
 	tmpNextFocusNode string
@@ -90,6 +99,10 @@ func New(app app) *Layout {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	l.Collaboration.Init(app)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
+	l.Composition = mappingui.New(app)
+	l.WsArea.SetVisualCompanion(l.Composition)
+	// APHELION EDIT ADDITION END
 
 	return l
 }
@@ -103,6 +116,9 @@ func (l *Layout) Process() {
 	l.showVariablesNode()
 	// APHELION EDIT ADDITION START - COLLABORATION
 	l.showCollaborationNode()
+	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
+	l.Composition.Process()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION END
 	l.showWorkspaceAreaNode() // The latest node will have a focus by default
 

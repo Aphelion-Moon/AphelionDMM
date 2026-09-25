@@ -4,6 +4,7 @@ go 1.25.13
 
 require (
 	aead.dev/minisign v0.2.0
+	github.com/BurntSushi/toml v1.5.0
 	github.com/SpaiR/imgui-go v1.12.1-0.20220214190844-a0bad21e1c5d
 	github.com/coder/websocket v1.8.15
 	github.com/coreos/go-oidc/v3 v3.20.0
