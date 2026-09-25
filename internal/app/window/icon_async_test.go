@@ -10,12 +10,16 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/go-gl/gl/v3.3-core/gl"
+	"github.com/go-gl/glfw/v3.3/glfw"
 	"sdmm/internal/aphelion/iconassets"
 	"sdmm/internal/app/window"
+	"sdmm/internal/dmapi/dm"
+	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmicon"
 )
 
@@ -98,6 +102,124 @@ func TestNativeAsyncIconResolvesCachedHandleAndCancelsOldRoot(t *testing.T) {
 		t.Fatal("old root icon published into replacement")
 	}
 }
+
+// APHELION EDIT ADDITION START - ICON RECOVERY
+func TestNativeVisibleIconFailureRetriesIntoSameHandle(t *testing.T) {
+	newMouseNetworkWorkspace(t)
+	root := t.TempDir()
+	dmicon.Cache.Free()
+	dmicon.Cache.SetRootDirPath(root)
+	t.Cleanup(func() { dmicon.Cache.Free(); window.DrainFrameJobsForTest() })
+
+	sprite, status := dmicon.Cache.RequestSpriteV("fixture.dmi", "", 0, dmicon.RequestVisible)
+	if status.State != dmicon.SpritePending {
+		t.Fatalf("missing icon state is %d, want pending", status.State)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for dmicon.Cache.Loading() && time.Now().Before(deadline) {
+		dmicon.Cache.ProcessUploads()
+		time.Sleep(time.Millisecond)
+	}
+	if dmicon.Cache.Loading() {
+		t.Fatal("missing icon did not reach an actionable failure")
+	}
+	failedSprite, status := dmicon.Cache.RequestSpriteV("fixture.dmi", "", 0, dmicon.RequestVisible)
+	if failedSprite != sprite || status.State != dmicon.SpriteFailed || status.Category != "invalid" {
+		t.Fatalf("missing icon outcome = handle same:%t state:%d category:%q; want same handle and invalid failure", failedSprite == sprite, status.State, status.Category)
+	}
+
+	writeIconFixture(t, root, 64)
+	if !dmicon.Cache.RetryIcon("fixture.dmi") {
+		t.Fatal("explicit retry was not accepted")
+	}
+	retryingSprite, status := dmicon.Cache.RequestSpriteV("fixture.dmi", "", 0, dmicon.RequestVisible)
+	if retryingSprite != sprite || status.State != dmicon.SpritePending {
+		t.Fatalf("retry outcome = handle same:%t state:%d; want same handle and pending", retryingSprite == sprite, status.State)
+	}
+	deadline = time.Now().Add(5 * time.Second)
+	for dmicon.Cache.Loading() && time.Now().Before(deadline) {
+		dmicon.Cache.ProcessUploads()
+		time.Sleep(time.Millisecond)
+	}
+	if dmicon.Cache.Loading() {
+		t.Fatal("retried visible icon did not finish")
+	}
+	readySprite, status := dmicon.Cache.RequestSpriteV("fixture.dmi", "", 0, dmicon.RequestVisible)
+	if readySprite != sprite || status.State != dmicon.SpriteReady || sprite.IconWidth() != 64 || sprite.Texture() == 0 {
+		t.Fatalf("retried icon did not publish into its original handle: same=%t state=%d width=%d texture=%d", readySprite == sprite, status.State, sprite.IconWidth(), sprite.Texture())
+	}
+}
+
+// APHELION EDIT ADDITION START - REAL CATALOGUE ICON
+// This opt-in native smoke check creates no map or workspace: the environment
+// icon is an independent foreground consumer of the shared upload scheduler.
+func TestNativeCatalogueIconLoadsWithoutMapMembership(t *testing.T) {
+	dmePath := os.Getenv("APHELION_ICON_DME")
+	if dmePath == "" {
+		t.Skip("set APHELION_ICON_DME to a readable project DME for the catalogue icon smoke check")
+	}
+	if lifecycleWindow == nil {
+		t.Skip("set APHELIONDMM_GL_TEST=1 for native icon upload")
+	}
+	runtime.LockOSThread()
+	t.Cleanup(runtime.UnlockOSThread)
+	lifecycleWindow.MakeContextCurrent()
+	t.Cleanup(glfw.DetachCurrentContext)
+	t.Cleanup(window.DrainFrameJobsForTest)
+
+	parseStart := time.Now()
+	environment, err := dmenv.New(dmePath)
+	if err != nil {
+		t.Fatal("parse icon catalogue DME:", err)
+	}
+	t.Logf("catalogue_dme=%s parse_ms=%.3f", dmePath, float64(time.Since(parseStart).Microseconds())/1000)
+
+	const objectPath = "/obj/machinery/door/airlock"
+	object := environment.Objects[objectPath]
+	if object == nil {
+		t.Fatalf("catalogue object %s is missing from %s", objectPath, dmePath)
+	}
+	iconPath, ok := object.Vars.Text("icon")
+	if !ok || iconPath == "" {
+		t.Fatalf("catalogue object %s has no inherited icon path", objectPath)
+	}
+	state, _ := object.Vars.Text("icon_state")
+	direction := object.Vars.IntV("dir", dm.DirDefault)
+
+	dmicon.Cache.Free()
+	dmicon.Cache.SetRootDirPath(environment.RootDir)
+	defer func() {
+		dmicon.Cache.Free()
+		window.DrainFrameJobsForTest()
+	}()
+	started := time.Now()
+	sprite, status := dmicon.Cache.RequestSpriteV(iconPath, state, direction, dmicon.RequestVisible)
+	if sprite == nil {
+		t.Fatal("visible icon request returned a nil handle")
+	}
+	deadline := time.Now().Add(90 * time.Second)
+	for status.State != dmicon.SpriteReady && time.Now().Before(deadline) {
+		dmicon.Cache.ProcessUploads()
+		current, currentStatus := dmicon.Cache.RequestSpriteV(iconPath, state, direction, dmicon.RequestVisible)
+		if current != sprite {
+			t.Fatal("visible icon request replaced its stable handle")
+		}
+		status = currentStatus
+		if status.State == dmicon.SpriteFailed {
+			t.Fatalf("catalogue icon failed: category=%s stage=%s err=%v", status.Category, status.Stage, status.Err)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	latency := time.Since(started)
+	if status.State != dmicon.SpriteReady || sprite.Texture() == 0 || sprite.IconWidth() <= 0 || sprite.IconHeight() <= 0 {
+		t.Fatalf("catalogue icon did not become ready: state=%d texture=%d dimensions=%dx%d", status.State, sprite.Texture(), sprite.IconWidth(), sprite.IconHeight())
+	}
+	t.Logf("object=%s icon=%s state=%q dir=%d latency_ms=%.3f cache_revision=%d dimensions=%dx%d", objectPath, iconPath, state, direction, float64(latency.Microseconds())/1000, dmicon.Cache.Revision(), sprite.IconWidth(), sprite.IconHeight())
+}
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT ADDITION END
 
 func TestNativeIconUploadYieldsAndRestoresUnpackState(t *testing.T) {
 	newMouseNetworkWorkspace(t)

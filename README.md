@@ -201,6 +201,39 @@ The [v.a.1 release](docs/releases/v.a.1.md) requires manual updates. Its release
 
 Shortcuts depend on the active map, tool, and editor state. The hotkey reference and tooltips give more information about the controls.
 
+### Tools, icons, and map composition
+
+The map toolbar shows the effective action, including a temporarily held tool and
+any mode captured by a gesture. **Options** contains brush, shape, area-selection,
+and placement settings. **Selection…** contains selection transforms and fill
+actions. The status line and **F1** explain the current target and modifiers using
+your configured bindings. Alt-Pick hides an exact type in the local filter; it
+does not delete map contents.
+
+Environment icons load when their rows become visible, even without an open map.
+A failed icon shows an error indicator with its reason. Right-click the row and
+choose **Retry Icon** after correcting the asset or freeing resources.
+
+Open **Window → Composition** to show its controls beside Environment. **Show
+composition in this map** overlays the supported composed result on the source
+map using its camera and deck. Select a root marker or its sidebar row, choose a
+candidate, and use **Frame selected / Go to root** when you want to move the view.
+**Open comparison tab** provides a separate read-only workspace with synchronized
+split, single-view, and comparison modes. Its **View…** menu includes fit actions.
+
+For an accepted root in the open source map, choose **Move anchor**, then drag its
+marker. The provisional preview leaves the source unchanged until release;
+Escape or leaving the map cancels it. An accepted move is one undoable source
+edit. Derived contributions are locked: use **Open source in context** to edit
+the actual template against masked parent surroundings. This reuses an existing
+source tab, and editing a shared template affects its other occurrences. Nested
+roots offer **Edit containing source**. Candidate choices and exclusions are
+editor scenarios, not runtime configuration changes.
+
+Composition work continues when the sidebar is hidden. Advanced references and
+authoring controls include fixed-template configuration and an action to restore
+the Composition dock beside Environment without resetting the other panels.
+
 ## Build from source
 
 Use **Go 1.25.13**, as specified in [go.mod](go.mod). Use **Rust 1.82.0** and **Task 3.x**. Git and a C/C++ toolchain are also necessary. The desktop uses CGO to link the Rust parser from this repository.

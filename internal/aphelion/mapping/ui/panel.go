@@ -5,18 +5,21 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/SpaiR/imgui-go"
+	"github.com/go-gl/glfw/v3.3/glfw"
 	"sdmm/internal/aphelion/mapping"
+	"sdmm/internal/aphelion/mapview"
+	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/render"
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/canvas"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap"
+	"sdmm/internal/imguiext"
 	"sdmm/internal/util"
 )
 
@@ -30,6 +33,8 @@ type acceptedProvider interface {
 	CaptureMappingSources() map[string]mapping.AcceptedSource
 }
 type request struct {
+	contextRoot            string
+	focusRoot              string
 	thumbnail, scanProject bool
 	guidance               bool
 	accepted               map[string]mapping.AcceptedSource
@@ -43,6 +48,11 @@ type request struct {
 	fixedChoices           map[string]int
 }
 type result struct {
+	contextSource       *mapping.Source
+	contextDisplay      *dmmap.Dmm
+	configurations      []string
+	layers              [2]*mapping.Source
+	layerDisplays       [2]*dmmap.Dmm
 	thumbnailSource     *mapping.Source
 	thumbnailDisplay    *dmmap.Dmm
 	thumbnailConnectors int
@@ -62,11 +72,27 @@ type result struct {
 	connectors          [2]int
 }
 
-func (r *result) close() { r.advisory.Close(); r.projection.Close(); r.catalog.Close() }
+func (r *result) close() {
+	r.contextSource.Close()
+	for _, s := range r.layers {
+		s.Close()
+	}
+	r.advisory.Close()
+	r.projection.Close()
+	r.catalog.Close()
+}
 
 // Panel is a modeless source inspector. It owns no editable document, tools,
 // clipboard or history; opening a source for editing is an explicit separate action.
 type Panel struct {
+	contextRoot                            string
+	contextView                            *canvas.Canvas
+	managed, moveArmed, revealRoot         bool
+	rootFilter                             string
+	draft                                  *anchorDraft
+	split                                  float32
+	targetDeck                             int32
+	layerViews                             [2]*canvas.Canvas
 	thumbnail                              *canvas.Canvas
 	thumbnailRequested, scanNext           bool
 	discovered                             []string
@@ -83,6 +109,7 @@ type Panel struct {
 	results                                chan result
 	cancel                                 context.CancelFunc
 	current                                *result
+	reuse                                  *mapping.ReuseCache
 	views                                  [2]*canvas.Canvas
 	visualCursor                           int
 	camera                                 render.Camera
@@ -110,7 +137,7 @@ type Panel struct {
 }
 
 func New(app App) *Panel {
-	return &Panel{app: app, camera: render.Camera{Scale: .25, Level: 1}, level: 1, alpha: .5, wipe: .5, showHelpers: true}
+	return &Panel{app: app, choices: map[string]mapping.Choice{}, camera: render.Camera{Scale: .25, Level: 1}, level: 1, alpha: .5, wipe: .5, showHelpers: true}
 }
 func (p *Panel) Open() {
 	p.open = true
@@ -142,7 +169,29 @@ func (p *Panel) OpenReferenceForEditing() {
 	p.app.DoLoadResource(path)
 	p.contextPath = path
 }
+func (p *Panel) clearContext() {
+	p.contextPath = ""
+	p.contextRoot = ""
+	if p.contextView != nil {
+		p.contextView.Dispose()
+		p.contextView = nil
+	}
+	if p.backdrop != nil {
+		p.backdrop.Dispose()
+		p.backdrop = nil
+	}
+}
 func (p *Panel) release() {
+	if p.contextView != nil {
+		p.contextView.Dispose()
+		p.contextView = nil
+	}
+	for i, v := range p.layerViews {
+		if v != nil {
+			v.Dispose()
+			p.layerViews[i] = nil
+		}
+	}
 	if p.thumbnail != nil {
 		p.thumbnail.Dispose()
 		p.thumbnail = nil
@@ -163,17 +212,28 @@ func (p *Panel) release() {
 	}
 }
 func (p *Panel) Invalidate() {
+	p.draft = nil
 	p.author.invalidate()
 	p.generation++
 	p.pending = nil
 	if p.cancel != nil {
 		p.cancel()
 	}
+	if results := p.results; results != nil {
+		p.results = nil
+		p.cancel = nil
+		go func() { r := <-results; r.close() }()
+	}
 	p.release()
+	if p.reuse != nil {
+		p.reuse.Close()
+		p.reuse = nil
+	}
 	p.choices = nil
 	p.fixedChoices = nil
 	p.scenario = mapping.Scenario{}
 	p.contextPath = ""
+	p.contextRoot = ""
 	p.discovered = nil
 	p.thumbnailRequested = false
 	p.anchor = nil
@@ -181,6 +241,8 @@ func (p *Panel) Invalidate() {
 	p.transformParent, p.transformReference = "", ""
 }
 func (p *Panel) queue(anchor *util.Point) {
+	// Selection, binding, or accepted-source refresh invalidates a captured draft.
+	p.draft = nil
 	if p.transformParent != p.parentPath || p.transformReference != p.referencePath {
 		p.anchor = nil
 		p.offset = [3]int32{}
@@ -194,6 +256,8 @@ func (p *Panel) queue(anchor *util.Point) {
 	p.generation++
 	p.pending = &request{generation: p.generation, environment: p.environment, parent: p.parentPath, reference: p.referencePath, anchor: p.anchor}
 	p.pending.compose = p.compose
+	p.pending.contextRoot = p.contextRoot
+	p.pending.focusRoot = p.focusRoot
 	p.pending.guidance = p.guidance
 	p.pending.thumbnail = p.thumbnailRequested
 	p.pending.scanProject = p.scanNext
@@ -226,13 +290,13 @@ func (p *Panel) advance() {
 		p.environment = p.app.LoadedEnvironment()
 		p.status = "Project changed; reopen references for this environment."
 	}
-	if p.open && (p.current != nil || p.retryAccepted) && time.Now().After(p.nextRevisionCheck) {
-		p.nextRevisionCheck = time.Now().Add(500 * time.Millisecond)
+	if p.open && (p.current != nil || p.retryAccepted) {
 		paths := []string{p.parentPath, p.referencePath}
 		if p.current != nil {
 			paths = p.current.dependencies
 		}
-		if provider, ok := p.app.(acceptedProvider); ok && (p.retryAccepted || provider.MappingRevisionKey(paths) != p.observedRevisions) {
+		if provider, ok := p.app.(acceptedProvider); ok && ((p.retryAccepted && time.Now().After(p.nextRevisionCheck)) || provider.MappingRevisionKey(paths) != p.observedRevisions) {
+			p.nextRevisionCheck = time.Now().Add(100 * time.Millisecond)
 			p.queue(nil)
 		}
 	}
@@ -253,6 +317,24 @@ func (p *Panel) advance() {
 			} else {
 				p.release()
 				p.current = &r
+				if r.contextDisplay != nil {
+					v := canvas.New()
+					v.Render().SetUnitProcessor(p)
+					v.Render().BeginLevelBuild(r.contextDisplay, 1)
+					p.contextView = v
+				}
+				if p.mapConfig == "" && r.request.mapConfig != "" {
+					p.mapConfig = r.request.mapConfig
+				}
+				for i, d := range r.layerDisplays {
+					if d != nil {
+						v := canvas.New()
+						v.SetTransparent(i == 0)
+						v.Render().SetUnitProcessor(p)
+						v.Render().BeginLevelBuild(d, 1)
+						p.layerViews[i] = v
+					}
+				}
 				if r.request.scanProject {
 					p.discovered = r.discovered
 				}
@@ -297,8 +379,12 @@ func (p *Panel) advance() {
 		p.cancel = cancel
 		results := make(chan result, 1)
 		p.results = results
+		if p.reuse == nil {
+			p.reuse = mapping.NewReuseCache()
+		}
+		reuse := p.reuse
 		go func() {
-			out := result{request: r, catalog: mapping.NewCatalog(r.environment)}
+			out := result{request: r, catalog: mapping.NewCatalogWithReuseCache(r.environment, reuse)}
 			out.catalog.SetAcceptedSources(r.accepted)
 			out.request.accepted = nil
 			if r.scanProject {
@@ -336,6 +422,13 @@ func (p *Panel) advance() {
 				if r.compose {
 					var fixed []mapping.FixedPlacement
 					var fixedDiagnostics []mapping.Diagnostic
+					if r.mapConfig == "" {
+						out.configurations, _ = mapping.DiscoverMapConfigurations(ctx, r.environment.RootDir, out.sources[0].Identity.Path)
+						if len(out.configurations) == 1 {
+							r.mapConfig = out.configurations[0]
+							out.request.mapConfig = r.mapConfig
+						}
+					}
 					if r.mapConfig != "" {
 						fixed, out.fixed, fixedDiagnostics = out.catalog.Fixed(ctx, out.sources[0], r.mapConfig, r.fixedChoices)
 					}
@@ -413,6 +506,24 @@ func (p *Panel) advance() {
 				}
 			}
 			out.dependencies = out.catalog.SourcePaths()
+			if out.err == nil && out.projection != nil && r.contextRoot != "" && r.contextRoot != r.focusRoot {
+				out.contextSource, out.err = out.projection.OccurrenceLayer(ctx, r.contextRoot, false)
+				if out.err == nil {
+					out.contextDisplay, out.err = out.contextSource.DisplayMap(ctx)
+				}
+			}
+			if out.err == nil && out.projection != nil && r.focusRoot != "" {
+				for i := range 2 {
+					out.layers[i], out.err = out.projection.OccurrenceLayer(ctx, r.focusRoot, i == 0)
+					if out.err != nil {
+						break
+					}
+					out.layerDisplays[i], out.err = out.layers[i].DisplayMap(ctx)
+					if out.err != nil {
+						break
+					}
+				}
+			}
 			results <- out
 		}()
 	}
@@ -423,11 +534,9 @@ func (p *Panel) Process() {
 	if !p.open {
 		return
 	}
-	imgui.SetNextWindowSizeV(imgui.Vec2{X: 1000, Y: 680}, imgui.ConditionFirstUseEver)
-	visible := imgui.BeginV("Composition Inspector", &p.open, imgui.WindowFlagsNone)
+	visible := imgui.BeginV("Composition", &p.open, imgui.WindowFlagsNone)
 	if visible {
-		p.controls()
-		p.compareViews()
+		p.sidebar()
 	}
 	imgui.End()
 	if !p.open {
@@ -435,161 +544,75 @@ func (p *Panel) Process() {
 	}
 }
 func (p *Panel) controls() {
-	imgui.TextWrapped(p.status)
+	if host, ok := p.app.(interface{ RestoreCompositionDock() }); ok && imgui.Button("Restore Composition beside Environment") {
+		host.RestoreCompositionDock()
+	}
 	if p.environment == nil {
-		imgui.Text("Open a project to resolve source appearances and metadata.")
+		imgui.TextWrapped("Open a project to resolve source appearances and metadata.")
 		return
 	}
-	imgui.InputText("Parent source", &p.parentPath)
-	imgui.SameLine()
-	if imgui.Button("Use active map") {
-		p.parentPath = p.app.ActiveMappingPath()
-		p.scenario = mapping.Scenario{}
-		p.choices = nil
+	if !p.managed {
+		imgui.InputText("Parent source", &p.parentPath)
 	}
-	imgui.InputText("Reference source", &p.referencePath)
-	imgui.InputText("Map configuration (project-relative JSON)", &p.mapConfig)
-	if imgui.Checkbox("Assemble selected scenario", &p.compose) {
+	imgui.InputText("Explicit reference source", &p.referencePath)
+	imgui.InputText("Map configuration", &p.mapConfig)
+	if imgui.Checkbox("Compose configured modules", &p.compose) {
 		p.queue(nil)
 	}
-	if imgui.Checkbox("Analyze authored seams and spawn candidates", &p.guidance) {
+	if imgui.Button("Refresh source snapshots") {
 		p.queue(nil)
-	}
-	if imgui.Button("Open / refresh references") {
-		p.OpenSources(p.parentPath, p.referencePath, nil)
-	}
-	p.browserControls()
-	imgui.SameLine()
-	if imgui.Button("Open reference for editing") && p.referencePath != "" {
-		p.OpenReferenceForEditing()
-	}
-	if p.contextPath != "" {
-		imgui.SameLine()
-		if imgui.Button("Detach locked parent context") {
-			p.contextPath = ""
-			if p.backdrop != nil {
-				p.backdrop.Dispose()
-				p.backdrop = nil
-			}
-		}
-	}
-	modes := []string{"Synchronized split", "Overlay", "Wipe", "Blink", "Structural differences", "Source bounds", "Reservations / suppression"}
-	if imgui.BeginCombo("Comparison", modes[p.mode]) {
-		for i, mode := range modes {
-			if imgui.Selectable(mode) {
-				p.mode = int32(i)
-			}
-		}
-		imgui.EndCombo()
-	}
-	imgui.SliderFloat("Blend", &p.alpha, 0, 1)
-	imgui.SameLine()
-	imgui.SliderFloat("Wipe", &p.wipe, 0, 1)
-	imgui.InputInt("Destination Z", &p.level)
-	p.level = max(1, p.level)
-	if imgui.InputInt("Offset X", &p.offset[0]) {
-		p.anchor = nil
-	}
-	if imgui.InputInt("Offset Y", &p.offset[1]) {
-		p.anchor = nil
-	}
-	if imgui.InputInt("Offset Z", &p.offset[2]) {
-		p.anchor = nil
 	}
 	if imgui.Checkbox("Show source helpers", &p.showHelpers) {
 		p.policyRevision++
 	}
+	if p.current != nil && len(p.current.fixed) > 0 && imgui.TreeNode("Fixed templates / trait-relative placements") {
+		for _, binding := range p.current.fixed {
+			imgui.PushID(binding.ID)
+			imgui.TextWrapped(fmt.Sprintf("%s: %s[%d] → local %v — %s", binding.ID, binding.TraitName, binding.TraitIndex, binding.Destination, binding.Error))
+			slot := int32(binding.Slot + 1)
+			if imgui.InputInt("Candidate slot", &slot) {
+				if p.fixedChoices == nil {
+					p.fixedChoices = map[string]int{}
+				}
+				p.fixedChoices[binding.ID] = int(slot) - 1
+				p.queue(nil)
+			}
+			imgui.PopID()
+		}
+		imgui.TextWrapped("Changing a runtime origin uses the guarded configuration authoring controls below.")
+		imgui.TreePop()
+	}
+	if !p.compose {
+		imgui.TextWrapped("Reference offsets are editor-only alignment; they do not change runtime placement.")
+		if imgui.InputInt("Reference offset X", &p.offset[0]) {
+			p.anchor = nil
+		}
+		if imgui.InputInt("Reference offset Y", &p.offset[1]) {
+			p.anchor = nil
+		}
+		if imgui.InputInt("Reference offset Z", &p.offset[2]) {
+			p.anchor = nil
+		}
+		if imgui.Button("Open reference for editing") {
+			p.OpenReferenceForEditing()
+		}
+	}
+	p.browserControls()
 	if p.current != nil {
-		if len(p.current.fixed) > 0 && imgui.TreeNode("Fixed templates / trait-relative placements") {
-			for _, binding := range p.current.fixed {
-				imgui.PushID(binding.ID)
-				imgui.TextWrapped(fmt.Sprintf("%s: %s[%d] -> local %d,%d,%d — %s", binding.ID, binding.TraitName, binding.TraitIndex, binding.Destination.X, binding.Destination.Y, binding.Destination.Z, binding.Error))
-				slot := int32(binding.Slot + 1)
-				if imgui.InputInt("Candidate slot", &slot) {
-					if p.fixedChoices == nil {
-						p.fixedChoices = make(map[string]int)
-					}
-					p.fixedChoices[binding.ID] = int(slot) - 1
-					p.queue(nil)
-				}
-				imgui.PopID()
-			}
-			imgui.TreePop()
-		}
-		for i, s := range p.current.sources {
-			if s == nil {
-				continue
-			}
-			imgui.Text(fmt.Sprintf("%d: %s — %d×%d×%d; %d connectors", i+1, filepath.Base(s.Identity.Path), s.Size.X, s.Size.Y, s.Size.Z, p.current.connectors[i]))
-		}
-		if imgui.TreeNode("Placed modular roots") {
-			for _, root := range p.current.roots {
-				imgui.PushID(root.ID)
-				if imgui.TreeNode(fmt.Sprintf("%s at %d,%d,%d (%d slots)", root.Key, root.Destination.X, root.Destination.Y, root.Destination.Z, len(root.Candidates))) {
-					imgui.TextWrapped(root.Config + " / " + root.Key)
-					p.alternativeControls(root)
-					if imgui.Button("Go to root") {
-						p.navigate(root.Destination)
-					}
-					if p.compose {
-						excluded := p.scenario.Excluded[root.ID]
-						if imgui.Checkbox("Exclude (editor what-if)", &excluded) {
-							if p.scenario.Excluded == nil {
-								p.scenario.Excluded = make(map[string]bool)
-							}
-							p.scenario.Excluded[root.ID] = excluded
-							p.queue(nil)
-						}
-					}
-					for _, candidate := range root.Candidates {
-						label := fmt.Sprintf("%d: %s", candidate.Slot+1, filepath.Base(candidate.Path))
-						if candidate.Error != "" {
-							imgui.TextWrapped(label + ": " + candidate.Error)
-							continue
-						}
-						if imgui.Selectable(label) {
-							p.referencePath = candidate.Path
-							p.focusRoot = root.ID
-							if p.choices == nil {
-								p.choices = make(map[string]mapping.Choice)
-							}
-							p.choices[root.ID] = mapping.Choice{Slot: candidate.Slot}
-							anchor := root.Destination
-							p.queue(&anchor)
-						}
-					}
-					imgui.TreePop()
-				}
-				imgui.PopID()
-			}
-			imgui.TreePop()
-		}
-		if imgui.TreeNode(fmt.Sprintf("Diagnostics (%d)", len(p.current.diagnostics))) {
-			imgui.BeginChildV("diagnostic-list", imgui.Vec2{Y: 150}, true, imgui.WindowFlagsNone)
-			for i, d := range p.current.diagnostics {
-				imgui.PushIDInt(i)
-				if d.Destination.Z > 0 && imgui.SmallButton("Go") {
-					p.navigate(d.Destination)
-				}
-				imgui.SameLine()
-				imgui.TextWrapped(d.Severity + ": " + d.Message)
-				if imgui.IsItemHovered() {
-					imgui.SetTooltip(fmt.Sprintf("%s\nsource %d,%d,%d; destination %d,%d,%d", d.Source, d.Local.X, d.Local.Y, d.Local.Z, d.Destination.X, d.Destination.Y, d.Destination.Z))
-				}
-				imgui.PopID()
-			}
-			imgui.EndChild()
-			imgui.TreePop()
-		}
 		p.provenanceControls()
+	}
+	if imgui.Checkbox("Analyze authored seams and spawn candidates", &p.guidance) {
+		p.queue(nil)
+	}
+	if p.current != nil {
 		p.advisoryControls()
 	}
 	p.authoringControls()
 }
 
 func (p *Panel) ProcessLevelBuildBudget(b *render.LevelBuildBudget) bool {
-	for range 4 {
-		idx := p.visualCursor % 4
+	for range 7 {
+		idx := p.visualCursor % 7
 		p.visualCursor++
 		v := p.backdrop
 		if idx == 3 {
@@ -597,6 +620,12 @@ func (p *Panel) ProcessLevelBuildBudget(b *render.LevelBuildBudget) bool {
 		}
 		if idx < 2 {
 			v = p.views[idx]
+		}
+		if idx >= 4 && idx < 6 {
+			v = p.layerViews[idx-4]
+		}
+		if idx == 6 {
+			v = p.contextView
 		}
 		if v != nil && v.Render().ProcessLevelBuildBudget(b) {
 			return true
@@ -608,14 +637,14 @@ func (p *Panel) ProcessLevelBuildBudget(b *render.LevelBuildBudget) bool {
 // Backdrop supplies pixels only. The editable pane's tools, picking, bounds and
 // command executor remain attached exclusively to its own source document.
 func (p *Panel) Backdrop(path string, camera render.Camera, size imgui.Vec2) (uint32, bool) {
-	if !p.open || p.results != nil || p.retryAccepted || p.current == nil || p.current.displays[0] == nil || p.contextPath == "" || !strings.EqualFold(filepath.Clean(path), filepath.Clean(p.contextPath)) {
+	if !p.open || p.current == nil || p.current.displays[0] == nil || p.contextPath == "" || !strings.EqualFold(filepath.Clean(path), filepath.Clean(p.contextPath)) {
 		return 0, false
 	}
 	offset := util.Point{X: int(p.offset[0]), Y: int(p.offset[1]), Z: int(p.offset[2])}
 	if p.current.projection != nil {
 		found := false
 		for _, placement := range p.current.projection.Placements {
-			if placement.Root.ID == p.focusRoot && strings.EqualFold(filepath.Clean(placement.Source.Path), filepath.Clean(path)) {
+			if placement.Root.ID == p.contextRoot && strings.EqualFold(filepath.Clean(placement.Source.Path), filepath.Clean(path)) {
 				offset = placement.Transform.Offset
 				found = true
 				break
@@ -624,6 +653,26 @@ func (p *Panel) Backdrop(path string, camera render.Camera, size imgui.Vec2) (ui
 		if !found {
 			return 0, false
 		}
+	}
+	contextView, contextDisplay := p.contextView, p.current.contextDisplay
+	if p.contextRoot == p.current.request.focusRoot {
+		contextView, contextDisplay = p.layerViews[1], p.current.layerDisplays[1]
+	}
+	if p.current.projection != nil && contextView != nil && p.current.request.contextRoot == p.contextRoot {
+		camera.ShiftX -= float32(offset.X * dmmap.WorldIconSize)
+		camera.ShiftY -= float32(offset.Y * dmmap.WorldIconSize)
+		camera.Level += offset.Z
+		v := contextView
+		*v.Render().Camera = camera
+		if camera.Level < 1 || camera.Level > contextDisplay.MaxZ {
+			return 0, false
+		}
+		v.Render().SetActiveLevel(contextDisplay, camera.Level)
+		v.Process(size)
+		return v.Texture(), true
+	}
+	if p.current.projection != nil {
+		return 0, false
 	}
 	if p.backdrop == nil {
 		p.backdrop = canvas.New()
@@ -646,31 +695,79 @@ func (p *Panel) compareViews() {
 		return
 	}
 	size := imgui.ContentRegionAvail()
-	size.Y = max(100, size.Y)
-	size.X = max(100, size.X)
+	if size.X < 1 || size.Y < 1 {
+		return
+	}
 	start := imgui.CursorScreenPos()
+	mode := p.mode
+	minimum := max(float32(160), 16*imgui.FontSize())
+	if mode == 0 && size.X < minimum*2+8 {
+		mode = 7
+	}
+	if p.split == 0 {
+		p.split = .5
+	}
+	widths := [2]float32{size.X, size.X}
+	if mode == 0 {
+		widths[0] = max(minimum, min(size.X-minimum-8, (size.X-8)*p.split))
+		widths[1] = size.X - widths[0] - 8
+		imgui.SetCursorScreenPos(imgui.Vec2{X: start.X + widths[0], Y: start.Y})
+		imgui.InvisibleButton("comparison-splitter", imgui.Vec2{X: 8, Y: size.Y})
+		if imgui.IsItemActive() && imgui.IsMouseDragging(0, 0) {
+			p.split = max(.1, min(.9, p.split+imgui.CurrentIO().MouseDelta().X/(size.X-8)))
+		}
+	}
+	imgui.SetCursorScreenPos(start)
 	imgui.InvisibleButton("comparison-canvas", size)
 	if imgui.IsItemHovered() {
-		if imgui.IsMouseClicked(0) {
-			mouse := imgui.MousePos()
-			localX := mouse.X - start.X
-			if p.mode == 0 && localX > (size.X+8)/2 {
-				localX -= (size.X + 8) / 2
+		origin := start
+		paneSize := size
+		if mode == 0 {
+			paneSize.X = widths[0]
+			if imgui.MousePos().X > start.X+widths[0]+8 {
+				origin.X += widths[0] + 8
+				paneSize.X = widths[1]
 			}
-			p.inspected = util.Point{X: int(math.Floor(float64((localX/p.camera.Scale-p.camera.ShiftX)/float32(dmmap.WorldIconSize)))) + 1, Y: int(math.Floor(float64(((size.Y-mouse.Y+start.Y)/p.camera.Scale-p.camera.ShiftY)/float32(dmmap.WorldIconSize)))) + 1, Z: int(p.level)}
+		}
+		p.camera.Level = int(p.level)
+		if imgui.IsMouseClicked(0) {
+			p.inspected = mapview.Tile(p.camera, paneSize, origin, imgui.MousePos())
+			for _, root := range p.current.roots {
+				if root.Destination == p.inspected {
+					p.focusRoot = root.ID
+					p.revealRoot = true
+					p.moveArmed = false
+					p.queue(nil)
+					break
+				}
+			}
 		}
 		_, wheel := imgui.CurrentIO().MouseWheel()
-		p.camera.Scale = max(.02, min(8, p.camera.Scale*float32(math.Pow(1.15, float64(wheel)))))
-		if imgui.IsMouseDragging(2, 0) {
-			delta := imgui.CurrentIO().MouseDelta()
-			p.camera.Translate(delta.X/p.camera.Scale, -delta.Y/p.camera.Scale)
+		altScroll := false
+		if host, ok := p.app.(interface{ Prefs() *prefs.Prefs }); ok {
+			altScroll = host.Prefs().Controls.AltScrollBehaviour
+		}
+		space := imgui.IsKeyDown(int(glfw.KeySpace))
+		if wheel != 0 {
+			if altScroll && !space {
+				delta := wheel * float32(dmmap.WorldIconSize)
+				if imguiext.IsShiftDown() {
+					delta *= 5
+				}
+				move := imgui.Vec2{Y: delta}
+				if imguiext.IsCtrlDown() {
+					move = imgui.Vec2{X: delta}
+				}
+				mapview.Pan(&p.camera, move)
+			} else {
+				mapview.Zoom(&p.camera, paneSize, imgui.MousePos().Minus(origin), wheel > 0)
+			}
+		}
+		if imgui.IsMouseDown(2) || space {
+			mapview.Pan(&p.camera, imgui.CurrentIO().MouseDelta())
 		}
 	}
-	viewSize := size
-	if p.mode == 0 {
-		viewSize.X = (size.X - 8) / 2
-	}
-	p.viewSize = viewSize
+	p.viewSize = imgui.Vec2{X: widths[0], Y: size.Y}
 	for i, v := range p.views {
 		if v == nil {
 			continue
@@ -686,40 +783,55 @@ func (p *Panel) compareViews() {
 		if camera.Level > 0 && camera.Level <= p.current.displays[i].MaxZ {
 			v.Render().SetActiveLevel(p.current.displays[i], camera.Level)
 		}
-		v.Process(viewSize)
+		v.Process(imgui.Vec2{X: widths[i], Y: size.Y})
 	}
 	draw := imgui.WindowDrawList()
-	end := imgui.Vec2{X: start.X + viewSize.X, Y: start.Y + viewSize.Y}
+	end := start.Plus(p.viewSize)
+	draw.PushClipRect(start, start.Plus(size))
+	defer draw.PopClipRect()
 	show := func(i int, from, to imgui.Vec2, alpha float32) {
 		if p.views[i] != nil {
-			draw.AddImageV(imgui.TextureID(p.views[i].Texture()), from, to, imgui.Vec2{X: 0, Y: 1}, imgui.Vec2{X: 1, Y: 0}, imgui.PackedColorFromVec4(imgui.Vec4{X: 1, Y: 1, Z: 1, W: alpha}))
+			draw.AddImageV(imgui.TextureID(p.views[i].Texture()), from, to, imgui.Vec2{Y: 1}, imgui.Vec2{X: 1}, imgui.PackedColorFromVec4(imgui.Vec4{X: 1, Y: 1, Z: 1, W: alpha}))
 		}
 	}
+	if mode == 7 {
+		show(1, start, start.Plus(size), 1)
+		return
+	}
 	show(0, start, end, 1)
-	if p.mode == 0 {
+	switch mode {
+	case 0:
 		from := imgui.Vec2{X: end.X + 8, Y: start.Y}
-		show(1, from, imgui.Vec2{X: from.X + viewSize.X, Y: end.Y}, 1)
-	} else if p.mode == 1 {
+		show(1, from, imgui.Vec2{X: from.X + widths[1], Y: end.Y}, 1)
+	case 1:
 		show(1, start, end, p.alpha)
-	} else if p.mode == 2 {
+	case 2:
 		draw.PushClipRect(imgui.Vec2{X: start.X + size.X*p.wipe, Y: start.Y}, end)
 		show(1, start, end, 1)
 		draw.PopClipRect()
-	} else if p.mode == 3 && time.Now().UnixMilli()/700%2 == 1 {
-		show(1, start, end, 1)
-	} else if p.mode == 4 {
+	case 3:
+		if time.Now().UnixMilli()/700%2 == 1 {
+			show(1, start, end, 1)
+		}
+	case 4:
 		p.drawDifferences(start, end)
-	} else if p.mode == 5 {
+	case 5:
 		p.drawBounds(start)
-	} else if p.mode == 6 {
+	case 6:
 		p.drawReservations(start, end)
 	}
 	if p.views[0].Render().LevelLoading() {
-		draw.AddText(start, imgui.PackedColorFromVec4(imgui.Vec4{X: 1, Y: 1, Z: 1, W: 1}), "Preparing reference geometry…")
+		draw.AddText(start, 0xffffffff, "Preparing source geometry...")
 	}
 }
 
 func (p *Panel) navigate(point util.Point) {
+	if p.managed {
+		if host, ok := p.app.(mapHost); ok {
+			host.FrameMappingSource(p.parentPath, point)
+			return
+		}
+	}
 	p.level = int32(point.Z)
 	p.inspected = point
 	p.camera.ShiftX = -float32((point.X-1)*dmmap.WorldIconSize) + 100/p.camera.Scale
@@ -727,6 +839,9 @@ func (p *Panel) navigate(point util.Point) {
 }
 
 func (p *Panel) ProcessUnit(u unit.Unit) bool {
+	if provider, ok := p.app.(interface{ MappingPathVisible(string) bool }); ok && u.Instance() != nil && !provider.MappingPathVisible(u.Instance().Prefab().Path()) {
+		return false
+	}
 	if p.showHelpers || u.Instance() == nil {
 		return true
 	}
@@ -738,8 +853,13 @@ func (p *Panel) ProcessUnit(u unit.Unit) bool {
 	}
 	return path != "/obj/modular_map_root" && path != "/obj/modular_map_connector"
 }
-func (p *Panel) RenderPolicyRevision() uint64 { return p.policyRevision }
+func (p *Panel) RenderPolicyRevision() uint64 {
+	if provider, ok := p.app.(interface{ MappingFilterRevision() uint64 }); ok {
+		return p.policyRevision + provider.MappingFilterRevision()
+	}
+	return p.policyRevision
+}
 
 func (p *Panel) screen(point util.Point, start imgui.Vec2) imgui.Vec2 {
-	return imgui.Vec2{X: start.X + (float32((point.X-1)*dmmap.WorldIconSize)+p.camera.ShiftX)*p.camera.Scale, Y: start.Y + (p.viewSize.Y - (float32((point.Y-1)*dmmap.WorldIconSize)+p.camera.ShiftY)*p.camera.Scale)}
+	return mapview.Screen(p.camera, p.viewSize, start, point)
 }

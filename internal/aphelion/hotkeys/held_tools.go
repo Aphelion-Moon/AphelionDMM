@@ -16,6 +16,8 @@ type HeldTools struct {
 	eligible          map[string]bool
 }
 
+func (state *HeldTools) Active() bool { return state.current != "" }
+
 func (state *HeldTools) Update(selected string, blocked bool, inputs []HeldToolInput) string {
 	if state.current != "" && selected != state.current {
 		// An explicit toolbar/shortcut choice supersedes restoration. Held keys

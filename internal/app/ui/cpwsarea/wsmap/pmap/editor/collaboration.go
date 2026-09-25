@@ -232,6 +232,11 @@ func (e *Editor) CanChangeMapSize() bool {
 // A failed batch releases only its newly acquired captures, retaining earlier
 // gesture state and the capture fault that guards Save.
 func (e *Editor) TryBeginTileChange(points ...util.Point) bool {
+	for _, point := range points {
+		if e.compositionTileLocked(point) {
+			return false
+		}
+	}
 	if e.localWork != nil || e.mapViewClosed || !e.history.Valid() || e.paste != nil || e.selectionMovePreview != nil || e.HasPastePlacement() {
 		return false
 	}

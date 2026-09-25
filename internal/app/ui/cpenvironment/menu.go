@@ -7,6 +7,9 @@ import (
 
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/ui/layout/lnode"
+	// APHELION EDIT ADDITION START - ICON RECOVERY
+	"sdmm/internal/dmapi/dmicon"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/imguiext/icon"
 	w "sdmm/internal/imguiext/widget"
@@ -20,6 +23,11 @@ import (
 func (e *Environment) showNodeMenu(n *treeNode) {
 	if imgui.BeginPopupContextItemV(fmt.Sprint("environment_node_menu_", n.orig.Path), imgui.PopupFlagsMouseButtonRight) {
 		w.Layout{
+			// APHELION EDIT ADDITION START - ICON RECOVERY
+			w.MenuItem("Retry Icon", e.doRetryIcon(n)).
+				Icon(icon.Repeat).
+				Enabled(n.icon != "" && n.load.State == dmicon.SpriteFailed),
+			// APHELION EDIT ADDITION END
 			w.MenuItem("Find on Map", e.doFindOnMap(n)).
 				Icon(icon.Search).
 				Enabled(e.app.HasActiveMap()),
@@ -31,6 +39,17 @@ func (e *Environment) showNodeMenu(n *treeNode) {
 		imgui.EndPopup()
 	}
 }
+
+// APHELION EDIT ADDITION START - ICON RECOVERY
+func (e *Environment) doRetryIcon(n *treeNode) func() {
+	return func() {
+		if n.icon != "" {
+			dmicon.Cache.RetryIcon(n.icon)
+		}
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func (e *Environment) doFindOnMap(n *treeNode) func() {
 	return func() {

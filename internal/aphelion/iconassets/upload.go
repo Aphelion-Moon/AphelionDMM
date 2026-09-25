@@ -17,14 +17,14 @@ type Upload struct {
 
 func NewUpload(image *image.NRGBA) (*Upload, error) {
 	if image == nil || image.Bounds().Dx() < 1 || image.Bounds().Dy() < 1 {
-		return nil, fmt.Errorf("empty icon image")
+		return nil, failure(FailureInvalid, "texture allocation", fmt.Errorf("empty icon image"))
 	}
 	restore := isolateUnpack()
 	defer restore()
 	var maxSize int32
 	gl.GetIntegerv(gl.MAX_TEXTURE_SIZE, &maxSize)
 	if image.Bounds().Dx() > int(maxSize) || image.Bounds().Dy() > int(maxSize) {
-		return nil, fmt.Errorf("icon exceeds graphics texture limit %d", maxSize)
+		return nil, failure(FailureOversized, "texture allocation", fmt.Errorf("icon exceeds graphics texture limit %d", maxSize))
 	}
 	u := &Upload{image: image}
 	var previous int32
@@ -39,7 +39,7 @@ func NewUpload(image *image.NRGBA) (*Upload, error) {
 	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA, int32(image.Bounds().Dx()), int32(image.Bounds().Dy()), 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
 	if code := gl.GetError(); code != gl.NO_ERROR {
 		u.Cancel()
-		return nil, fmt.Errorf("texture allocation failed: 0x%x", code)
+		return nil, failure(FailureTransient, "texture allocation", fmt.Errorf("texture allocation failed: 0x%x", code))
 	}
 	return u, nil
 }
@@ -62,7 +62,7 @@ func (u *Upload) Step() (bool, error) {
 		gl.GenerateMipmap(gl.TEXTURE_2D)
 	}
 	if code := gl.GetError(); code != gl.NO_ERROR {
-		return false, fmt.Errorf("texture upload failed: 0x%x", code)
+		return false, failure(FailureTransient, "texture upload", fmt.Errorf("texture upload failed: 0x%x", code))
 	}
 	return u.nextRow == u.image.Bounds().Dy(), nil
 }

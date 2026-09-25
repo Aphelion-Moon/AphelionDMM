@@ -75,6 +75,26 @@ its independent authority checks. See the
 
 ## Target boundaries
 
+`mapping/ui.Hub` owns a composition session per source document. Dock visibility
+does not own its worker, choices, projection, or canvases. The main map and a
+read-only comparison workspace consume the same accepted projection; only the
+source workspace owns edits, history, and Save. Accepted root occurrence identity
+uses document lifetime, stable atom identity, and parent occurrence ancestry.
+Content/configuration hashes remain freshness checks and never enter DMM output
+as editor IDs. Anchor drafts translate cached occurrence geometry; release uses
+the existing tile capture and executor. Contextual template views mask their
+chosen occurrence independently of the sidebar's current selection.
+Each session retains bounded immutable disk-source/configuration parses across
+requests. Reuse checks full file content and the environment fingerprint; accepted
+document snapshots remain request-owned. Teardown fences cache publication while
+outstanding request leases keep their resources valid until release.
+
+Tool handlers expose `ActionContext` for effective-action feedback, toolbar/help,
+and captured modifier routing. Environment rows request prioritized icon demand
+through the shared async cache. That cache retains sprite handles across bounded
+transient retries and explicit retries, publishes appearance revisions on the UI
+thread, and rejects completions from old environment generations.
+
 ```text
 Desktop UI ---- local executor -----+
                                      |

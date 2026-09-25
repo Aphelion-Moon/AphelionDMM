@@ -23,6 +23,7 @@ type ToolAdd struct {
 	// APHELION EDIT ADDITION START - HELD ROTATION
 	held          editing.HeldPrefab
 	shapeStroke   *editing.ShapeStroke
+	shapeContext  ActionContext
 	shapePrefab   *dmmprefab.Prefab
 	shapeFilter   dm.PathsFilter
 	shapeReplace  bool
@@ -79,6 +80,7 @@ func (t *ToolAdd) onStart(coord util.Point) {
 			return
 		}
 		t.shapeStroke = stroke
+		t.shapeContext = t.gestureContext
 		t.shapeReleased = false
 		t.shapePrefab, t.shapeFilter, t.shapeReplace = prefab, brushFilter(), t.AltBehaviour()
 		return
@@ -126,6 +128,7 @@ func (t *ToolAdd) onStop(util.Point) {
 func (t *ToolAdd) finishShape() {
 	selection := t.shapeStroke.Selection()
 	t.shapeStroke = nil
+	t.shapeContext = ActionContext{}
 	t.shapeReleased = false
 	if selection.Len() > 0 {
 		if err := fillShape(selection, t.shapePrefab, t.shapeReplace, t.shapeFilter); err != nil {

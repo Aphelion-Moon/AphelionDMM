@@ -729,6 +729,13 @@ func makeSnapshotTileIndex(snapshot model.Snapshot) map[model.Coord]model.TileSt
 }
 
 func (e *Editor) dispatchSelectionMoveOperation(session *selectionMoveSession, execution executor.Executor, operation model.Operation, acceptedChanges []model.TileChange, coords []model.Coord, level int, generation uint64) {
+	if err := validateCompositionChanges(e.compositionEditFence(), operation.Changes); err != nil {
+		selectionApplied(session.selectionOutcome, false)
+		e.reportCollaborationError("Unable to move selection", err)
+		e.discardSelectionMovePreview(session)
+		e.finishSelectionMoveCommit(session)
+		return
+	}
 	session.sourceProjection = client.ProjectionCapture{}
 	e.unresolvedSubmissions[operation.OperationID] = struct{}{}
 	complete := func(accepted model.AcceptedOperation, err error) {

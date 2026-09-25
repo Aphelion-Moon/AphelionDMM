@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"github.com/SpaiR/imgui-go"
 	"path/filepath"
+	"sdmm/internal/aphelion/filterprofiles"
 	"sdmm/internal/aphelion/mapping"
+	mappingui "sdmm/internal/aphelion/mapping/ui"
+	"sdmm/internal/aphelion/mapview"
 	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/app/render"
 	"sdmm/internal/app/ui/cpwsarea/wsmap"
+	"sdmm/internal/app/ui/layout/lnode"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/util"
 	"sort"
@@ -103,12 +107,120 @@ func (a *app) CaptureMappingSources() map[string]mapping.AcceptedSource {
 	return sources
 }
 
-func (a *app) DoOpenCompositionInspector() { a.layout.Composition.Open() }
+func (a *app) DoOpenCompositionInspector() {
+	a.layout.Composition.Open()
+	a.ShowLayout(lnode.NameComposition, true)
+}
 func (a *app) ActiveMappingPath() string {
+	if a.layout != nil && a.layout.WsArea.ActiveWorkspace() != nil {
+		if c, ok := a.layout.WsArea.ActiveWorkspace().Content().(*mappingui.Comparison); ok {
+			return c.Panel.SourcePath()
+		}
+	}
 	if ws, ok := a.activeWsMap(); ok {
 		return ws.Map().Dmm().Path.Absolute
 	}
 	return ""
+}
+
+func (a *app) MappingDocuments() []string {
+	var paths []string
+	for _, workspace := range a.layout.WsArea.MapWorkspaces() {
+		if ws, ok := workspace.Content().(*wsmap.WsMap); ok {
+			paths = append(paths, ws.Map().Dmm().Path.Absolute)
+		}
+	}
+	return paths
+}
+func (a *app) mappingWorkspace(path string) *wsmap.WsMap {
+	for _, workspace := range a.layout.WsArea.MapWorkspaces() {
+		if ws, ok := workspace.Content().(*wsmap.WsMap); ok && strings.EqualFold(filepath.Clean(path), filepath.Clean(ws.Map().Dmm().Path.Absolute)) {
+			return ws
+		}
+	}
+	return nil
+}
+func (a *app) MappingPathVisible(path string) bool { return a.PathsFilter().IsVisiblePath(path) }
+func (a *app) MappingFilterRevision() uint64       { return a.PathsFilter().PolicyRevision() }
+func (a *app) FrameMappingSource(path string, point util.Point) {
+	if active := a.layout.WsArea.ActiveWorkspace(); active != nil {
+		if c, ok := active.Content().(*mappingui.Comparison); ok && c.Panel.SourcePath() == path {
+			c.Panel.Frame(point)
+			return
+		}
+	}
+	if ws := a.mappingWorkspace(path); ws != nil {
+		ws.Root().SetTriggerFocus(true)
+		ws.Map().SetActiveLevel(point.Z)
+		camera := ws.Map().Canvas().Render().Camera
+		size := ws.Map().Size()
+		mapview.Center(camera, size, point)
+	}
+}
+func (a *app) MoveMappingRoot(root mapping.Root, to util.Point, check bool) error {
+	ws := a.mappingWorkspace(root.Source.Path)
+	if ws == nil {
+		return fmt.Errorf("open the containing source map first")
+	}
+	if check {
+		_, err := ws.Map().Editor().CompositionRoot(root, to)
+		return err
+	}
+	return ws.Map().Editor().MoveCompositionRoot(root, to)
+}
+func (a *app) OpenMappingComparison(p *mappingui.Panel) { a.layout.WsArea.OpenComposition(p) }
+func (a *app) OpenMappingContext(parent, path string, transform mapping.Transform) {
+	if ws := a.mappingWorkspace(parent); ws != nil {
+		camera := *ws.Map().Canvas().Render().Camera
+		camera.Level = ws.Map().ActiveLevel()
+		camera.ShiftX += float32(transform.Offset.X * dmmap.WorldIconSize)
+		camera.ShiftY += float32(transform.Offset.Y * dmmap.WorldIconSize)
+		camera.Level = max(1, camera.Level-transform.Offset.Z)
+		a.layout.Composition.SetContextCamera(parent, path, camera)
+	}
+	a.DoLoadResource(path)
+}
+func (a *app) ReturnMappingContext(parent, path string, transform mapping.Transform) {
+	if source, target := a.mappingWorkspace(path), a.mappingWorkspace(parent); source != nil && target != nil {
+		camera := *source.Map().Canvas().Render().Camera
+		camera.ShiftX -= float32(transform.Offset.X * dmmap.WorldIconSize)
+		camera.ShiftY -= float32(transform.Offset.Y * dmmap.WorldIconSize)
+		camera.Level = max(1, min(target.Map().Dmm().MaxZ, source.Map().ActiveLevel()+transform.Offset.Z))
+		*target.Map().Canvas().Render().Camera = camera
+		target.Map().SetActiveLevel(camera.Level)
+	}
+	a.DoLoadResource(parent)
+}
+func (a *app) CompositionCamera(path string) (render.Camera, bool) {
+	return a.layout.Composition.TakeContextCamera(path)
+}
+func (a *app) CompositionDraw(path string, camera render.Camera, size, origin imgui.Vec2) {
+	a.layout.Composition.Draw(path, camera, size, origin)
+}
+func (a *app) CompositionVisible(path string) bool { return a.layout.Composition.VisibleInMap(path) }
+func (a *app) CompositionInput(path string, point util.Point, active, pressed, released, cancel, focused bool, tool string) bool {
+	return a.layout.Composition.Handle(path, point, active, pressed, released, cancel, focused, tool)
+}
+func (a *app) CloseCompositionSource(path string) { a.layout.Composition.CloseSource(path) }
+func (a *app) RestoreCompositionDock()            { a.layout.RestoreCompositionDock() }
+func (a *app) CancelCompositionDraft(path string) { a.layout.Composition.CancelDraft(path) }
+func (a *app) CompositionTileLocked(path string, point util.Point) bool {
+	return a.layout != nil && a.layout.Composition.TileLocked(path, point)
+}
+func (a *app) CompositionEditFence(path string) func(util.Point) bool {
+	return a.layout.Composition.EditFence(path)
+}
+func (a *app) UnhideMappingRoot(root mapping.Root) error {
+	ws := a.mappingWorkspace(root.Source.Path)
+	if ws == nil || !ws.Map().Dmm().HasTile(root.Local) {
+		return fmt.Errorf("open the containing source first")
+	}
+	for _, i := range ws.Map().Dmm().GetTile(root.Local).Instances() {
+		if root.StableID != "" && i.StableID() == root.StableID {
+			return a.SetFilterVisibility(i.Prefab().Path(), filterprofiles.ScopeExact, true)
+		}
+	}
+	return fmt.Errorf("source root changed; refresh its binding")
 }
 
 // APHELION EDIT ADDITION END

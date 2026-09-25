@@ -154,7 +154,8 @@ func (v *VarEditor) setInstanceVariable(varName, varValue string) {
 		return
 	}
 	// Capture before changing either the instance or its session prefab cache.
-	if !currentEditor.TryBeginTileChange(v.instance.Coord()) {
+	// APHELION EDIT CHANGE - COMPOSITION ANCHORS - ORIGINAL: if !currentEditor.TryBeginTileChange(v.instance.Coord()) {
+	if !currentEditor.TryBeginInstanceChange(v.instance) {
 		currentEditor.CommitOperation("Edit Variable")
 		return
 	}

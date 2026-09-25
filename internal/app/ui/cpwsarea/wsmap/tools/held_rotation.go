@@ -10,17 +10,31 @@ import (
 	"sdmm/internal/util"
 )
 
+// APHELION EDIT ADDITION START - SHARED TOOL FEEDBACK
+func heldInteractionTool() Tool {
+	if active && startedTool != nil {
+		return startedTool
+	}
+	return Selected()
+}
+
+// APHELION EDIT ADDITION END
+
 func CanRotateHeld() bool {
 	if ed == nil {
 		return false
 	}
-	if grab, ok := Selected().(*ToolGrab); ok && grab.Placing() {
+	tool := heldInteractionTool()
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if grab, ok := Selected().(*ToolGrab); ok && grab.Placing() {
+	if grab, ok := tool.(*ToolGrab); ok && grab.Placing() {
 		return true
 	}
-	if move, ok := Selected().(*ToolMove); ok && !move.Stale() {
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if move, ok := Selected().(*ToolMove); ok && !move.Stale() {
+	if move, ok := tool.(*ToolMove); ok && !move.Stale() {
 		return true
 	}
-	if add, ok := Selected().(*ToolAdd); ok {
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if add, ok := Selected().(*ToolAdd); ok {
+	if add, ok := tool.(*ToolAdd); ok {
 		_, exists := add.HeldPrefab()
 		return exists
 	}
@@ -30,17 +44,21 @@ func RotateHeld(clockwise bool) error {
 	if ed == nil {
 		return fmt.Errorf("no active map")
 	}
-	if grab, ok := Selected().(*ToolGrab); ok && grab.Placing() {
+	tool := heldInteractionTool()
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if grab, ok := Selected().(*ToolGrab); ok && grab.Placing() {
+	if grab, ok := tool.(*ToolGrab); ok && grab.Placing() {
 		transform := editing.PlacementRotateLeft
 		if clockwise {
 			transform = editing.PlacementRotateRight
 		}
 		return grab.TransformPlacement(transform)
 	}
-	if move, ok := Selected().(*ToolMove); ok && !move.Stale() {
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if move, ok := Selected().(*ToolMove); ok && !move.Stale() {
+	if move, ok := tool.(*ToolMove); ok && !move.Stale() {
 		return move.rotateHeld(clockwise)
 	}
-	if add, ok := Selected().(*ToolAdd); ok {
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if add, ok := Selected().(*ToolAdd); ok {
+	if add, ok := tool.(*ToolAdd); ok {
 		if _, exists := add.HeldPrefab(); exists {
 			if err := add.held.Rotate(clockwise); err != nil {
 				return err
@@ -70,6 +88,7 @@ func (t *ToolAdd) showHeld() {
 }
 func (t *ToolAdd) OnDeselect() {
 	t.shapeStroke = nil
+	t.shapeContext = ActionContext{}
 	t.shapeReleased = false
 	t.shapePrefab = nil
 	t.held = editing.HeldPrefab{}

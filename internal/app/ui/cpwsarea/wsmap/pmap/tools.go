@@ -117,8 +117,12 @@ func processTempToolsMode() {
 	}
 	selected := tools.Selected().Name()
 	if next := temporaryTools.Update(selected, blocked, inputs); next != selected {
-		log.Print("selecting held tool:", next)
-		tools.SetSelected(next)
+		if temporaryTools.Active() {
+			log.Print("selecting held tool:", next)
+			tools.SetHeldSelected(next)
+		} else {
+			tools.RestorePersistentSelection()
+		}
 	}
 }
 

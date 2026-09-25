@@ -334,7 +334,7 @@ func (m *Menu) Process() {
 
 		w.Menu("Window", w.Layout{
 			// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
-			w.MenuItem("Composition Inspector", m.app.DoOpenCompositionInspector).IconEmpty(),
+			w.MenuItem("Composition", m.app.DoOpenCompositionInspector).IconEmpty(),
 			// APHELION EDIT ADDITION END
 			// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut("F5").
 			w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut(shortcut.Label("menu#DoResetLayout")).

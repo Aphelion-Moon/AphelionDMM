@@ -60,8 +60,6 @@ type ToolGrab struct {
 	gestureSelection    editing.Selection
 	selectionAnchor     util.Point
 	toggleClick         bool
-	ctrlSelection       bool
-	altSelection        bool
 	shape               editing.ShapeDescriptor
 	areaQuery           *editing.AreaSelectionQuery
 	areaQueryGeneration uint64
@@ -210,12 +208,9 @@ func (t *ToolGrab) onStart(coord util.Point) {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
 	t.gestureSelection = t.Selection()
-	if t.ctrlSelection || t.altSelection || t.SelectionOperation != editing.SelectionReplace {
-		op := t.SelectionOperation
-		if t.ctrlSelection {
-			op = editing.SelectionAdd
-		}
-		t.startSelectionGesture(coord, op, t.altSelection || t.AreaMode && !t.ctrlSelection, t.ctrlSelection && !t.altSelection)
+	context := t.actionContext
+	if context.SelectionGesture || context.AreaQuery {
+		t.startSelectionGesture(coord, context.SelectionOperation, context.AreaQuery, context.ToggleClick)
 		return
 	}
 	// APHELION EDIT ADDITION END
@@ -232,7 +227,6 @@ func (t *ToolGrab) onStart(coord util.Point) {
 func (t *ToolGrab) startSelectArea(coord util.Point) {
 	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
 	t.startSelectionGesture(coord, editing.SelectionReplace, t.AreaMode, false)
-	return
 	// APHELION EDIT ADDITION END
 	/* APHELION EDIT REMOVAL START - PERSISTENT SELECTION
 	t.Reset()

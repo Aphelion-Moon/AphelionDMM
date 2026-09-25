@@ -584,6 +584,11 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 		p.intent = nil
 		return
 	}
+	if err := validateCompositionChanges(e.compositionEditFence(), changes); err != nil {
+		p.err = err
+		p.intent = nil
+		return
+	}
 	if len(changes) == 0 {
 		e.finishPaste(p, false)
 		return

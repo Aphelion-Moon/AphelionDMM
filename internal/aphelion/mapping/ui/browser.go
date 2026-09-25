@@ -85,7 +85,9 @@ func (p *Panel) alternativeControls(root mapping.Root) {
 		p.referencePath = candidate.Path
 		p.focusRoot = root.ID
 		if compare {
-			p.compose = false
+			if host, ok := p.app.(mapHost); ok {
+				host.OpenMappingComparison(p)
+			}
 		}
 		anchor := root.Destination
 		p.queue(&anchor)

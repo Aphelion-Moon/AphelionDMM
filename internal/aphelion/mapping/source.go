@@ -23,8 +23,11 @@ import (
 )
 
 type Atom struct {
-	Path string
-	Vars map[string]string
+	// StableID belongs to an accepted document, never to DMM content or differences.
+	StableID   string `json:"-"`
+	Occurrence string `json:"-"`
+	Path       string
+	Vars       map[string]string
 }
 type Identity struct {
 	StructuralHash                     string
@@ -160,6 +163,16 @@ func (s *Source) Close() {
 		s.displayLeases = nil
 	}
 }
+
+// sharedView gives one catalogue its own closeable/display-lease owner while
+// retaining references to immutable cached parse data.
+func (s *Source) sharedView() *Source {
+	view := *s
+	view.lease = nil
+	view.displayLeases = nil
+	return &view
+}
+
 func (s *Source) CheckFresh() error {
 	if s.Identity.DocumentID != "" {
 		return nil
@@ -170,7 +183,7 @@ func (s *Source) atomsAt(p util.Point) []Atom { return s.dictionary[s.grid[p]] }
 func cloneAtoms(atoms []Atom) []Atom {
 	result := make([]Atom, len(atoms))
 	for i, a := range atoms {
-		result[i] = Atom{Path: a.Path, Vars: maps.Clone(a.Vars)}
+		result[i] = Atom{StableID: a.StableID, Occurrence: a.Occurrence, Path: a.Path, Vars: maps.Clone(a.Vars)}
 	}
 	return result
 }

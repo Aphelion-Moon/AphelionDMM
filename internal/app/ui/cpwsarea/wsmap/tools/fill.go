@@ -11,7 +11,9 @@ import (
 
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/overlay"
 
-	"sdmm/internal/imguiext"
+	// APHELION EDIT REMOVAL START - SHARED TOOL FEEDBACK
+	// "sdmm/internal/imguiext"
+	// APHELION EDIT REMOVAL END
 	"sdmm/internal/util"
 )
 
@@ -82,10 +84,11 @@ func (t *ToolFill) onStart(coord util.Point) {
 	if _, ok := ed.SelectedPrefab(); ok || t.random {
 		// APHELION EDIT ADDITION START - SHARED SHAPES
 		t.shape = currentShape()
-		t.shape.Outline = t.shape.Outline || t.border
+		t.shape.Outline = t.actionContext.Outline
 		t.filter = brushFilter()
 		t.prefab, _ = ed.SelectedPrefab()
-		t.replace = t.AltBehaviour()
+		t.replace = t.actionContext.Alternate
+		t.border = t.actionContext.Modifiers.Ctrl
 		t.restriction = SelectionForEditor(ed)
 		t.restrict = shapeRestricted()
 		// APHELION EDIT ADDITION END
@@ -178,7 +181,7 @@ func (t *ToolFill) onStop(util.Point) {
 		// APHELION EDIT ADDITION START - BOUNDED FILL
 		if owner, ok := ed.(interface {
 			TryScheduleFill(util.Bounds, int, *dmmprefab.Prefab, bool, bool) bool
-		}); ok && owner.TryScheduleFill(t.fillArea, t.start.Z, prefab, t.AltBehaviour(), imguiext.IsCtrlDown()) {
+		}); ok && owner.TryScheduleFill(t.fillArea, t.start.Z, prefab, t.replace, t.border) {
 			t.start = util.Point{}
 			t.fillArea = util.Bounds{}
 			t.dragging = false
@@ -215,7 +218,7 @@ func (t *ToolFill) onStop(util.Point) {
 
 		APHELION EDIT REMOVAL END */
 		// APHELION EDIT ADDITION START - BOUNDED FILL
-		_ = editing.VisitRectangle(context.Background(), t.fillArea, t.start.Z, imguiext.IsCtrlDown(), func(point util.Point) error { targets = append(targets, point); return nil })
+		_ = editing.VisitRectangle(context.Background(), t.fillArea, t.start.Z, t.border, func(point util.Point) error { targets = append(targets, point); return nil })
 		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - BRUSH CAPTURE
 		// Fill is one action: a later invalid tile must not leave a partial fill.
@@ -246,6 +249,9 @@ func (t *ToolFill) OnDeselect() {
 	t.selection = editing.Selection{}
 	t.restriction = editing.Selection{}
 	t.palette = editing.RandomPalette{}
+	t.random = false
+	t.seed = 0
+	t.density = 0
 	t.prefab = nil
 	t.filter = dm.PathsFilter{}
 }

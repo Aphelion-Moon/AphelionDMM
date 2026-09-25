@@ -17,6 +17,7 @@ import (
 const SelectorVersion = 1
 
 type Choice struct {
+	BindingHash          string
 	Slot                 int
 	CandidateHash        string
 	DocumentID           string
@@ -29,6 +30,7 @@ type Scenario struct {
 	Excluded                  map[string]bool
 }
 type Placement struct {
+	Size, Origin    util.Point
 	Root            Root
 	Slot            int
 	Source          Identity
@@ -41,6 +43,8 @@ type Contribution struct {
 	Occurrence, Phase, Reason string
 }
 type CellProvenance struct {
+	// Covered includes transparent/noop contributions that must not click through.
+	Covered    bool
 	Turf, Area *Contribution
 	Objects    []Contribution
 	Suppressed []Contribution
@@ -222,7 +226,11 @@ func (c *Catalog) Compose(ctx context.Context, base *Source, scenario Scenario, 
 				return
 			}
 			contributed++
-			incoming := source.atomsAt(local)
+			record.Covered = true
+			incoming := append([]Atom(nil), source.atomsAt(local)...)
+			for i := range incoming {
+				incoming[i].Occurrence = occurrence
+			}
 			contributedAtoms += len(incoming)
 			if contributedAtoms > 4_000_000 {
 				applyErr = fmt.Errorf("composition exceeds four million contributed atoms")
@@ -286,6 +294,10 @@ func (c *Catalog) Compose(ctx context.Context, base *Source, scenario Scenario, 
 		choice, pinned := scenario.Choices[root.ID]
 		if pinned {
 			seenPins[root.ID] = true
+			if choice.BindingHash != "" && choice.BindingHash != root.BindingHash {
+				diagnose("error", "stale-binding", "Configuration or root key changed; explicitly reselect this candidate", root.Source.Path, root.ID, root.Local, root.Destination)
+				continue
+			}
 		}
 		if choice.Slot < 0 || choice.Slot >= len(root.Candidates) {
 			diagnose("error", "candidate", "Selected slot is absent or invalid", root.Source.Path, root.ID, root.Local, root.Destination)
@@ -307,6 +319,7 @@ func (c *Catalog) Compose(ctx context.Context, base *Source, scenario Scenario, 
 			continue
 		}
 		if pinned {
+			choice.BindingHash = root.BindingHash
 			choice.CandidateHash = source.Identity.StructuralHash
 			choice.DocumentID = source.Identity.DocumentID
 			choice.Generation = source.Identity.Generation
@@ -318,7 +331,7 @@ func (c *Catalog) Compose(ctx context.Context, base *Source, scenario Scenario, 
 			diagnose("error", "anchor", err.Error(), candidate.Path, root.ID, root.Local, root.Destination)
 			continue
 		}
-		p.Placements = append(p.Placements, Placement{Root: root, Slot: choice.Slot, Source: source.Identity, Transform: transform, Phase: "modular", LoadMode: "place-on-top"})
+		p.Placements = append(p.Placements, Placement{Root: root, Slot: choice.Slot, Source: source.Identity, Size: source.Size, Origin: source.Origin, Transform: transform, Phase: "modular", LoadMode: "place-on-top"})
 		apply(source, transform, root.ID, "modular", true)
 		if applyErr != nil {
 			return nil, applyErr

@@ -6,6 +6,9 @@ import (
 	"strings"
 
 	"sdmm/internal/aphelion/hotkeys"
+	// APHELION EDIT ADDITION START - LIVE TOOL ACTION HELP
+	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/shortcut"
 
 	"github.com/SpaiR/imgui-go"
@@ -17,6 +20,7 @@ func (m *Menu) showShortcutReference() {
 	imgui.SetNextWindowSizeV(imgui.Vec2{X: 720, Y: 560}, imgui.ConditionFirstUseEver)
 	if imgui.BeginV("Keyboard Shortcuts", &m.showHotkeys, imgui.WindowFlagsNone) {
 		imgui.TextWrapped("Map shortcuts apply to the focused map. Open a map to see its bindings. Shortcuts pause while editing a text field or dialog. Open menus handle their own listed actions.")
+		m.showCurrentToolActionHelp()
 		imgui.InputText("Filter", &m.hotkeyFilter)
 		imgui.Separator()
 		filter := strings.ToLower(strings.TrimSpace(m.hotkeyFilter))
@@ -51,16 +55,56 @@ func (m *Menu) showShortcutReference() {
 			imgui.Spacing()
 			imgui.Separator()
 			imgui.Text("Mouse and held tools")
-			imgui.TextWrapped("Examples below use default bindings. The action list above shows your current bindings.")
-			imgui.TextWrapped("Paste (Ctrl/Cmd+V): move the placement preview with the cursor. [ / ] rotate left/right and H / V mirror the floating template around its bottom-left corner. Click or Enter places it as one undoable edit; Esc cancels. Invalid transforms leave the last preview unchanged; move or transform it successfully before confirming.")
-			imgui.TextWrapped("Hold S: Pick. Hold D: Delete (Alt: whole tile). Hold R: Replace. Alt with Add/Fill: replace. Ctrl with Fill: borders only. Shift with Move: adjust pixel/step offsets.")
-			imgui.TextWrapped("Grab (3): drag a rectangle to select, then drag inside it to move visible contents. Esc during a drag cancels its preview. [ and ] rotate left/right by 90 degrees around the bottom-left corner, replacing visible destination contents. Directions and pixel/step offsets rotate; other variables are preserved. Undo reverses a rotation.")
-			imgui.TextWrapped("Alt+Arrow moves a finished Grab selection by the Selection Move Step in Editor preferences (default: one tile), replacing visible destination contents. Each nudge can be undone. Arrow keys pan the camera; Shift+Arrow pans five times faster.")
-			imgui.TextWrapped("H mirrors visible selection contents left/right; V mirrors top/bottom. The rectangle stays in place. Directions and offsets on the reflected axis change; hidden objects stay in place. Each mirror can be undone.")
+			imgui.TextWrapped("Configured tool and transform bindings are listed above. Hold S/D/R for Pick/Delete/Replace. The current tool's action and mouse-modifier behavior appear at the top of this window.")
+			imgui.TextWrapped("Placement previews are confirmed by clicking or the configured confirm action, and canceled with the configured cancel action. Invalid transforms keep the last valid preview.")
+			imgui.TextWrapped("Grab selects tiles or moves visible contents. Its configured Replace/Add/Subtract/Intersect operation combines candidate membership with the retained selection; Ctrl and Alt apply the effective membership and area rules shown in the current-action description.")
+			imgui.TextWrapped("Alt-Pick hides the exact type throughout the local filter without deleting map contents. Delete removes eligible visible instances or the permitted tile scope; filtered types and required defaults stay protected.")
+			imgui.TextWrapped("Selection transforms affect visible contents in selected cells. Hidden objects stay in place. Accepted transforms remain undoable; floating paste transforms stay previews until placement.")
 		}
 	}
 	imgui.End()
 }
+
+// APHELION EDIT ADDITION START - LIVE TOOL ACTION HELP
+func (m *Menu) showCurrentToolActionHelp() {
+	context := tools.CurrentActionContext()
+	imgui.Separator()
+	imgui.Text("Current map action")
+	if context.PersistentTool != "" {
+		label := "Persistent tool: " + context.PersistentTool
+		if context.IsHeld && context.HeldTool != "" {
+			label += " · Held: " + context.HeldTool
+		}
+		imgui.Text(label)
+	}
+	if context.GestureTool != "" {
+		imgui.Text("Gesture owner: " + context.GestureTool)
+	}
+	imgui.TextWrapped(context.Action)
+	if context.ShortcutAction != "" {
+		if keys := shortcut.Label(context.ShortcutAction); keys != "" {
+			imgui.Text("Select tool: " + keys)
+		}
+	}
+	if context.ModifierHelp != "" {
+		imgui.TextWrapped("Modifiers: " + context.ModifierHelp)
+	}
+	if context.Scope != "" {
+		imgui.TextWrapped("Scope: " + context.Scope)
+	}
+	if context.Target != "" {
+		imgui.TextWrapped("Target: " + context.Target)
+	}
+	if context.Reason != "" || !context.Available {
+		reason := context.Reason
+		if reason == "" {
+			reason = "Action is unavailable"
+		}
+		imgui.TextWrapped("Unavailable: " + reason)
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func (m *Menu) showShortcutEditor(filter string) {
 	if imgui.CollapsingHeader("Customize bindings") {

@@ -10,6 +10,9 @@ const (
 )
 
 type layoutConfig struct {
+	// APHELION EDIT ADDITION START - COMPOSITION DOCK
+	CompositionDocked bool
+	// APHELION EDIT ADDITION END
 	Version uint
 	State   uint // When different with the configState const - layout will be reset.
 }

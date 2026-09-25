@@ -5,10 +5,29 @@ import (
 	"os"
 	"path/filepath"
 	"sdmm/internal/dmapi/dmenv"
+	"sdmm/internal/dmapi/dmmap/dmmdata"
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 	"testing"
 )
+
+func TestTransparentContributionRecordsProtectedCoverage(t *testing.T) {
+	point := util.Point{X: 1, Y: 1, Z: 1}
+	base := &Source{Size: point, grid: map[util.Point]dmmdata.Key{point: "a"}, dictionary: map[dmmdata.Key][]Atom{"a": {{Path: "/turf/base"}}}}
+	module := &Source{Size: point, grid: map[util.Point]dmmdata.Key{point: "a"}, dictionary: map[dmmdata.Key][]Atom{"a": {{Path: "/turf/template_noop"}, {Path: "/area/template_noop"}}}}
+	catalog := NewCatalog(&dmenv.Dme{Objects: map[string]*dmenv.Object{}})
+	base.Identity.Environment = catalog.environment
+	module.Identity.Environment = catalog.environment
+	defer catalog.Close()
+	projection, err := catalog.Compose(context.Background(), base, Scenario{}, []FixedPlacement{{ID: "fixed", Source: module}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer projection.Close()
+	if p := projection.Provenance[point]; p == nil || !p.Covered {
+		t.Fatal("transparent contribution lost input protection")
+	}
+}
 
 func TestNoopChannelsDoNotEraseObjectsOrInheritSuppressedBase(t *testing.T) {
 	base := []Atom{{Path: "/turf/base"}, {Path: "/area/base"}, {Path: "/obj/base"}}

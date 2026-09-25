@@ -2,6 +2,9 @@ package pmap
 
 import (
 	"math"
+	// APHELION EDIT ADDITION START - SHARED MAP VIEW
+	"sdmm/internal/aphelion/mapview"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/imguiext"
 
@@ -44,21 +47,20 @@ func (p *PaneMap) processCameraZoom() {
 		return
 	}
 
-	zoomIn := mouseWheel > 0
-	scale := camera.Scale
-
-	if zoomIn {
-		scale *= -scaleFactor
-	}
-
 	mousePos := imgui.MousePos()
 	localPos := mousePos.Minus(p.canvasControl.PosMin())
-
+	/* APHELION EDIT REMOVAL START - SHARED MAP VIEW
+	zoomIn := mouseWheel > 0
+	scale := camera.Scale
+	if zoomIn { scale *= -scaleFactor }
 	offsetX := localPos.X / scale / 2
 	offsetY := (p.size.Y - localPos.Y) / scale / 2
-
 	camera.Translate(offsetX, offsetY)
 	camera.Zoom(zoomIn, scaleFactor)
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - SHARED MAP VIEW
+	mapview.Zoom(camera, p.size, localPos, mouseWheel > 0)
+	// APHELION EDIT ADDITION END
 }
 
 func (p *PaneMap) calcManualCanvasTranslateShift() float32 {
@@ -76,5 +78,6 @@ func (p *PaneMap) calcManualCanvasTranslateShiftV(mod float32) float32 {
 
 func (p *PaneMap) translateCanvas(shiftX, shiftY float32) {
 	camera := p.canvas.Render().Camera
-	camera.Translate(shiftX/camera.Scale, -shiftY/camera.Scale)
+	// APHELION EDIT CHANGE - SHARED MAP VIEW - ORIGINAL: camera.Translate(shiftX/camera.Scale, -shiftY/camera.Scale)
+	mapview.Pan(camera, imgui.Vec2{X: shiftX, Y: shiftY})
 }

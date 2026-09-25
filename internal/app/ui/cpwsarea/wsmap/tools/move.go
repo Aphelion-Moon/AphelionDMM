@@ -10,7 +10,9 @@ import (
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 	"sdmm/internal/dmapi/dmvars"
-	"sdmm/internal/imguiext"
+	// APHELION EDIT REMOVAL START - SHARED TOOL FEEDBACK
+	// "sdmm/internal/imguiext"
+	// APHELION EDIT REMOVAL END
 	"sdmm/internal/util"
 	"strconv"
 
@@ -51,9 +53,16 @@ func (t *ToolMove) onStart(util.Point) {
 		return
 	}
 	// APHELION EDIT ADDITION END
-	if hoveredInstance := ed.HoveredInstance(); hoveredInstance != nil {
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if hoveredInstance := ed.HoveredInstance(); hoveredInstance != nil {
+	if hoveredInstance := t.actionContext.targetInstance; hoveredInstance != nil {
+		// APHELION EDIT ADDITION START - COMPOSITION ROOT MOVE
+		setCompositionRootGesture(hoveredInstance, true)
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - INSTANCE MOVE CAPTURE
 		if !ed.TryBeginTileChange(hoveredInstance.Coord()) {
+			// APHELION EDIT ADDITION START - COMPOSITION ROOT MOVE
+			setCompositionRootGesture(nil, false)
+			// APHELION EDIT ADDITION END
 			ed.CommitOperation("Moved Prefab") // Report the capture fault without starting a gesture.
 			return
 		}
@@ -77,8 +86,20 @@ func (t *ToolMove) onStart(util.Point) {
 	}
 }
 
+// APHELION EDIT ADDITION START - COMPOSITION ROOT MOVE
+func setCompositionRootGesture(instance *dmminstance.Instance, active bool) {
+	if owner, ok := ed.(interface {
+		SetCompositionRootGesture(*dmminstance.Instance, bool)
+	}); ok {
+		owner.SetCompositionRootGesture(instance, active)
+	}
+}
+
+// APHELION EDIT ADDITION END
+
 func (t *ToolMove) process() {
-	if t.instance == nil || !imguiext.IsShiftDown() {
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if t.instance == nil || !imguiext.IsShiftDown() {
+	if t.instance == nil || !t.actionContext.Modifiers.Shift {
 		return
 	}
 	xAxis := "pixel_x"
@@ -112,7 +133,8 @@ func (t *ToolMove) process() {
 }
 
 func (t *ToolMove) onMove(coord util.Point) {
-	if t.instance == nil || imguiext.IsShiftDown() {
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if t.instance == nil || imguiext.IsShiftDown() {
+	if t.instance == nil || t.actionContext.Modifiers.Shift {
 		return
 	}
 
@@ -157,6 +179,9 @@ func (t *ToolMove) onMove(coord util.Point) {
 }
 
 func (t *ToolMove) onStop(util.Point) {
+	// APHELION EDIT ADDITION START - COMPOSITION ROOT MOVE
+	defer setCompositionRootGesture(nil, false)
+	// APHELION EDIT ADDITION END
 	if t.instance == nil {
 		return
 	}

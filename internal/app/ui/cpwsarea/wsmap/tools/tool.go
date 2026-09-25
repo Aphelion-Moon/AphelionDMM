@@ -10,6 +10,12 @@ import (
 // Tool is a basic interface for tools in the panel.
 type Tool interface {
 	Name() string
+	// APHELION EDIT ADDITION START - SHARED TOOL FEEDBACK
+	ActionContext(ActionInput) ActionContext
+	setActionContext(ActionContext)
+	captureActionContext()
+	clearActionContext()
+	// APHELION EDIT ADDITION END
 
 	IgnoreBounds() bool
 	Stale() bool
@@ -32,6 +38,11 @@ type Tool interface {
 // Tool is a basic interface for tools in the panel.
 type tool struct {
 	altBehaviour bool
+	// APHELION EDIT ADDITION START - SHARED TOOL FEEDBACK
+	actionContext   ActionContext
+	gestureContext  ActionContext
+	gestureCaptured bool
+	// APHELION EDIT ADDITION END
 }
 
 func (tool) IgnoreBounds() bool {
@@ -49,6 +60,24 @@ func (t *tool) AltBehaviour() bool {
 func (t *tool) setAltBehaviour(altBehaviour bool) {
 	t.altBehaviour = altBehaviour
 }
+
+// APHELION EDIT ADDITION START - SHARED TOOL FEEDBACK
+func (t *tool) setActionContext(context ActionContext) {
+	t.actionContext = context
+	t.altBehaviour = context.Alternate
+}
+
+func (t *tool) captureActionContext() {
+	t.gestureContext = t.actionContext
+	t.gestureCaptured = true
+}
+
+func (t *tool) clearActionContext() {
+	t.gestureContext = ActionContext{}
+	t.gestureCaptured = false
+}
+
+// APHELION EDIT ADDITION END
 
 func (tool) process() {
 }

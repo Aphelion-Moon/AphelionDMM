@@ -17,6 +17,9 @@ import (
 func (p *PaneMap) ResolveCanvasInput() {
 	p.processCanvasCamera()
 	if !p.canvas.Render().LevelReady(p.activeLevel) {
+		if host, ok := p.app.(interface{ CancelCompositionDraft(string) }); ok {
+			host.CancelCompositionDraft(p.dmm.Path.Absolute)
+		}
 		p.pointerSamples = nil
 		p.lastSampleValid = false
 		p.canvasState.SetMousePosition(-1, -1, -1)
@@ -27,12 +30,23 @@ func (p *PaneMap) ResolveCanvasInput() {
 	}
 	owner := activePane == p || activePane == nil && lastActivePane == p
 	if !owner {
+		if host, ok := p.app.(interface{ CancelCompositionDraft(string) }); ok {
+			host.CancelCompositionDraft(p.dmm.Path.Absolute)
+		}
 		p.pointerSamples = nil
 		p.processCanvasOverlayFlick()
 		p.processCanvasOverlayAreasZones()
 		return
 	}
 	processTempToolsMode()
+	if p.compositionInput() {
+		p.pointerSamples = nil
+		p.lastSampleValid = false
+		p.pendingTileMenu = false
+		p.canvasState.SetHoveredInstance(nil)
+		p.processCanvasOverlay()
+		return
+	}
 	if tools.OwnsGesture(p.editor) {
 		point := imgui.MousePos()
 		if len(p.pointerSamples) == 0 || p.pointerSamples[len(p.pointerSamples)-1] != point {

@@ -3,6 +3,7 @@ package iconassets
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/draw"
@@ -21,6 +22,54 @@ type Decoded struct {
 	Reservation *resources.Reservation
 }
 
+type FailureKind string
+
+const (
+	FailureInvalid   FailureKind = "invalid"
+	FailureTransient FailureKind = "transient"
+	FailureOversized FailureKind = "oversized"
+)
+
+// AssetError records the decode stage and whether retrying can make progress.
+type AssetError struct {
+	Kind      FailureKind
+	StageName string
+	Err       error
+}
+
+func (e *AssetError) Error() string {
+	return fmt.Sprintf("%s icon at %s: %v", e.Kind, e.StageName, e.Err)
+}
+
+func (e *AssetError) Unwrap() error    { return e.Err }
+func (e *AssetError) Category() string { return string(e.Kind) }
+func (e *AssetError) Stage() string    { return e.StageName }
+
+func failure(kind FailureKind, stage string, err error) error {
+	if err == nil {
+		err = errors.New("unknown icon asset failure")
+	}
+	return &AssetError{Kind: kind, StageName: stage, Err: err}
+}
+
+func FailureCategory(err error) FailureKind {
+	var assetError *AssetError
+	if errors.As(err, &assetError) {
+		return assetError.Kind
+	}
+	return FailureInvalid
+}
+
+func FailureStage(err error) string {
+	var assetError *AssetError
+	if errors.As(err, &assetError) {
+		return assetError.StageName
+	}
+	return "decode"
+}
+
+const maxIconReservationBytes = 256 << 20
+
 func (d *Decoded) Release() {
 	if d != nil {
 		d.Reservation.Release()
@@ -28,24 +77,34 @@ func (d *Decoded) Release() {
 }
 
 func Decode(ctx context.Context, path string) (_ *Decoded, err error) {
+	return DecodeWithBudget(ctx, path, resources.DefaultBudget())
+}
+
+// DecodeWithBudget uses the same bounded decode path with a caller-owned
+// admission budget. Production callers share DefaultBudget across subsystems.
+func DecodeWithBudget(ctx context.Context, path string, budget *resources.Budget) (_ *Decoded, err error) {
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, failure(FailureInvalid, "open", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	config, _, err := image.DecodeConfig(f)
 	if err != nil {
-		return nil, err
+		return nil, failure(FailureInvalid, "image header", err)
 	}
 	if config.Width < 1 || config.Height < 1 || uint64(config.Width) > math.MaxUint64/uint64(config.Height)/8 {
-		return nil, fmt.Errorf("invalid icon dimensions")
+		return nil, failure(FailureInvalid, "image header", fmt.Errorf("invalid icon dimensions"))
 	}
-	reservation, err := resources.DefaultBudget().Reserve(uint64(config.Width) * uint64(config.Height) * 8)
+	needed := uint64(config.Width) * uint64(config.Height) * 8
+	if needed > maxIconReservationBytes {
+		return nil, failure(FailureOversized, "memory admission", fmt.Errorf("icon needs %d temporary bytes; per-icon limit is %d", needed, maxIconReservationBytes))
+	}
+	reservation, err := budget.Reserve(needed)
 	if err != nil {
-		return nil, err
+		return nil, failure(FailureTransient, "memory admission", err)
 	}
 	defer func() {
 		if err != nil {
@@ -56,25 +115,25 @@ func Decode(ctx context.Context, path string) (_ *Decoded, err error) {
 	metadata, err := sdmmparser.ParseIconMetadata(path)
 	metadataTrace.End()
 	if err != nil {
-		return nil, err
+		return nil, failure(FailureInvalid, "metadata", err)
 	}
 	if err = validateMetadata(metadata, config.Width, config.Height); err != nil {
-		return nil, err
+		return nil, failure(FailureInvalid, "metadata", err)
 	}
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
 	if _, err = f.Seek(0, 0); err != nil {
-		return nil, err
+		return nil, failure(FailureInvalid, "image decode", err)
 	}
 	decodeTrace := uistage.Begin(uistage.IconDecode)
 	decoded, _, err := image.Decode(f)
 	decodeTrace.End()
 	if err != nil {
-		return nil, err
+		return nil, failure(FailureInvalid, "image decode", err)
 	}
 	if decoded.Bounds().Dx() != config.Width || decoded.Bounds().Dy() != config.Height {
-		return nil, fmt.Errorf("icon dimensions changed during decoding")
+		return nil, failure(FailureTransient, "image decode", fmt.Errorf("icon dimensions changed during decoding"))
 	}
 	rgba := image.NewNRGBA(image.Rect(0, 0, config.Width, config.Height))
 	draw.Draw(rgba, rgba.Bounds(), decoded, decoded.Bounds().Min, draw.Src)

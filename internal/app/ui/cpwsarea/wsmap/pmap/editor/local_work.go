@@ -46,6 +46,7 @@ func (e *Editor) startLocalWork(execution localEditExecutor, applyDisplay bool, 
 	w := &localWork{cancel: cancel, generation: e.attachmentGeneration, execution: execution, reservation: reservation, applyDisplay: applyDisplay, complete: complete}
 	e.localWork = w
 	documentID, revision := e.authoritative.DocumentID, e.authoritative.Revision
+	compositionLock := e.compositionEditFence()
 	go func() {
 		version, err := execution.LocalVersion(ctx)
 		if err == nil && (version.DocumentID != documentID || version.Revision != revision) {
@@ -59,6 +60,9 @@ func (e *Editor) startLocalWork(execution localEditExecutor, applyDisplay bool, 
 		}
 		if err == nil {
 			err = reservation.Resize(localChangesBytes(changes))
+		}
+		if err == nil {
+			err = validateCompositionChanges(compositionLock, changes)
 		}
 		if err == nil {
 			stage := uistage.Begin(uistage.LocalApply)

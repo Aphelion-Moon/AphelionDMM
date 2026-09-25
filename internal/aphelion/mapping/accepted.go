@@ -88,7 +88,7 @@ func FromAccepted(ctx context.Context, path string, env *dmenv.Dme, accepted Acc
 		s.grid[util.Point{X: tile.Coord.X, Y: tile.Coord.Y, Z: tile.Coord.Z}] = key
 		values := make([]Atom, len(tile.State.Prefabs))
 		for j, prefab := range tile.State.Prefabs {
-			values[j] = Atom{Path: prefab.Path, Vars: maps.Clone(prefab.Vars)}
+			values[j] = Atom{StableID: string(prefab.StableID), Path: prefab.Path, Vars: maps.Clone(prefab.Vars)}
 		}
 		s.dictionary[key] = values
 	}

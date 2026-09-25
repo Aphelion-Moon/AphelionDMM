@@ -27,23 +27,24 @@ type Candidate struct {
 }
 type Root struct {
 	ID, Parent, Config, Key string
+	StableID, BindingHash   string
 	Source                  Identity
 	Local, Destination      util.Point
 	AtomIndex               int
 	Candidates              []Candidate
 }
 type moduleConfig struct {
-	hash       string
+	reuseConfigData
 	candidates map[string][]Candidate
-	Directory  string
-	Rooms      map[string]struct{ Modules []string }
 }
 type Catalog struct {
 	mapName        string
 	deferred       error
 	accepted       map[string]AcceptedSource
 	environment    *dmenv.Dme
+	reuseCache     *ReuseCache
 	assets         map[string]*Source
+	assetLeases    map[string]*reuseSourceLease
 	configs        map[string]*moduleConfig
 	candidateCount int
 }
@@ -53,30 +54,85 @@ func (c *Catalog) MapName() string { return c.mapName }
 func NewCatalog(environment *dmenv.Dme) *Catalog {
 	return &Catalog{environment: environment, assets: make(map[string]*Source), configs: make(map[string]*moduleConfig)}
 }
+
+// NewCatalogWithReuseCache borrows validated immutable disk sources from a
+// session-owned cache. Accepted snapshots remain request-scoped.
+func NewCatalogWithReuseCache(environment *dmenv.Dme, cache *ReuseCache) *Catalog {
+	catalog := NewCatalog(environment)
+	catalog.reuseCache = cache
+	catalog.assetLeases = make(map[string]*reuseSourceLease)
+	return catalog
+}
+
 func (c *Catalog) Close() {
-	for _, s := range c.assets {
+	for key, s := range c.assets {
 		s.Close()
+		if lease := c.assetLeases[key]; lease != nil {
+			lease.release()
+		}
 	}
 	c.assets = nil
+	c.assetLeases = nil
 	c.configs = nil
 	c.accepted = nil
 }
 func (c *Catalog) Load(ctx context.Context, path string) (*Source, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	key := sourceKey(path)
 	if s := c.assets[key]; s != nil {
-		return s, nil
+		if _, accepted := c.accepted[key]; !accepted || s.Identity.DocumentID != "" {
+			return s, nil
+		}
+		// SetAcceptedSources normally precedes all loads. If the request was
+		// rebound after a disk source entered this catalogue, discard that local
+		// view before honoring the stronger accepted-source authority.
+		s.Close()
+		if lease := c.assetLeases[key]; lease != nil {
+			lease.release()
+			delete(c.assetLeases, key)
+		}
+		delete(c.assets, key)
 	}
 	if len(c.assets) >= 256 {
 		return nil, fmt.Errorf("reference catalogue limit of 256 loaded sources reached")
 	}
+	accepted, hasAccepted := c.accepted[key]
+	if !hasAccepted && c.reuseCache != nil && c.environment != nil {
+		environmentHash, err := c.environment.EnvironmentHash()
+		if err != nil {
+			return nil, err
+		}
+		if source, lease := c.reuseCache.acquireSource(path, environmentHash); source != nil {
+			if err := ctx.Err(); err != nil {
+				lease.release()
+				return nil, err
+			}
+			view := source.sharedView()
+			c.assets[key] = view
+			c.assetLeases[key] = lease
+			return view, nil
+		}
+	}
 	var s *Source
 	var err error
-	if accepted, ok := c.accepted[key]; ok {
+	if hasAccepted {
 		s, err = FromAccepted(ctx, path, c.environment, accepted)
 	} else {
 		s, err = LoadSource(ctx, path, c.environment)
 	}
 	if err == nil {
+		if err = ctx.Err(); err != nil {
+			s.Close()
+			return nil, err
+		}
+		if !hasAccepted && c.reuseCache != nil {
+			if shared, lease := c.reuseCache.publishSource(s); shared != nil {
+				s = shared.sharedView()
+				c.assetLeases[key] = lease
+			}
+		}
 		c.assets[key] = s
 	}
 	if errors.Is(err, ErrAcceptedDeferred) {
@@ -138,8 +194,11 @@ func (c *Catalog) Roots(ctx context.Context, s *Source, transform Transform, par
 			if !s.isType(atom.Path, "/obj/modular_map_root") {
 				continue
 			}
-			r := Root{Parent: parent, Source: s.Identity, Local: point, Destination: transform.Apply(point), AtomIndex: index}
+			r := Root{Parent: parent, Source: s.Identity, Local: point, Destination: transform.Apply(point), AtomIndex: index, StableID: atom.StableID}
 			r.ID = fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%s|%d,%d,%d|%d", parent, sourceKey(s.Identity.Path), s.Identity.StructuralHash, s.Identity.EnvironmentHash, point.X, point.Y, point.Z, index))))
+			if s.Identity.DocumentID != "" && atom.StableID != "" {
+				r.ID = fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%q|%q|%d|%q", parent, s.Identity.DocumentID, s.Identity.Generation, atom.StableID))))
+			}
 			configValue, _ := s.effective(atom, "config_file")
 			keyValue, _ := s.effective(atom, "key")
 			configName, configErr := constantString(configValue)
@@ -155,21 +214,17 @@ func (c *Catalog) Roots(ctx context.Context, s *Source, transform Transform, par
 			if err == nil {
 				config = c.configs[path]
 				if config == nil {
-					var input []byte
-					input, err = readSmallConfig(path)
+					config, err = c.loadModuleConfig(path, s.Identity.EnvironmentHash)
 					if err == nil {
-						config = &moduleConfig{}
-						_, err = toml.Decode(string(input), config)
-						if err == nil {
-							config.hash = fmt.Sprintf("%x", sha256.Sum256(input))
-							config.candidates = make(map[string][]Candidate)
-							c.configs[path] = config
-						}
+						c.configs[path] = config
 					}
 				}
 			}
 			if err == nil {
-				r.ID = fmt.Sprintf("%x", sha256.Sum256([]byte(r.ID+"|"+path+"|"+config.hash+"|"+r.Key)))
+				r.BindingHash = fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%q|%q|%q", path, config.hash, r.Key))))
+				if s.Identity.DocumentID == "" || atom.StableID == "" {
+					r.ID = fmt.Sprintf("%x", sha256.Sum256([]byte(r.ID+"|"+path+"|"+config.hash+"|"+r.Key)))
+				}
 				names := config.Rooms[r.Key].Modules
 				cached, exists := config.candidates[r.Key]
 				if len(names) > 1024 || (!exists && c.candidateCount+len(names) > 16384) {
@@ -209,6 +264,26 @@ func (c *Catalog) Roots(ctx context.Context, s *Source, transform Transform, par
 		}
 	}
 	return
+}
+
+func (c *Catalog) loadModuleConfig(path, environmentHash string) (*moduleConfig, error) {
+	input, err := readSmallConfig(path)
+	if err != nil {
+		return nil, err
+	}
+	hash := fmt.Sprintf("%x", sha256.Sum256(input))
+	if data := c.reuseCache.cachedConfig(path, environmentHash, hash); data != nil {
+		return &moduleConfig{reuseConfigData: *data, candidates: make(map[string][]Candidate)}, nil
+	}
+	data := &reuseConfigData{hash: hash}
+	if _, err := toml.Decode(string(input), data); err != nil {
+		return nil, err
+	}
+	weight := uint64(len(input))*8 + 1024
+	if c.reuseCache != nil {
+		data = c.reuseCache.publishConfig(path, environmentHash, data, weight)
+	}
+	return &moduleConfig{reuseConfigData: *data, candidates: make(map[string][]Candidate)}, nil
 }
 
 func (s *Source) Connectors() []util.Point {

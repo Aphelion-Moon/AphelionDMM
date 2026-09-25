@@ -38,11 +38,13 @@ func (t *ToolPick) AltBehaviour() bool {
 }
 
 func (t ToolPick) onStart(util.Point) {
-	hoveredInstance := ed.HoveredInstance()
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: hoveredInstance := ed.HoveredInstance()
+	hoveredInstance := t.actionContext.targetInstance
 	if hoveredInstance == nil || hoveredInstance.Prefab() == nil {
 		return
 	}
-	if t.AltBehaviour() {
+	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if t.AltBehaviour() {
+	if t.actionContext.Alternate {
 		hider, ok := ed.(interface{ HideExactPath(string) error })
 		if !ok {
 			log.Error().Msg("Pick editor does not support exact type hiding")

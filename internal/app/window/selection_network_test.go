@@ -39,6 +39,7 @@ import (
 )
 
 type mouseNetworkApp struct {
+	composition *nativeMapComposition
 	wsmap.App
 	environment       *dmenv.Dme
 	commands          *command.Storage
@@ -453,7 +454,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 }
 
 // Mirror input polling followed by current-frame canvas ownership and drawing.
-func mouseWorkspaceFrame(t *testing.T, ws *wsmap.WsMap, mouse func(uint, uint)) func(bool, int, int) {
+func mouseWorkspaceFrame(t *testing.T, ws *wsmap.WsMap, mouse func(uint, uint), afterDraw ...func()) func(bool, int, int) {
 	pane := ws.Map()
 	primed := false
 	return func(down bool, x, y int) {
@@ -476,6 +477,9 @@ func mouseWorkspaceFrame(t *testing.T, ws *wsmap.WsMap, mouse func(uint, uint)) 
 		pane.CanvasControl().Process(imgui.Vec2{X: 128, Y: 128})
 		pane.ResolveCanvasInput()
 		pane.Canvas().Process(imgui.Vec2{X: 128, Y: 128})
+		for _, draw := range afterDraw {
+			draw()
+		}
 		imgui.End()
 		imgui.Render()
 		if primed && pane.CanvasState().HoveredTile() != (util.Point{X: x, Y: y, Z: 1}) {

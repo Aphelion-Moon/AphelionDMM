@@ -24,6 +24,12 @@ var (
 	ColorToolSelectTileBorder = util.MakeColor(0, 1, 0, 1)
 
 	ColorToolPickInstance = util.MakeColor(0, 1, 0, 1)
+	// APHELION EDIT ADDITION START - NONDESTRUCTIVE HIDE CUE
+	ColorToolHideTypeInstance      = util.MakeColorFromVec4(style.ColorGold)
+	ColorToolSelectAddBorder       = util.MakeColor(0.1, 0.9, 0.5, 1)
+	ColorToolSelectSubtractBorder  = util.MakeColor(1, 0.35, 0.25, 1)
+	ColorToolSelectIntersectBorder = util.MakeColor(0.3, 0.65, 1, 1)
+	// APHELION EDIT ADDITION END
 
 	ColorToolDeleteInstance      = util.MakeColor(1, 0, 0, 1)
 	ColorToolDeleteAltTileFill   = util.MakeColor(1, 0, 0, 0.25)

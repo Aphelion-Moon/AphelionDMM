@@ -109,6 +109,10 @@ var (
 	}
 
 	selectedToolName = TNAdd
+	// APHELION EDIT ADDITION START - PERSISTENT TOOL SELECTION
+	persistentToolName = TNAdd
+	heldToolName       string
+	// APHELION EDIT ADDITION END
 
 	startedTool Tool
 	// APHELION EDIT ADDITION START - TOOL GESTURE OWNERSHIP
@@ -117,13 +121,69 @@ var (
 )
 
 func SetSelected(toolName string) Tool {
+	// APHELION EDIT ADDITION START - GESTURE OWNER TOOL SWITCH
+	if active && startedTool != nil && startedTool.Name() != toolName {
+		startedTool.onStop(oldCoord)
+		startedTool.clearActionContext()
+		startedTool = nil
+		active = false
+	}
+	// APHELION EDIT ADDITION END
 	if selectedToolName != toolName {
 		log.Print("selecting:", toolName)
+		/* APHELION EDIT REMOVAL START - GESTURE OWNER TOOL SWITCH
 		tools[selectedToolName].OnDeselect()
+		APHELION EDIT REMOVAL END */
+		// APHELION EDIT ADDITION START - GESTURE OWNER TOOL SWITCH
+		if current := tools[selectedToolName]; current != nil && current != startedTool {
+			current.OnDeselect()
+		}
+		// APHELION EDIT ADDITION END
 		selectedToolName = toolName
 	}
+	// APHELION EDIT ADDITION START - PERSISTENT TOOL SELECTION
+	persistentToolName, heldToolName = toolName, ""
+	// APHELION EDIT ADDITION END
 	return Selected()
 }
+
+// APHELION EDIT ADDITION START - HELD TOOL SELECTION
+// SetHeldSelected switches the active handler temporarily while retaining the
+// user's persistent tool choice and any gesture already owned by another tool.
+func SetHeldSelected(toolName string) Tool {
+	if heldToolName == "" && selectedToolName != persistentToolName {
+		persistentToolName = selectedToolName
+	}
+	if selectedToolName != toolName {
+		if current := tools[selectedToolName]; current != nil && (!active || current != startedTool) {
+			current.OnDeselect()
+		}
+		log.Print("selecting held tool:", toolName)
+		selectedToolName = toolName
+	}
+	heldToolName = toolName
+	return Selected()
+}
+
+// RestorePersistentSelection ends a held selection after its admitted keys are
+// released while leaving a gesture with its original handler until mouse-up.
+func RestorePersistentSelection() Tool {
+	if heldToolName == "" {
+		return Selected()
+	}
+	if current := tools[selectedToolName]; current != nil && (!active || current != startedTool) {
+		current.OnDeselect()
+	}
+	selectedToolName = persistentToolName
+	heldToolName = ""
+	log.Print("restored persistent tool:", selectedToolName)
+	return Selected()
+}
+
+func PersistentToolName() string { return persistentToolName }
+func HeldToolName() string       { return heldToolName }
+
+// APHELION EDIT ADDITION END
 
 func IsSelected(toolName string) bool {
 	return selectedToolName == toolName
@@ -161,10 +221,16 @@ func DeactivateEditor(owner editor) {
 	if active {
 		if startedTool != nil {
 			startedTool.onStop(oldCoord)
+			// APHELION EDIT ADDITION START - SHARED TOOL FEEDBACK
+			startedTool.clearActionContext()
+			// APHELION EDIT ADDITION END
 		}
 		awaitMouseRelease = true
 	}
 	active, startedTool, oldCoord = false, nil, util.Point{}
+	// APHELION EDIT ADDITION START - SHARED TOOL FEEDBACK
+	ResetTransientModifiers()
+	// APHELION EDIT ADDITION END
 }
 
 // APHELION EDIT ADDITION END
@@ -235,20 +301,55 @@ func processFrame(altBehaviour bool, pendingSamples bool) {
 	// Escape must remain available while the canvas owns an active mouse item.
 	cancelGrabOnEscape()
 	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - GESTURE OWNER TOOL SWITCH
 	if active && startedTool != Selected() {
 		startedTool.onStop(oldCoord)
 	}
-
+	APHELION EDIT REMOVAL END */
+	/* APHELION EDIT REMOVAL START - SHARED TOOL FEEDBACK
 	Selected().setAltBehaviour(altBehaviour)
+	APHELION EDIT REMOVAL END */
+	input := currentActionInput(altBehaviour)
+	for _, current := range tools {
+		current.setActionContext(current.ActionContext(input))
+	}
 	// APHELION EDIT ADDITION START - MAPPER GESTURES
-	grab := tools[TNGrab].(*ToolGrab)
-	grab.ctrlSelection, grab.altSelection = imguiext.IsCtrlDown(), altBehaviour
-	tools[TNFill].(*ToolFill).border = grab.ctrlSelection
+	fill := tools[TNFill].(*ToolFill)
+	if !fill.gestureCaptured {
+		fill.border = fill.actionContext.Modifiers.Ctrl
+	}
 	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - GESTURE OWNER TOOL SWITCH
 	Selected().process()
+	APHELION EDIT REMOVAL END */
+	processActiveTool()
 	processSelectedToolStart()
 	if !pendingSamples {
 		processSelectedToolsStop()
+	}
+}
+
+// APHELION EDIT ADDITION START - GESTURE OWNER TOOL SWITCH
+func processActiveTool() {
+	owner := Selected()
+	if active && startedTool != nil {
+		owner = startedTool
+	}
+	owner.process()
+}
+
+// APHELION EDIT ADDITION END
+
+// ResetTransientModifiers clears feedback when the map loses input ownership.
+func ResetTransientModifiers() {
+	for _, current := range tools {
+		current.setActionContext(ActionContext{
+			ToolName:  current.Name(),
+			Action:    "Map input unavailable",
+			Available: false,
+			Reason:    "Map input is unavailable",
+		})
+		current.clearActionContext()
 	}
 }
 
@@ -303,26 +404,50 @@ func processSelectedToolStart() {
 	}
 	if cc.Dragging() && !active {
 		startedTool = Selected()
+		// APHELION EDIT ADDITION START - SHARED TOOL FEEDBACK
+		startedTool.captureActionContext()
+		// APHELION EDIT ADDITION END
 		Selected().onStart(cs.HoveredTile())
 		active = true
 	}
 }
 
 func processSelectedToolMove() {
-	if cs == nil || cs.HoverOutOfBounds() && !Selected().IgnoreBounds() {
+	owner := Selected()
+	if active && startedTool != nil {
+		// APHELION EDIT ADDITION START - GESTURE OWNER TOOL SWITCH
+		owner = startedTool
+		// APHELION EDIT ADDITION END
+	}
+	// APHELION EDIT CHANGE - GESTURE OWNER TOOL SWITCH - ORIGINAL: if cs == nil || cs.HoverOutOfBounds() && !Selected().IgnoreBounds() {
+	if cs == nil || cs.HoverOutOfBounds() && !owner.IgnoreBounds() {
 		return
 	}
 	coord := cs.HoveredTile()
 	// APHELION EDIT CHANGE - DETERMINISTIC ERASER - ORIGINAL: if coord != oldCoord && active {
-	if active && (coord != oldCoord || Selected().Name() == TNDelete) {
-		Selected().onMove(coord)
+	// APHELION EDIT CHANGE - GESTURE OWNER TOOL SWITCH - ORIGINAL: if active && (coord != oldCoord || Selected().Name() == TNDelete) {
+	if active && (coord != oldCoord || owner.Name() == TNDelete) {
+		// APHELION EDIT ADDITION START - GESTURE OWNER TOOL SWITCH
+		owner.onMove(coord)
+		// APHELION EDIT ADDITION END
 	}
 	oldCoord = coord
 }
 
 func processSelectedToolsStop() {
 	if cc != nil && !cc.Dragging() && active {
+		// APHELION EDIT ADDITION START - GESTURE OWNER TOOL SWITCH
+		owner := startedTool
+		if owner == nil {
+			owner = Selected()
+		}
+		/* APHELION EDIT REMOVAL START - GESTURE OWNER TOOL SWITCH
 		Selected().onStop(oldCoord)
+		APHELION EDIT REMOVAL END */
+		owner.onStop(oldCoord)
+		owner.clearActionContext()
 		active = false
+		startedTool = nil
+		// APHELION EDIT ADDITION END
 	}
 }

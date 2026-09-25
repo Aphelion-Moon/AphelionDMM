@@ -61,15 +61,18 @@ func (i *IconsCache) Get(icon string) (*Dmi, error) {
 	}
 
 	if dmi, ok := i.icons[icon]; ok {
-		if dmi == nil {
+		// APHELION EDIT CHANGE - ICON RECOVERY - ORIGINAL: if dmi == nil { return nil, fmt.Errorf("dmi [%s] is nil", icon) }
+		if dmi != nil {
+			return dmi, nil
+		}
+		if !i.asynchronous {
 			return nil, fmt.Errorf("dmi [%s] is nil", icon)
 		}
-		return dmi, nil
 	}
 
 	// APHELION EDIT ADDITION START - ASYNC ICONS
 	if i.asynchronous {
-		return nil, i.request(icon)
+		return nil, i.request(icon, RequestOrdinary)
 	}
 	// APHELION EDIT ADDITION END
 	dmi, err := New(i.rootDirPath + "/" + icon)
@@ -102,13 +105,19 @@ func (i *IconsCache) GetSpriteOrPlaceholder(icon, state string) *Sprite {
 }
 
 func (i *IconsCache) GetSpriteOrPlaceholderV(icon, state string, dir int) *Sprite {
+	// APHELION EDIT ADDITION START - ICON RECOVERY
+	if i.asynchronous {
+		sprite, _ := i.RequestSpriteV(icon, state, dir, RequestOrdinary)
+		return sprite
+	}
+	// APHELION EDIT ADDITION END
 	if s, err := i.GetSpriteV(icon, state, dir); err == nil {
 		return s
 	}
-	// APHELION EDIT ADDITION START - ASYNC ICONS
+	/* APHELION EDIT REMOVAL START - ICON RECOVERY
 	if i.asynchronous && i.async.pending[icon] {
 		return i.pendingSprite(icon, state, dir)
 	}
-	// APHELION EDIT ADDITION END
+	APHELION EDIT REMOVAL END */
 	return SpritePlaceholder()
 }

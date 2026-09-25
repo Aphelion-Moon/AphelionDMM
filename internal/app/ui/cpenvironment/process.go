@@ -10,6 +10,9 @@ import (
 	"sdmm/internal/imguiext/style"
 
 	"sdmm/internal/dmapi/dmenv"
+	// APHELION EDIT ADDITION START - ICON RECOVERY
+	"sdmm/internal/dmapi/dmicon"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/imguiext/icon"
 	w "sdmm/internal/imguiext/widget"
 
@@ -302,10 +305,35 @@ func (e *Environment) treeVisibility(path string) (checked, mixed bool) {
 
 func (e *Environment) showIcon(node *treeNode) {
 	s := node.sprite
+	if s == nil {
+		// APHELION EDIT ADDITION START - ICON RECOVERY
+		s = dmicon.SpritePlaceholder()
+		node.sprite = s
+		// APHELION EDIT ADDITION END
+	}
 	w.Image(imgui.TextureID(s.Texture()), e.iconSize(), e.iconSize()).
 		TintColor(node.color).
 		Uv(imgui.Vec2{X: s.U1, Y: s.V1}, imgui.Vec2{X: s.U2, Y: s.V2}).
 		Build()
+	// APHELION EDIT ADDITION START - ICON RECOVERY
+	if imgui.IsItemVisible() {
+		node.sprite, node.load = dmicon.Cache.RequestSpriteV(node.icon, node.state, node.dir, dmicon.RequestVisible)
+		switch node.load.State {
+		case dmicon.SpriteFailed:
+			imgui.SameLine()
+			imgui.TextColored(imgui.Vec4{X: 1, Y: .25, Z: .2, W: 1}, "!")
+			if imgui.IsItemHovered() && node.load.Err != nil {
+				imgui.SetTooltip(node.load.Err.Error())
+			}
+		case dmicon.SpritePending:
+			imgui.SameLine()
+			imgui.TextDisabled("…")
+			if imgui.IsItemHovered() && node.load.Err != nil {
+				imgui.SetTooltip(node.load.Err.Error())
+			}
+		}
+	}
+	// APHELION EDIT ADDITION END
 	imgui.SameLine()
 }
 

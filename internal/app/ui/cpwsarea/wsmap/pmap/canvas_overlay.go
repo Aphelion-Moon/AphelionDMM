@@ -4,6 +4,9 @@ import (
 	// APHELION EDIT ADDITION START - FLASH LIFETIME
 	"slices"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - SHARED TOOL FEEDBACK
+	"sdmm/internal/aphelion/editing"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/canvas"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/overlay"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
@@ -26,16 +29,15 @@ func (p *PaneMap) processCanvasOverlay() {
 }
 
 func (p *PaneMap) processCanvasOverlayTools() {
+	/* APHELION EDIT REMOVAL START - SHARED TOOL FEEDBACK
 	if !tools.Selected().Stale() {
 		return
 	}
-
 	var (
 		colInstance   util.Color
 		colTileFill   util.Color
 		colTileBorder util.Color
 	)
-
 	switch tools.Selected().Name() {
 	case tools.TNAdd:
 		colTileFill = overlay.ColorToolAddTileFill
@@ -66,13 +68,83 @@ func (p *PaneMap) processCanvasOverlayTools() {
 	case tools.TNReplace:
 		colInstance = overlay.ColorToolReplaceInstance
 	}
-
 	if colInstance != overlay.ColorEmpty {
 		p.PushUnitHighlight(p.canvasState.HoveredInstance(), colInstance)
 	}
 	if !p.canvasState.HoverOutOfBounds() {
 		p.PushAreaHover(p.canvasState.HoveredTileBounds(), colTileFill, colTileBorder)
 	}
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - SHARED TOOL FEEDBACK
+	context := tools.CurrentActionContext()
+	activeTool := tools.Tools()[context.ToolName]
+	if activeTool == nil || !activeTool.Stale() {
+		return
+	}
+
+	var (
+		colInstance   util.Color
+		colTileFill   util.Color
+		colTileBorder util.Color
+	)
+
+	switch context.ToolName {
+	case tools.TNAdd:
+		colTileFill = overlay.ColorToolAddTileFill
+		if !context.Alternate {
+			colTileBorder = overlay.ColorToolAddTileBorder
+		} else {
+			colTileBorder = overlay.ColorToolAddAltTileBorder
+		}
+	case tools.TNFill:
+		if !context.Alternate {
+			colTileFill = overlay.ColorToolFillTileFill
+		} else {
+			colTileFill = overlay.ColorToolFillAltTileFill
+		}
+		if context.Outline {
+			colTileBorder = overlay.ColorToolAddTileBorder
+		}
+	case tools.TNGrab:
+		colTileBorder = overlay.ColorToolSelectTileBorder
+		if context.Cue == tools.CueMembership {
+			switch context.SelectionOperation {
+			case editing.SelectionAdd:
+				colTileBorder = overlay.ColorToolSelectAddBorder
+			case editing.SelectionSubtract:
+				colTileBorder = overlay.ColorToolSelectSubtractBorder
+			case editing.SelectionIntersect:
+				colTileBorder = overlay.ColorToolSelectIntersectBorder
+			}
+		}
+	case tools.TNPick:
+		colInstance = overlay.ColorToolPickInstance
+		if context.Cue == tools.CueHideExactType {
+			colInstance = overlay.ColorToolHideTypeInstance
+		}
+	case tools.TNMove:
+		colInstance = overlay.ColorToolPickInstance
+	case tools.TNDelete:
+		if !context.Alternate {
+			colInstance = overlay.ColorToolDeleteInstance
+		} else {
+			colTileFill = overlay.ColorToolDeleteAltTileFill
+			colTileBorder = overlay.ColorToolDeleteAltTileBorder
+		}
+	case tools.TNReplace:
+		colInstance = overlay.ColorToolReplaceInstance
+	}
+
+	if colInstance != overlay.ColorEmpty {
+		instance := p.canvasState.HoveredInstance()
+		if instance != nil {
+			p.PushUnitHighlight(instance, colInstance)
+		}
+	}
+	if !p.canvasState.HoverOutOfBounds() {
+		p.PushAreaHover(p.canvasState.HoveredTileBounds(), colTileFill, colTileBorder)
+	}
+	// APHELION EDIT ADDITION END
 }
 
 func (p *PaneMap) processCanvasOverlayFlick() {

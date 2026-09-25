@@ -291,6 +291,9 @@ func (p *PaneMap) Process() {
 	APHELION EDIT REMOVAL END */
 
 	p.canvasControl.Process(p.size)
+	// APHELION EDIT ADDITION START - MAP COMPOSITION
+	p.compositionCamera()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
 	if p.canvasControl.Touched() && p.canvasControl.Active() {
 		imgui.SetWindowFocus()
@@ -337,6 +340,11 @@ func (p *PaneMap) Process() {
 }
 
 func (p *PaneMap) Dispose() {
+	// APHELION EDIT ADDITION START - MAP COMPOSITION
+	if host, ok := p.app.(interface{ CloseCompositionSource(string) }); ok {
+		host.CloseCompositionSource(p.dmm.Path.Absolute)
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION STAMPS
 	if p.stamp != nil {
 		p.stamp.Close()
@@ -386,6 +394,9 @@ func (p *PaneMap) showCanvas() {
 		uvMin, uvMax,
 		style.ColorWhitePacked,
 	)
+	// APHELION EDIT ADDITION START - MAP COMPOSITION
+	p.compositionDraw()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COLLABORATION
 	p.showCollaborationPresence()
 	// APHELION EDIT ADDITION END
@@ -458,6 +469,11 @@ func (p *PaneMap) OnActivate() {
 }
 
 func (p *PaneMap) OnDeactivate() {
+	// APHELION EDIT ADDITION START - COMPOSITION ANCHORS
+	if host, ok := p.app.(interface{ CancelCompositionDraft(string) }); ok {
+		host.CancelCompositionDraft(p.dmm.Path.Absolute)
+	}
+	// APHELION EDIT ADDITION END
 	p.focused = false
 	p.active = false
 	// APHELION EDIT CHANGE - TOOL GESTURE OWNERSHIP - ORIGINAL: tools.Selected().OnDeselect()

@@ -135,7 +135,8 @@ func (e *Editor) InstanceReplace(i *dmminstance.Instance, prefab *dmmprefab.Pref
 	}
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - BRUSH CAPTURE
-	if !e.TryBeginTileChange(i.Coord()) {
+	// APHELION EDIT CHANGE - COMPOSITION ANCHORS - ORIGINAL: if !e.TryBeginTileChange(i.Coord()) {
+	if !e.TryBeginInstanceChange(i) {
 		return
 	}
 	// APHELION EDIT ADDITION END
@@ -160,7 +161,8 @@ func (e *Editor) InstanceReset(i *dmminstance.Instance) {
 	}
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
-	if !e.TryBeginTileChange(i.Coord()) {
+	// APHELION EDIT CHANGE - COMPOSITION ANCHORS - ORIGINAL: if !e.TryBeginTileChange(i.Coord()) {
+	if !e.TryBeginInstanceChange(i) {
 		return
 	}
 	// APHELION EDIT ADDITION END

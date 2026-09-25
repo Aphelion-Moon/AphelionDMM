@@ -71,7 +71,7 @@ type Layout struct {
 	Collaboration *collabui.Panel
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
-	Composition *mappingui.Panel
+	Composition *mappingui.Hub
 	// APHELION EDIT ADDITION END
 
 	tmpNextShowNode  []string
@@ -100,7 +100,7 @@ func New(app app) *Layout {
 	l.Collaboration.Init(app)
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
-	l.Composition = mappingui.New(app)
+	l.Composition = mappingui.NewHub(app)
 	l.WsArea.SetVisualCompanion(l.Composition)
 	// APHELION EDIT ADDITION END
 
@@ -117,7 +117,8 @@ func (l *Layout) Process() {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	l.showCollaborationNode()
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
-	l.Composition.Process()
+	l.Composition.Advance()
+	l.wrapNode(lnode.NameComposition, l.leftNodeId, l.Composition)
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION END
 	l.showWorkspaceAreaNode() // The latest node will have a focus by default
@@ -144,6 +145,14 @@ func (l *Layout) ShowNode(nodeName string) {
 	imgui.ExtSetDockTabSelected(nodeName)
 	l.tmpNextShowNode = append(l.tmpNextShowNode, nodeName)
 }
+
+// APHELION EDIT ADDITION START - COMPOSITION DOCK
+func (l *Layout) RestoreCompositionDock() {
+	l.config().CompositionDocked = false
+	l.ShowNode(lnode.NameComposition)
+}
+
+// APHELION EDIT ADDITION END
 
 func (l *Layout) FocusNode(nodeName string) {
 	l.tmpNextFocusNode = nodeName
@@ -230,6 +239,12 @@ func (l *Layout) wrapNodeV(id string, dockId int32, node layoutNode, cfg wrapCfg
 	}
 
 	l.prepareNode(id, dockId, cfg)
+	// APHELION EDIT ADDITION START - COMPOSITION DOCK MIGRATION
+	if id == lnode.NameComposition && !l.config().CompositionDocked && l.leftNodeId != 0 {
+		imgui.SetNextWindowDockIDV(int(l.leftNodeId), imgui.ConditionAlways)
+		l.config().CompositionDocked = true
+	}
+	// APHELION EDIT ADDITION END
 	l.processNode(id, dockId, node, cfg)
 }
 
@@ -254,6 +269,11 @@ func (l *Layout) processNode(id string, dockId int32, node layoutNode, cfg wrapC
 	node.PreProcess()
 
 	visible := imgui.BeginV(id, nil, defaultWindowFlags)
+	// APHELION EDIT ADDITION START - COMPOSITION DOCK MIGRATION
+	if id == lnode.NameEnvironment && imgui.GetWindowDockID() != 0 {
+		l.leftNodeId = int32(imgui.GetWindowDockID())
+	}
+	// APHELION EDIT ADDITION END
 
 	node.SetVisible(visible)
 	node.SetFocused(imgui.IsWindowFocusedV(imgui.FocusedFlagsRootAndChildWindows))
