@@ -113,6 +113,9 @@ func (r *Render) ProcessLevelBuildBudget(b *LevelBuildBudget) bool {
 		return false
 	}
 	job := r.nextLevelBuild()
+	if (job == nil || job.level != r.Camera.Level) && r.processRetainedPreparation(b) {
+		return true
+	}
 	if job == nil {
 		return false
 	}

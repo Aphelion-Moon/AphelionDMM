@@ -205,6 +205,11 @@ func TestNativeWorkspaceLifecycle(t *testing.T) {
 		}
 		current.OnFocusChange(false)
 		current.Dispose()
+		// GL submissions now retire one at a time through the bounded frame
+		// queue. This small fixture must finish within a finite frame count.
+		for frame := 0; frame < 16 && window.PendingFrameJobsForTest() != 0; frame++ {
+			window.DrainFrameJobsForTest()
+		}
 		// WsArea.closeWorkspaceByIdx releases the command stack after content
 		// disposal; preserve that ordering in this native content fixture.
 		app.commands.DisposeStack(path)

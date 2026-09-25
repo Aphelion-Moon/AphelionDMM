@@ -1,6 +1,9 @@
 package brush
 
 import (
+	// APHELION EDIT ADDITION START - RETAINED ADMISSION
+	"sdmm/internal/aphelion/resources"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/platform"
 
 	"github.com/go-gl/gl/v3.3-core/gl"
@@ -13,6 +16,24 @@ type Submission struct {
 	vao, vbo, ebo uint32
 	calls         []batchCall
 	bytes         int
+	reservation   *resources.Reservation
+}
+
+// CaptureAdmittedSubmission accounts for simultaneous CPU staging, GPU storage
+// and selection metadata before graphics allocation. The owner supplies a
+// conservative estimate and keeps it charged until graphics disposal.
+func CaptureAdmittedSubmission(estimate uint64, build func()) (*Submission, error) {
+	reservation, err := resources.DefaultBudget().Reserve(estimate)
+	if err != nil {
+		return nil, err
+	}
+	submission := CaptureSubmission(build)
+	if submission == nil {
+		reservation.Release()
+	} else {
+		submission.reservation = reservation
+	}
+	return submission, nil
 }
 
 // CaptureSubmission records brush primitives while leaving the frame batch intact.
@@ -50,7 +71,11 @@ func (s *Submission) ByteSize() int {
 }
 
 func (s *Submission) Dispose() {
-	if s == nil || s.vao == 0 {
+	if s == nil {
+		return
+	}
+	defer s.reservation.Release()
+	if s.vao == 0 {
 		return
 	}
 	gl.DeleteVertexArrays(1, &s.vao)

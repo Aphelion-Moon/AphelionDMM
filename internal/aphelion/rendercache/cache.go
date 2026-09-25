@@ -131,8 +131,35 @@ func (c *Cache) remove(key Key, element *list.Element) {
 	c.lru.Remove(element)
 	c.bytes -= entry.bytes
 	if entry.Submission != nil {
-		entry.Submission.Dispose()
+		c.retired = append(c.retired, entry.Submission)
 	}
+}
+
+// DisposeRetiredStep releases one GL allocation on the shared visual scheduler.
+func (c *Cache) DisposeRetiredStep() bool {
+	if c == nil || len(c.retired) == 0 {
+		return false
+	}
+	last := len(c.retired) - 1
+	submission := c.retired[last]
+	c.retired[last] = nil
+	c.retired = c.retired[:last]
+	submission.Dispose()
+	return true
+}
+
+func (c *Cache) HasRetired() bool { return c != nil && len(c.retired) != 0 }
+
+func (c *Cache) EvictOldest() bool {
+	if c == nil {
+		return false
+	}
+	last := c.lru.Back()
+	if last == nil {
+		return false
+	}
+	c.remove(last.Value.(*Entry).Key, last)
+	return true
 }
 
 // Clear drops logical entries immediately and defers GPU deletion to a GL owner.

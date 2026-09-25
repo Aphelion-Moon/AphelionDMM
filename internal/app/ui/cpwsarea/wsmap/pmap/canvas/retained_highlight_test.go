@@ -68,6 +68,10 @@ func TestRetainedHighlightBypassesOnlyMatchingChunkLayer(t *testing.T) {
 	r.UpdateBucketV(dmm, 1, nil)
 	size := imgui.Vec2{X: 896, Y: 64}
 	c.Process(size)
+	for step := 0; step < 8; step++ {
+		r.ProcessLevelBuild()
+	}
+	c.Process(size)
 	warm := r.RetainedCacheStats()
 	if warm.Builds != 2 || warm.UploadBytes == 0 {
 		t.Fatalf("expected two warm chunk-layer submissions, got %+v", warm)

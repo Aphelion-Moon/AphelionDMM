@@ -68,10 +68,12 @@ func (c *Canvas) Dispose() {
 	// APHELION EDIT ADDITION END
 	// Run later, so it will be cleared in the next frame.
 	// Otherwise, we will see graphics artifacts.
-	window.RunLater(func() {
+	var dispose func()
+	dispose = func() {
 		// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
-		if c.render != nil {
-			c.render.ReleaseRetainedSubmissions()
+		if c.render != nil && c.render.ReleaseRetainedSubmissionsStep() {
+			window.RunLater(dispose)
+			return
 		}
 		// APHELION EDIT ADDITION END
 		log.Print("disposing...")
@@ -84,7 +86,8 @@ func (c *Canvas) Dispose() {
 		c.width, c.height = 0, 0
 		// APHELION EDIT ADDITION END
 		log.Print("disposed")
-	})
+	}
+	window.RunLater(dispose)
 }
 
 func New() *Canvas {

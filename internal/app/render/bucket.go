@@ -84,8 +84,9 @@ func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight
 			// Ghost suppression changes base membership. A selected unit changes
 			// painter order only in its own chunk-layer, so keep other layers retained.
 			if cacheable && ghost == nil && !r.retainedChunkLayerHasHighlight(chunk, layer, policyRevision, highlightedUnitIDs, viewBounds) {
-				r.drawRetainedChunkLayer(chunk, layer, policyRevision)
-				continue
+				if r.drawRetainedChunkLayer(chunk, layer, policyRevision) {
+					continue
+				}
 			}
 			// APHELION EDIT ADDITION END
 			// Get all units in the chunk for the specific layer.
@@ -133,6 +134,8 @@ func (r *Render) RetainedCacheStats() rendercache.Stats {
 }
 
 func (r *Render) clearRetainedScene() {
+	r.retainedPending = nil
+	r.retainedQueued = nil
 	if r.retained != nil {
 		r.retained.Clear()
 	}
@@ -142,6 +145,13 @@ func (r *Render) ReleaseRetainedSubmissions() {
 	if r.retained != nil {
 		r.retained.DisposeRetired()
 	}
+}
+
+// ReleaseRetainedSubmissionsStep permits disposed canvases to drain charged GL
+// allocations through the existing deferred-frame queue after losing a pane.
+func (r *Render) ReleaseRetainedSubmissionsStep() bool {
+	r.clearRetainedScene()
+	return r.retained != nil && r.retained.DisposeRetiredStep()
 }
 func (r *Render) retainedPolicyRevision() (uint64, bool) {
 	if r.unitProcessor == nil {
@@ -177,7 +187,7 @@ func (r *Render) retainedChunkLayerHasHighlight(c *chunk.Chunk, layer float32, p
 	return false
 }
 
-func (r *Render) drawRetainedChunkLayer(c *chunk.Chunk, layer float32, policyRevision uint64) {
+func (r *Render) drawRetainedChunkLayer(c *chunk.Chunk, layer float32, policyRevision uint64) bool {
 	if r.retained == nil {
 		r.retained = rendercache.New()
 	}
@@ -185,37 +195,49 @@ func (r *Render) drawRetainedChunkLayer(c *chunk.Chunk, layer float32, policyRev
 	versions := rendercache.Versions{Chunk: c.Revision(), Policy: policyRevision, Appearance: dmicon.Cache.Revision()}
 	entry, found := r.retained.Get(key, versions)
 	if !found {
-		unitIDs := make([]uint64, 0, min(len(c.UnitsByLayers[layer]), rendercache.MaxIndexedUnitsPerEntry))
-		indexComplete := true
-		submission := brush.CaptureSubmission(func() {
-			for _, u := range c.UnitsByLayers[layer] {
-				if r.unitProcessor != nil && !r.unitProcessor.ProcessUnit(u) {
-					continue
-				}
-				if indexComplete {
-					if len(unitIDs) == rendercache.MaxIndexedUnitsPerEntry {
-						unitIDs = nil
-						indexComplete = false
-					} else {
-						unitIDs = append(unitIDs, u.Instance().Id())
-					}
-				}
-				bounds := u.ViewBounds()
-				brush.RectTexturedV(bounds.X1, bounds.Y1, bounds.X2, bounds.Y2, u.R(), u.G(), u.B(), u.A(), u.Sprite().Texture(), u.Sprite().U1, u.Sprite().V1, u.Sprite().U2, u.Sprite().V2)
-			}
-		})
-		r.retained.RecordBuild(submission)
-		if !r.retained.PutWithUnitIDs(key, versions, submission, unitIDs, indexComplete) {
-			if submission != nil {
-				submission.Draw(r.viewportWidth, r.viewportHeight, r.Camera.ShiftX, r.Camera.ShiftY, r.Camera.Scale)
-				submission.Dispose()
-			}
-			return
-		}
-		entry, _ = r.retained.Get(key, versions)
+		r.queueRetainedPreparation(key, versions, layer)
+		return false
 	}
 	if entry != nil && entry.Submission != nil {
 		entry.Submission.Draw(r.viewportWidth, r.viewportHeight, r.Camera.ShiftX, r.Camera.ShiftY, r.Camera.Scale)
+	}
+	return true
+}
+
+func (r *Render) prepareRetainedChunkLayer(c *chunk.Chunk, layer float32, key rendercache.Key, versions rendercache.Versions) {
+	unitIDs := make([]uint64, 0, min(len(c.UnitsByLayers[layer]), rendercache.MaxIndexedUnitsPerEntry))
+	indexComplete := true
+	// One rectangle uses 152 GPU bytes. This upper estimate also admits
+	// transient staging, worst-case draw calls, and retained unit IDs.
+	submission, err := brush.CaptureAdmittedSubmission(uint64(len(c.UnitsByLayers[layer]))*512+4096, func() {
+		for _, u := range c.UnitsByLayers[layer] {
+			if r.unitProcessor != nil && !r.unitProcessor.ProcessUnit(u) {
+				continue
+			}
+			if indexComplete {
+				if len(unitIDs) == rendercache.MaxIndexedUnitsPerEntry {
+					unitIDs = nil
+					indexComplete = false
+				} else {
+					unitIDs = append(unitIDs, u.Instance().Id())
+				}
+			}
+			bounds := u.ViewBounds()
+			brush.RectTexturedV(bounds.X1, bounds.Y1, bounds.X2, bounds.Y2, u.R(), u.G(), u.B(), u.A(), u.Sprite().Texture(), u.Sprite().U1, u.Sprite().V1, u.Sprite().U2, u.Sprite().V2)
+		}
+	})
+	if err != nil {
+		// Failed pre-admission must make progress even when the oldest charged
+		// submission is now offscreen and would otherwise never be revisited.
+		r.retained.EvictOldest()
+		return
+	}
+	r.retained.RecordBuild(submission)
+	if !r.retained.PutWithUnitIDs(key, versions, submission, unitIDs, indexComplete) {
+		if submission != nil {
+			submission.Dispose()
+		}
+		return
 	}
 }
 

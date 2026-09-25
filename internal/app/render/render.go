@@ -33,7 +33,11 @@ type Render struct {
 	viewportWidth        float32
 	viewportHeight       float32
 	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
-	retained *rendercache.Cache
+	retained           *rendercache.Cache
+	retainedPending    []retainedPreparation
+	retainedQueued     map[rendercache.Key]rendercache.Versions
+	retainedRetireNext bool
+	retainedView       util.Bounds
 	// APHELION EDIT ADDITION END
 	geometry        map[int]*geometryAllocation
 	geometryWaiting bool
@@ -113,11 +117,10 @@ func (r *Render) UpdateBucket(dmm *dmmap.Dmm, level int) {
 
 func (r *Render) Draw(width, height float32) {
 	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
-	if r.retained != nil {
-		r.retained.DisposeRetired()
-	}
+	// Retired GL allocations drain through the shared visual scheduler.
 	r.geometryDrawn = time.Now()
 	r.viewportWidth, r.viewportHeight = width, height
+	r.reprioritizeRetained()
 	// APHELION EDIT ADDITION END
 	r.prepare()
 	r.draw(width, height)

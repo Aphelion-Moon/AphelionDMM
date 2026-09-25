@@ -249,8 +249,15 @@ func TestRetainedRenderCacheWarmReuseAndInvalidation(t *testing.T) {
 	if got := r.RetainedCacheStats(); got.Builds != 0 || got.UploadBytes != 0 {
 		t.Fatalf("stream baseline unexpectedly built retained geometry: %+v", got)
 	}
+	warmRetained := func() {
+		for step := 0; step < 8; step++ {
+			r.ProcessLevelBuild()
+		}
+		c.Process(size)
+	}
 
 	c.Process(size)
+	warmRetained()
 	warmPixels := c.ReadPixels()
 	if !bytes.Equal(warmPixels, baseline) {
 		t.Fatal("retained Render.Draw changed native pixels from stream baseline")
@@ -280,11 +287,13 @@ func TestRetainedRenderCacheWarmReuseAndInvalidation(t *testing.T) {
 	policy := &retainedTestPolicy{revision: 1, visible: true}
 	r.SetUnitProcessor(policy)
 	c.Process(size)
+	warmRetained()
 	policyWarm := r.RetainedCacheStats()
 	policy.visible = false
 	policy.revision++
 	policyBaseline := streamFrame()
 	c.Process(size)
+	warmRetained()
 	if got := c.ReadPixels(); !bytes.Equal(got, policyBaseline) {
 		t.Fatal("policy change failed to reproduce stream-rendered pixels")
 	}
@@ -297,11 +306,13 @@ func TestRetainedRenderCacheWarmReuseAndInvalidation(t *testing.T) {
 	// and rebuild just its owning chunk to exercise the chunk revision fence.
 	r.SetUnitProcessor(nil)
 	c.Process(size)
+	warmRetained()
 	editWarm := r.RetainedCacheStats()
 	instance.SetPrefab(retainedTestPrefab(`"#00ff00"`))
 	r.UpdateBucketV(dmm, 1, []util.Point{{X: 1, Y: 1, Z: 1}})
 	editBaseline := streamFrame()
 	c.Process(size)
+	warmRetained()
 	if got := c.ReadPixels(); !bytes.Equal(got, editBaseline) {
 		t.Fatal("chunk edit failed to reproduce stream-rendered pixels")
 	}
@@ -315,6 +326,43 @@ func TestRetainedRenderCacheWarmReuseAndInvalidation(t *testing.T) {
 
 // One process selects one fixed fixture size. Alternate dimensions force every
 // timed Canvas.Process call to resize; Finish includes completion of GPU work.
+func TestRetainedMissDefersUploadToVisualScheduler(t *testing.T) {
+	resizeContext(t)
+	c := resizeCanvas(t)
+	r := c.Render()
+	defer r.ReleaseRetainedSubmissions()
+	dmm, _ := retainedTestMap()
+	r.SetActiveLevel(dmm, 1)
+	r.UpdateBucketV(dmm, 1, nil)
+	policy := &retainedTestPolicy{revision: 1, visible: true}
+	r.SetUnitProcessor(policy)
+	size := imgui.Vec2{X: 96, Y: 96}
+	c.Process(size)
+	fallback := c.ReadPixels()
+	if r.RetainedCacheStats().Builds != 0 {
+		t.Fatal("Draw synchronously uploaded a retained miss")
+	}
+	r.ProcessLevelBuild()
+	c.Process(size)
+	if !bytes.Equal(fallback, c.ReadPixels()) || r.RetainedCacheStats().Builds != 1 {
+		t.Fatal("scheduler failed to warm equivalent pixels")
+	}
+	policy.visible = false
+	policy.revision++
+	c.Process(size)
+	if r.RetainedCacheStats().Builds != 1 {
+		t.Fatal("policy invalidation uploaded during Draw")
+	}
+	fallback = c.ReadPixels()
+	for step := 0; step < 4; step++ {
+		r.ProcessLevelBuild()
+	}
+	c.Process(size)
+	if !bytes.Equal(fallback, c.ReadPixels()) || r.RetainedCacheStats().Builds != 2 {
+		t.Fatal("new policy was not coherently warmed")
+	}
+}
+
 func BenchmarkCanvasResize(b *testing.B) {
 	resizeContext(b)
 	c := resizeCanvas(b)
