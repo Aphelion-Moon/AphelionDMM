@@ -26,6 +26,9 @@ import (
 )
 
 type Editor struct {
+	// APHELION EDIT ADDITION START - FILTER FEEDBACK
+	visibilityError string
+	// APHELION EDIT ADDITION END
 	app  app
 	pMap attachedMap
 

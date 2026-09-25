@@ -79,6 +79,30 @@ func (p *PathsFilter) PolicyRevision() uint64 {
 	return p.policyRevision
 }
 
+// AdoptPreparedPolicy transfers an exclusively owned worker result. Descendant
+// summaries are already built; no catalogue walk or sorting occurs on publish.
+// Existing snapshots made with Copy remain independent.
+func (p *PathsFilter) AdoptPreparedPolicy(prepared *PathsFilter) bool {
+	if prepared == nil || prepared == p {
+		return false
+	}
+	changed := len(p.filteredPaths) != len(prepared.filteredPaths)
+	if !changed {
+		for path := range p.filteredPaths {
+			if !prepared.filteredPaths[path] {
+				changed = true
+				break
+			}
+		}
+	}
+	if changed {
+		p.filteredPaths, p.hiddenDescendantCount = prepared.filteredPaths, prepared.hiddenDescendantCount
+		p.policyRevision++
+	}
+	prepared.filteredPaths, prepared.hiddenDescendantCount = nil, nil
+	return changed
+}
+
 // ApplyHiddenPaths replaces the effective hidden-path set as one policy update.
 // The input is copied, so callers may retain or reuse their slice.
 func (p *PathsFilter) ApplyHiddenPaths(paths []string) bool {
@@ -148,6 +172,8 @@ APHELION EDIT REMOVAL END */
 func (p *PathsFilter) HasHiddenChildPath(path string) bool {
 	return p.hiddenDescendantCount[path] > 0
 }
+
+func (p *PathsFilter) HiddenDescendantCount(path string) int { return p.hiddenDescendantCount[path] }
 
 // APHELION EDIT ADDITION END
 

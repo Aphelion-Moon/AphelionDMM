@@ -35,5 +35,7 @@ func (s *Session) ApplyCompiled(profile Profile, compiled Compiled, filter *dm.P
 	s.overrides = Overrides{}
 	s.lastHidden = nil
 	s.warnings = append([]Warning(nil), compiled.Warnings...)
+	s.effective = compiled
+	s.recordVisibility("Apply " + profile.Name)
 	return nil
 }

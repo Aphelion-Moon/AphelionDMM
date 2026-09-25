@@ -249,6 +249,7 @@ func (e *Environment) showAttachment(node *treeNode) bool {
 }
 
 func (e *Environment) showVisibilityCheckbox(node *treeNode) {
+	/* APHELION EDIT REMOVAL START - EXACT VISIBILITY SUMMARY
 	value := e.app.PathsFilter().IsVisiblePath(node.orig.Path)
 	vOrig := value
 
@@ -257,6 +258,10 @@ func (e *Environment) showVisibilityCheckbox(node *treeNode) {
 		hasHiddenChildPath = e.app.PathsFilter().HasHiddenChildPath(node.orig.Path)
 		value = !hasHiddenChildPath
 	}
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - EXACT VISIBILITY SUMMARY
+	value, mixed := e.treeVisibility(node.orig.Path)
+	// APHELION EDIT ADDITION END
 
 	imgui.PushStyleVarVec2(imgui.StyleVarFramePadding, e.calcTreeNodePadding(node.name))
 	if imgui.Checkbox(fmt.Sprint("##node_visibility_", node.orig.Path), &value) {
@@ -269,7 +274,8 @@ func (e *Environment) showVisibilityCheckbox(node *treeNode) {
 	imgui.PopStyleVar()
 
 	// Show a dash symbol, if the node has any hidden child.
-	if vOrig && hasHiddenChildPath {
+	// APHELION EDIT CHANGE - EXACT VISIBILITY SUMMARY - ORIGINAL: if vOrig && hasHiddenChildPath {
+	if mixed {
 		iMin := imgui.ItemRectMin()
 		iMax := imgui.ItemRectMax()
 		iWidth := iMax.X - iMin.X
@@ -282,6 +288,17 @@ func (e *Environment) showVisibilityCheckbox(node *treeNode) {
 		imgui.WindowDrawList().AddRectFilled(imgui.Vec2{X: iMin.X + mPadding, Y: mMinY}, imgui.Vec2{X: iMax.X - mPadding, Y: mMaxY}, col)
 	}
 }
+
+// APHELION EDIT ADDITION START - EXACT VISIBILITY SUMMARY
+func (e *Environment) treeVisibility(path string) (checked, mixed bool) {
+	filter := e.app.PathsFilter()
+	visible := filter.IsVisiblePath(path)
+	hidden := e.filterProfiles.HiddenDescendantCount(path)
+	mixed = visible && hidden > 0 || !visible && hidden < e.filterProfiles.DescendantCount(path)
+	return visible && !mixed, mixed
+}
+
+// APHELION EDIT ADDITION END
 
 func (e *Environment) showIcon(node *treeNode) {
 	s := node.sprite

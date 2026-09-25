@@ -64,6 +64,9 @@ type Environment struct {
 	filterProfileChoice, filterProfileName, filterProfileStatus, filterProfileConfigError string
 	filterCompileGeneration                                                               uint64
 	filterCompilePending                                                                  bool
+	filterProfileDialog                                                                   *profileDialog
+	filterWorkerActive                                                                    bool
+	filterCommands                                                                        []visibilityCommand
 	// APHELION EDIT ADDITION END
 
 	shortcuts shortcut.Shortcuts

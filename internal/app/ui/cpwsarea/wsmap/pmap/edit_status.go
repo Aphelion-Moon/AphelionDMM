@@ -30,6 +30,9 @@ func (p *PaneMap) showEditStatus() {
 		p.editBubble.since = time.Now()
 	}
 	p.editBubble.busy = busy
+	if message == "" {
+		message = p.editor.VisibilityStatus()
+	}
 	if message == "" || busy && time.Since(p.editBubble.since) < 200*time.Millisecond {
 		return
 	}

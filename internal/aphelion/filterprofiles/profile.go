@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -60,8 +61,9 @@ type Warning struct {
 }
 
 type Compiled struct {
-	HiddenPaths []string
-	Warnings    []Warning
+	hiddenDescendants map[string]int
+	HiddenPaths       []string
+	Warnings          []Warning
 }
 
 type document struct {
@@ -287,14 +289,25 @@ func Decode(data []byte) (Profile, error) {
 }
 
 func Compile(profile Profile, overrides Overrides, environment *dmenv.Dme) (Compiled, error) {
-	if environment == nil {
-		return Compiled{}, errors.New("no project type catalog is loaded")
-	}
-	if err := Validate(profile); err != nil {
+	catalog, err := NewCatalog(environment)
+	if err != nil {
 		return Compiled{}, err
 	}
-	if err := validateRules(overrides.Rules); err != nil {
-		return Compiled{}, fmt.Errorf("invalid temporary overrides: %w", err)
+	return catalog.Compile(profile, overrides)
+}
+
+// Catalog captures immutable browse ancestry once per environment generation.
+// It deliberately does not use effective parent_type inheritance for filtering.
+type Catalog struct {
+	parents     map[string]string
+	paths       []string
+	present     map[string]bool
+	descendants map[string]int
+}
+
+func NewCatalog(environment *dmenv.Dme) (*Catalog, error) {
+	if environment == nil {
+		return nil, errors.New("no project type catalog is loaded")
 	}
 
 	parents := make(map[string]string, len(environment.Objects))
@@ -305,12 +318,39 @@ func Compile(profile Profile, overrides Overrides, environment *dmenv.Dme) (Comp
 		for _, childPath := range parent.DirectChildren {
 			if child := environment.Objects[childPath]; child != nil {
 				if previous, exists := parents[childPath]; exists && previous != parentPath {
-					return Compiled{}, fmt.Errorf("type %s has multiple declared parents", childPath)
+					return nil, fmt.Errorf("type %s has multiple declared parents", childPath)
 				}
 				parents[childPath] = parentPath
 			}
 		}
 	}
+	catalog := &Catalog{parents: parents, present: make(map[string]bool, len(environment.Objects)), descendants: make(map[string]int)}
+	for path, object := range environment.Objects {
+		if object != nil {
+			catalog.paths = append(catalog.paths, path)
+			catalog.present[path] = true
+			for ancestor := path; ; {
+				separator := strings.LastIndexByte(ancestor, '/')
+				if separator <= 0 {
+					break
+				}
+				ancestor = ancestor[:separator]
+				catalog.descendants[ancestor]++
+			}
+		}
+	}
+	sort.Strings(catalog.paths)
+	return catalog, nil
+}
+
+func (c *Catalog) Compile(profile Profile, overrides Overrides) (Compiled, error) {
+	if err := Validate(profile); err != nil {
+		return Compiled{}, err
+	}
+	if err := validateRules(overrides.Rules); err != nil {
+		return Compiled{}, fmt.Errorf("invalid temporary overrides: %w", err)
+	}
+	parents := c.parents
 
 	baseRules := profile.Rules
 	defaultVisible := profile.DefaultVisible
@@ -327,19 +367,12 @@ func Compile(profile Profile, overrides Overrides, environment *dmenv.Dme) (Comp
 		source string
 	}{{baseRules, "profile"}, {overrides.Rules, "temporary override"}} {
 		for _, rule := range entry.rules {
-			if environment.Objects[rule.Path] == nil {
+			if !c.present[rule.Path] {
 				warnings = append(warnings, Warning{Path: rule.Path, Source: entry.source, Reason: "type is not present in the loaded project; rule is retained"})
 			}
 		}
 	}
 
-	paths := make([]string, 0, len(environment.Objects))
-	for path, object := range environment.Objects {
-		if object != nil {
-			paths = append(paths, path)
-		}
-	}
-	sort.Strings(paths)
 	// Index rules once; a large saved policy must not require types x rules
 	// comparisons or repeated ancestry allocations during compilation.
 	exact, subtree := map[string]bool{}, map[string]bool{}
@@ -354,11 +387,12 @@ func Compile(profile Profile, overrides Overrides, environment *dmenv.Dme) (Comp
 	}
 	hidden := make([]string, 0)
 	for path, visible := range exact {
-		if !visible && environment.Objects[path] == nil {
+		if !visible && !c.present[path] {
 			hidden = append(hidden, path)
 		}
 	}
-	for _, path := range paths {
+	sort.Strings(hidden)
+	for _, path := range c.paths {
 		visible := defaultVisible
 		if value, ok := exact[path]; ok {
 			visible = value
@@ -383,7 +417,21 @@ func Compile(profile Profile, overrides Overrides, environment *dmenv.Dme) (Comp
 		}
 		return warnings[i].Source < warnings[j].Source
 	})
-	return Compiled{HiddenPaths: hidden, Warnings: warnings}, nil
+	counts := make(map[string]int)
+	for _, path := range hidden {
+		if !c.present[path] {
+			continue
+		}
+		for ancestor := path; ; {
+			separator := strings.LastIndexByte(ancestor, '/')
+			if separator <= 0 {
+				break
+			}
+			ancestor = ancestor[:separator]
+			counts[ancestor]++
+		}
+	}
+	return Compiled{HiddenPaths: hidden, Warnings: warnings, hiddenDescendants: counts}, nil
 }
 
 func MergeOverrides(profile Profile, overrides Overrides) (Profile, error) {
@@ -438,10 +486,45 @@ func (o *Overrides) setRule(rule Rule) {
 }
 
 type Session struct {
-	active     *Profile
-	overrides  Overrides
-	lastHidden *Rule
-	warnings   []Warning
+	active         *Profile
+	overrides      Overrides
+	lastHidden     *Rule
+	warnings       []Warning
+	catalog        *Catalog
+	environment    *dmenv.Dme
+	effective      Compiled
+	history        []visibilityState
+	historyCursor  int
+	historyBytes   int
+	historyTrimmed bool
+}
+
+// Fork captures owned session state for one unpublished worker. The catalogue
+// is immutable; overrides and user-visible metadata must not alias a live owner.
+func (s Session) Fork() Session {
+	if s.active != nil {
+		p := Clone(*s.active)
+		s.active = &p
+	}
+	s.overrides = cloneOverrides(s.overrides)
+	if s.lastHidden != nil {
+		r := *s.lastHidden
+		s.lastHidden = &r
+	}
+	s.warnings = append([]Warning(nil), s.warnings...)
+	s.history = append([]visibilityState(nil), s.history...)
+	return s
+}
+
+func (s *Session) compile(profile Profile, overrides Overrides, environment *dmenv.Dme) (Compiled, error) {
+	if s.catalog == nil || s.environment != environment {
+		catalog, err := NewCatalog(environment)
+		if err != nil {
+			return Compiled{}, err
+		}
+		s.catalog, s.environment = catalog, environment
+	}
+	return s.catalog.Compile(profile, overrides)
 }
 
 func (s *Session) Active() (Profile, bool) {
@@ -457,6 +540,15 @@ func (s *Session) OverridesDirty() bool {
 
 func (s *Session) Warnings() []Warning { return append([]Warning(nil), s.warnings...) }
 
+func (s *Session) DescendantCount(path string) int {
+	if s.catalog == nil {
+		return 0
+	}
+	return s.catalog.descendants[path]
+}
+
+func (s *Session) HiddenDescendantCount(path string) int { return s.effective.hiddenDescendants[path] }
+
 func (s *Session) LastHidden() (Rule, bool) {
 	if s.lastHidden == nil {
 		return Rule{}, false
@@ -465,7 +557,7 @@ func (s *Session) LastHidden() (Rule, bool) {
 }
 
 func (s *Session) Apply(profile Profile, environment *dmenv.Dme, filter *dm.PathsFilter) error {
-	compiled, err := Compile(profile, Overrides{}, environment)
+	compiled, err := s.compile(profile, Overrides{}, environment)
 	if err != nil {
 		return err
 	}
@@ -475,6 +567,8 @@ func (s *Session) Apply(profile Profile, environment *dmenv.Dme, filter *dm.Path
 	s.overrides = Overrides{}
 	s.lastHidden = nil
 	s.warnings = compiled.Warnings
+	s.effective = compiled
+	s.recordVisibility("Apply " + profile.Name)
 	return nil
 }
 
@@ -486,17 +580,19 @@ func (s *Session) SetVisibility(path string, scope Scope, visible bool, environm
 	next := cloneOverrides(s.overrides)
 	rule := Rule{Path: path, Scope: scope, Visible: visible}
 	next.setRule(rule)
-	compiled, err := Compile(profile, next, environment)
+	compiled, err := s.compile(profile, next, environment)
 	if err != nil {
 		return err
 	}
 	filter.ApplyHiddenPaths(compiled.HiddenPaths)
 	s.overrides = next
 	s.warnings = compiled.Warnings
-	if !visible {
+	if !visible && !slices.Equal(s.effective.HiddenPaths, compiled.HiddenPaths) {
 		last := rule
 		s.lastHidden = &last
 	}
+	s.effective = compiled
+	s.recordVisibility(fmt.Sprintf("%s %s: %s", map[bool]string{true: "Show", false: "Hide"}[visible], scope, path))
 	return nil
 }
 
@@ -508,12 +604,14 @@ func (s *Session) ShowAll(environment *dmenv.Dme, filter *dm.PathsFilter) error 
 	next := Overrides{ReplaceProfile: true}
 	visible := true
 	next.DefaultVisible = &visible
-	compiled, err := Compile(profile, next, environment)
+	compiled, err := s.compile(profile, next, environment)
 	if err != nil {
 		return err
 	}
 	filter.ApplyHiddenPaths(compiled.HiddenPaths)
 	s.overrides, s.warnings = next, compiled.Warnings
+	s.effective = compiled
+	s.recordVisibility("Show All")
 	return nil
 }
 
@@ -522,12 +620,14 @@ func (s *Session) Reset(environment *dmenv.Dme, filter *dm.PathsFilter) error {
 	if s.active != nil {
 		profile = Clone(*s.active)
 	}
-	compiled, err := Compile(profile, Overrides{}, environment)
+	compiled, err := s.compile(profile, Overrides{}, environment)
 	if err != nil {
 		return err
 	}
 	filter.ApplyHiddenPaths(compiled.HiddenPaths)
 	s.overrides, s.warnings, s.lastHidden = Overrides{}, compiled.Warnings, nil
+	s.effective = compiled
+	s.recordVisibility("Reset")
 	return nil
 }
 

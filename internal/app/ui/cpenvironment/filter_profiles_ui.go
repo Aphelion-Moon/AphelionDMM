@@ -8,24 +8,96 @@ import (
 	"strings"
 
 	"github.com/SpaiR/imgui-go"
+	"github.com/go-gl/glfw/v3.3/glfw"
 	native "github.com/sqweek/dialog"
 
 	"sdmm/internal/aphelion/configstore"
 	"sdmm/internal/aphelion/filterprofiles"
+	"sdmm/internal/app/ui/dialog"
+	"sdmm/internal/dmapi/dmenv"
 )
 
 const filterProfilesPopup = "Environment Filter Profiles"
 
 func (e *Environment) showFilterProfiles() {
 	if imgui.Button("Profiles...") {
-		active := e.activeProfile()
-		e.filterProfileChoice, e.filterProfileName = active.ID, active.Name
-		imgui.OpenPopup(filterProfilesPopup)
+		e.openFilterProfiles()
 	}
-	if !imgui.BeginPopupModalV(filterProfilesPopup, nil, imgui.WindowFlagsAlwaysAutoResize|imgui.WindowFlagsNoSavedSettings) {
+	imgui.SameLine()
+	if imgui.Button("Unhide Last") {
+		if err := e.UnhideLastFilterVisibility(); err != nil {
+			e.filterProfileStatus = err.Error()
+		}
+	}
+	if imgui.Button("Show All") {
+		if err := e.ShowAllFilterVisibility(); err != nil {
+			e.filterProfileStatus = err.Error()
+		}
+	}
+	history := e.filterProfiles.HistoryStatus()
+	imgui.BeginDisabledV(history.Position <= 1 || e.filterCompilePending)
+	if imgui.Button("Undo visibility") {
+		if err := e.enqueueVisibility(visibilityCommand{kind: "undo-visibility"}); err != nil {
+			e.filterProfileStatus = err.Error()
+		}
+	}
+	imgui.EndDisabled()
+	imgui.SameLine()
+	imgui.BeginDisabledV(history.Position >= history.Count || e.filterCompilePending)
+	if imgui.Button("Redo visibility") {
+		if err := e.enqueueVisibility(visibilityCommand{kind: "redo-visibility"}); err != nil {
+			e.filterProfileStatus = err.Error()
+		}
+	}
+	imgui.EndDisabled()
+	if history.Count > 0 {
+		imgui.TextWrapped(fmt.Sprintf("Visibility %d/%d: %s", history.Position, history.Count, history.Label))
+	}
+	if history.Trimmed {
+		imgui.TextWrapped("Oldest visibility history expired (256 states / 4 MiB description budget).")
+	}
+}
+
+func (e *Environment) openFilterProfiles() {
+	if e.filterProfileDialog != nil {
 		return
 	}
-	defer imgui.EndPopup()
+	active := e.activeProfile()
+	e.filterProfileChoice, e.filterProfileName = active.ID, active.Name
+	e.filterProfileDialog = &profileDialog{owner: e, environment: e.app.LoadedEnvironment()}
+	dialog.Open(e.filterProfileDialog)
+}
+
+// The application dialog owner submits this even when the docked Environment
+// panel is hidden. Closing only releases this dialog; admitted Apply work keeps
+// its independent request/environment fencing.
+type profileDialog struct {
+	owner               *Environment
+	environment         *dmenv.Dme
+	closing, childPopup bool
+}
+
+func (*profileDialog) Name() string         { return filterProfilesPopup }
+func (*profileDialog) HasCloseButton() bool { return true }
+func (d *profileDialog) OnClose() {
+	if d.owner.filterProfileDialog == d {
+		d.owner.filterProfileDialog = nil
+	}
+}
+func (d *profileDialog) Process() {
+	if d.closing || d.environment != d.owner.app.LoadedEnvironment() {
+		imgui.CloseCurrentPopup()
+		return
+	}
+	d.owner.drawFilterProfiles()
+	child := imgui.IsPopupOpenV("", imgui.PopupFlagsAnyPopupID)
+	if !d.childPopup && !child && imgui.IsWindowFocused() && imgui.IsKeyPressed(int(glfw.KeyEscape)) {
+		imgui.CloseCurrentPopup()
+	}
+	d.childPopup = child
+}
+
+func (e *Environment) drawFilterProfiles() {
 
 	choices := append([]filterprofiles.Profile{filterprofiles.DefaultProfile()}, filterprofiles.Builtins()...)
 	choices = append(choices, e.config().FilterProfiles.Profiles...)
@@ -80,20 +152,14 @@ func (e *Environment) showFilterProfiles() {
 	}
 	imgui.SameLine()
 	if imgui.Button("Show All") {
-		e.cancelFilterCompile()
-		if err := e.filterProfiles.ShowAll(e.app.LoadedEnvironment(), e.app.PathsFilter()); err != nil {
+		if err := e.ShowAllFilterVisibility(); err != nil {
 			e.filterProfileStatus = err.Error()
-		} else {
-			e.filterProfileStatus = "All types shown until Reset or profile apply."
 		}
 	}
 	imgui.SameLine()
 	if imgui.Button("Unhide Last") {
-		e.cancelFilterCompile()
-		if err := e.filterProfiles.UnhideLast(e.app.LoadedEnvironment(), e.app.PathsFilter()); err != nil {
+		if err := e.UnhideLastFilterVisibility(); err != nil {
 			e.filterProfileStatus = err.Error()
-		} else {
-			e.filterProfileStatus = "Last hidden type shown."
 		}
 	}
 	if imgui.Button("Import...") {
@@ -112,6 +178,10 @@ func (e *Environment) showFilterProfiles() {
 	}
 	if e.filterCompilePending {
 		imgui.Text("Compiling; the previous policy remains active.")
+		if imgui.Button("Cancel pending changes") {
+			e.cancelFilterCompile()
+			e.filterProfileStatus = "Pending visibility changes cancelled; applied visibility retained."
+		}
 	}
 	if e.filterProfileConfigError != "" {
 		imgui.Text("Profile config: " + e.filterProfileConfigError)

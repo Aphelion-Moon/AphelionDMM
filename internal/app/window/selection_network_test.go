@@ -20,6 +20,7 @@ import (
 	"sdmm/internal/aphelion/collab/mapadapter"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
+	"sdmm/internal/aphelion/filterprofiles"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/prefs"
@@ -39,13 +40,14 @@ import (
 
 type mouseNetworkApp struct {
 	wsmap.App
-	environment    *dmenv.Dme
-	commands       *command.Storage
-	queued         chan struct{}
-	mouse          func(uint, uint)
-	errors         []error
-	selectedPrefab *dmmprefab.Prefab
-	paths          *dm.PathsFilter
+	environment       *dmenv.Dme
+	commands          *command.Storage
+	queued            chan struct{}
+	mouse             func(uint, uint)
+	errors            []error
+	selectedPrefab    *dmmprefab.Prefab
+	paths             *dm.PathsFilter
+	visibilitySession *filterprofiles.Session
 }
 
 func (a *mouseNetworkApp) SelectedPrefab() (*dmmprefab.Prefab, bool) {

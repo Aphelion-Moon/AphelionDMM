@@ -206,6 +206,8 @@ func (a *app) SetFilterVisibility(path string, scope filterprofiles.Scope, visib
 
 func (a *app) ShowAllFilterVisibility() error { return a.layout.Environment.ShowAllFilterVisibility() }
 
+func (a *app) FilterVisibilityStatus() string { return a.layout.Environment.FilterVisibilityStatus() }
+
 // APHELION EDIT ADDITION END
 
 // Clipboard returns *dmmap.Clipboard for the application.

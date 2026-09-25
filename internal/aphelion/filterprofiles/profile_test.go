@@ -222,3 +222,87 @@ func TestSessionUnhideLastShowAllAndResetAreBatched(t *testing.T) {
 		t.Fatal("Reset did not restore the active profile")
 	}
 }
+
+func TestRepeatedNoopHideDoesNotReplaceRecoveryTarget(t *testing.T) {
+	env := testCatalog()
+	filter := testFilter(env)
+	s := Session{}
+	if err := s.Apply(DefaultProfile(), env, filter); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/obj/foo", "/obj/foobar", "/obj/foo"} {
+		if err := s.SetVisibility(path, ScopeExact, false, env, filter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.UnhideLast(env, filter); err != nil {
+		t.Fatal(err)
+	}
+	if !filter.IsVisiblePath("/obj/foobar") || !filter.IsHiddenPath("/obj/foo") {
+		t.Fatal("no-op hide replaced the last effective hide recovery target")
+	}
+}
+
+func TestVisibilityHistoryNavigatesAndBranchesWithoutChangingSavedProfile(t *testing.T) {
+	env := testCatalog()
+	filter := testFilter(env)
+	s := Session{}
+	profile := DefaultProfile()
+	if err := s.Apply(profile, env, filter); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{"/obj/foo", "/obj/foobar"} {
+		if err := s.SetVisibility(p, ScopeExact, false, env, filter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.UndoVisibility(env, filter); err != nil {
+		t.Fatal(err)
+	}
+	if !filter.IsHiddenPath("/obj/foo") || filter.IsHiddenPath("/obj/foobar") {
+		t.Fatal("undo changed unrelated visibility")
+	}
+	if err := s.RedoVisibility(env, filter); err != nil {
+		t.Fatal(err)
+	}
+	if !filter.IsHiddenPath("/obj/foobar") {
+		t.Fatal("redo did not restore hide")
+	}
+	if err := s.UndoVisibility(env, filter); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetVisibility("/obj/foo/leaf", ScopeExact, false, env, filter); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RedoVisibility(env, filter); err == nil {
+		t.Fatal("new command retained stale redo branch")
+	}
+	active, _ := s.Active()
+	if !reflect.DeepEqual(active, profile) {
+		t.Fatal("visibility history changed saved profile")
+	}
+}
+
+func TestVisibilityHistoryRemainsBoundedAndRecoversLatestChange(t *testing.T) {
+	env := testCatalog()
+	filter := testFilter(env)
+	s := Session{}
+	if err := s.Apply(DefaultProfile(), env, filter); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 300 {
+		if err := s.SetVisibility("/obj/foo", ScopeExact, i%2 == 0, env, filter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status := s.HistoryStatus()
+	if !status.Trimmed || status.Count > 256 || s.historyBytes > 4<<20 {
+		t.Fatalf("unbounded history: %+v", status)
+	}
+	if err := s.UndoVisibility(env, filter); err != nil {
+		t.Fatal(err)
+	}
+	if filter.IsHiddenPath("/obj/foo") {
+		t.Fatal("history expiry lost latest undo")
+	}
+}
