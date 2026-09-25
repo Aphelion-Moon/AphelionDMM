@@ -8,7 +8,9 @@ import (
 	"sdmm/internal/app/ui/cpwsarea/wsmap"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/editor"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
+	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
+	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 	"testing"
 	"time"
@@ -30,6 +32,13 @@ func TestNativePreparedOpenPublishesWholeAuthorityBeforeBoundedGeometry(t *testi
 		t.Fatal(err)
 	}
 	owned.SetMapSize(100, 100, 3)
+	upper := owned.GetTile(util.Point{X: 2, Y: 2, Z: 3})
+	substrate := upper.Instances()
+	upper.Set(nil)
+	for _, value := range []string{"\"first\"", "\"second\""} {
+		upper.InstancesAdd(dmmprefab.New(dmmprefab.IdNone, "/obj/unknown_upper_deck", dmvars.Set(&dmvars.Variables{}, "marker", value)))
+	}
+	upper.Set(append(upper.Instances(), substrate...))
 	type result struct {
 		prepared *editor.PreparedOpen
 		err      error
@@ -63,6 +72,32 @@ func TestNativePreparedOpenPublishesWholeAuthorityBeforeBoundedGeometry(t *testi
 	renderer := ws.Map().Canvas().Render()
 	if renderer.LevelReady(1) || renderer.LevelReady(2) || renderer.LevelReady(3) {
 		t.Fatal("prepared geometry reported ready before building")
+	}
+	// Save before any renderer progress or upper-deck visit. Authority must
+	// preserve ordered unknown atoms independently of visual readiness.
+	if !saveWorkspaceAsync(t, ws) {
+		t.Fatal("untouched unvisited-deck save failed")
+	}
+	untouched, err := dmmdata.New(owned.Path.Absolute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if untouched.MaxZ != 3 || untouched.MaxX != 100 || untouched.MaxY != 100 {
+		t.Fatal("untouched save lost dimensions")
+	}
+	for z := 1; z <= 3; z++ {
+		if len(untouched.Dictionary[untouched.Grid[util.Point{X: 1, Y: 1, Z: z}]]) == 0 {
+			t.Fatalf("untouched save lost unvisited Z %d", z)
+		}
+	}
+	got := untouched.Dictionary[untouched.Grid[upper.Coord]]
+	if len(got) != len(upper.Instances()) {
+		t.Fatal("untouched save lost upper-deck atoms")
+	}
+	for i, instance := range upper.Instances() {
+		if got[i].ContentKey() != instance.Prefab().ContentKey() {
+			t.Fatalf("untouched save changed content/order at index %d: got %s want %s", i, got[i].ContentKey(), instance.Prefab().ContentKey())
+		}
 	}
 	if renderer.PickAt(16, 16, 1, func(i *dmminstance.Instance) bool { return true }) != nil {
 		t.Fatal("partial geometry was pickable")

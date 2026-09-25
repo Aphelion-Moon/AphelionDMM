@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/SpaiR/imgui-go"
 	"github.com/go-gl/gl/v3.3-core/gl"
@@ -42,6 +43,7 @@ import (
 type pasteActionUI struct {
 	*app
 	errors []error
+	jobs   chan func()
 }
 
 func (a *pasteActionUI) ConfigRegister(c config.Config) {
@@ -67,7 +69,17 @@ func (*pasteActionUI) HasSelectedPrefab() bool                                  
 func (*pasteActionUI) HasSelectedInstance() bool                                             { return false }
 func (*pasteActionUI) CollaborationPresence() []collabui.ObservedPresence                    { return nil }
 func (*pasteActionUI) PublishCollaborationPresence(model.Coord, *protocol.PresenceSelection) {}
-func (*pasteActionUI) RunLater(job func())                                                   { job() }
+func (a *pasteActionUI) RunLater(job func())                                                 { a.jobs <- job }
+func (a *pasteActionUI) drainJobs() {
+	for {
+		select {
+		case job := <-a.jobs:
+			job()
+		default:
+			return
+		}
+	}
+}
 func (a *pasteActionUI) ReportCollaborationError(_ string, err error) {
 	a.errors = append(a.errors, err)
 }
@@ -120,6 +132,7 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 	defer dmmap.Free()
 	defer brush.Dispose()
 	a := &pasteActionUI{app: &app{loadedEnvironment: environment, pathsFilter: dm.NewPathsFilterEmpty(), configs: map[string]config.Config{}, commandStorage: command.NewStorage(), clipboard: dmmclip.New(), layout: &layout.Layout{WsArea: &cpwsarea.WsArea{}}}}
+	a.jobs = make(chan func(), 128)
 	a.layout.WsArea.Init(a)
 	a.menu = menu.New(a)
 	openMap := func(name string) *wsmap.WsMap {
@@ -138,6 +151,7 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 		}
 		for frame := 0; frame < 4; frame++ {
 			imgui.NewFrame()
+			a.drainJobs()
 			a.layout.WsArea.Process(0)
 			imgui.Render()
 		}
@@ -162,6 +176,7 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 			io.KeyPress(int(key))
 		}
 		imgui.NewFrame()
+		a.drainJobs()
 		a.layout.WsArea.Process(0)
 		shortcut.Process()
 		imgui.Render()
@@ -169,18 +184,49 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 			io.KeyRelease(int(key))
 		}
 		imgui.NewFrame()
+		a.drainJobs()
 		a.layout.WsArea.Process(0)
 		shortcut.Process()
 		imgui.Render()
+	}
+	beforePreview, err := first.Map().Editor().SaveSnapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeHash, err := beforePreview.Hash()
+	if err != nil {
+		t.Fatal(err)
 	}
 	press(glfw.KeyLeftControl, glfw.KeyV)
 	if !first.Map().Editor().HasPastePlacement() || !g.Placing() || a.commandStorage.HasUndo() {
 		t.Fatal("application Ctrl+V did not start an uncommitted preview")
 	}
-	if _, err := first.Map().Editor().SaveSnapshot(context.Background()); err == nil {
-		t.Fatal("application paste became saveable before confirmation")
+	// Floating paste is presentation-only. Save must keep the acknowledged map
+	// available without including the unconfirmed preview.
+	previewSnapshot, err := first.Map().Editor().SaveSnapshot(context.Background())
+	if err != nil {
+		t.Fatal("presentation-only paste blocked committed Save", err)
+	}
+	previewHash, err := previewSnapshot.Hash()
+	if err != nil || previewHash != beforeHash || previewSnapshot.Revision != beforePreview.Revision {
+		t.Fatal("unconfirmed paste entered committed Save", err)
 	}
 	press(glfw.KeyEnter)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		state, err := first.Map().Editor().SaveSnapshot(context.Background())
+		if err == nil && state.Revision == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("asynchronous Enter confirmation did not settle: revision=%d err=%v", state.Revision, err)
+		}
+		imgui.NewFrame()
+		a.drainJobs()
+		a.layout.WsArea.Process(0)
+		imgui.Render()
+		time.Sleep(time.Millisecond)
+	}
 	state, err := first.Map().Editor().SaveSnapshot(context.Background())
 	if err != nil || state.Revision != 1 || g.Placing() {
 		t.Fatalf("application Enter did not confirm: revision=%d err=%v", state.Revision, err)

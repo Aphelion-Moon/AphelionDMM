@@ -148,7 +148,8 @@ func (e *Environment) startVisibilityWorker() {
 				} else {
 					e.app.PathsFilter().AdoptPreparedPolicy(prepared)
 					e.filterProfiles = next
-					if command.kind == "apply" {
+					switch command.kind {
+					case "apply":
 						profile := command.profile
 						if command.persist && e.filterProfileProjectKey != "" {
 							if strings.HasPrefix(profile.ID, "session:") {
@@ -159,11 +160,11 @@ func (e *Environment) startVisibilityWorker() {
 						}
 						e.filterProfileChoice = profile.ID
 						e.filterProfileStatus = fmt.Sprintf("Applied %s.", profile.Name)
-					} else if command.kind == "show-all" {
+					case "show-all":
 						e.filterProfileStatus = "All types shown until Reset or profile apply."
-					} else if command.kind == "unhide" {
+					case "unhide":
 						e.filterProfileStatus = "Last hidden type shown."
-					} else if command.kind == "undo-visibility" || command.kind == "redo-visibility" {
+					case "undo-visibility", "redo-visibility":
 						e.filterProfileChoice = e.activeProfile().ID
 						if e.filterProfileProjectKey != "" {
 							if strings.HasPrefix(e.filterProfileChoice, "session:") {
@@ -173,7 +174,7 @@ func (e *Environment) startVisibilityWorker() {
 							}
 						}
 						e.filterProfileStatus = "Visibility restored: " + next.HistoryStatus().Label
-					} else {
+					default:
 						action := "Shown"
 						if !command.visible {
 							action = "Hidden"

@@ -198,15 +198,25 @@ func (a *app) SetFilterVisibility(path string, scope filterprofiles.Scope, visib
 	if environment == nil || scope == filterprofiles.ScopeSubtree && environment.Objects[path] == nil {
 		return fmt.Errorf("type %q is not present in the loaded environment", path)
 	}
-	if a.pathsFilter == nil {
+	if a.pathsFilter == nil || a.layout == nil || a.layout.Environment == nil {
 		return errors.New("visibility filter is unavailable")
 	}
 	return a.layout.Environment.SetFilterVisibility(path, scope, visible)
 }
 
-func (a *app) ShowAllFilterVisibility() error { return a.layout.Environment.ShowAllFilterVisibility() }
+func (a *app) ShowAllFilterVisibility() error {
+	if a.layout == nil || a.layout.Environment == nil {
+		return errors.New("visibility controller is unavailable")
+	}
+	return a.layout.Environment.ShowAllFilterVisibility()
+}
 
-func (a *app) FilterVisibilityStatus() string { return a.layout.Environment.FilterVisibilityStatus() }
+func (a *app) FilterVisibilityStatus() string {
+	if a.layout == nil || a.layout.Environment == nil {
+		return ""
+	}
+	return a.layout.Environment.FilterVisibilityStatus()
+}
 
 // APHELION EDIT ADDITION END
 
