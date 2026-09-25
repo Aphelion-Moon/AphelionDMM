@@ -16,9 +16,14 @@ serde_json = "1"
 png = "0.18"
 
 [dependencies.dreammaker]
-git = "https://github.com/SpaceManiac/SpacemanDMM"
-tag = "suite-1.11"
+# APHELION EDIT - PARSER INPUT TRACE - pinned source and provenance below.
+path = "vendor/spacemandmm-0290db5/crates/dreammaker"
 package = "dreammaker"
+
+[package.metadata.aphelion.spacemandmm]
+repository = "https://github.com/SpaceManiac/SpacemanDMM"
+tag = "suite-1.11"
+revision = "0290db5c752fa292f9824521515b603a2afd11dc"
 
 [profile.release]
 lto = true

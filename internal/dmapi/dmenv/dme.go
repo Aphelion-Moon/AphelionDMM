@@ -1,6 +1,10 @@
 package dmenv
 
 import (
+	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	"context"
+	"sdmm/internal/aphelion/envsnapshot"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - ENVIRONMENT GENERATION FINGERPRINT
 	"sdmm/internal/aphelion/envload"
 	// APHELION EDIT ADDITION END
@@ -20,6 +24,9 @@ type Dme struct {
 	RootDir  string
 	RootFile string
 	Objects  map[string]*Object
+	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	CacheStatus string
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - ENVIRONMENT GENERATION FINGERPRINT
 	// Set only after native reconstruction and parent linkage. Parsed environments
 	// are read-only after publication; manually assembled fixtures remain uncached.
@@ -28,6 +35,12 @@ type Dme struct {
 }
 
 func New(path string) (*Dme, error) {
+	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	return NewWithOptions(context.Background(), path, envsnapshot.Options{})
+}
+
+func NewWithOptions(ctx context.Context, path string, options envsnapshot.Options) (*Dme, error) {
+	// APHELION EDIT ADDITION END
 	dme := Dme{
 		Name:     filepath.Base(path),
 		RootDir:  filepath.Dir(path),
@@ -38,13 +51,19 @@ func New(path string) (*Dme, error) {
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	parse := uistage.Begin(uistage.EnvironmentParse)
 	// APHELION EDIT ADDITION END
-	objectTreeType, err := sdmmparser.ParseEnvironment(path)
+	// APHELION EDIT CHANGE - ENVIRONMENT SNAPSHOT - ORIGINAL: objectTreeType, err := sdmmparser.ParseEnvironment(path)
+	loaded, err := envsnapshot.Load(ctx, path, options)
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	parse.End()
 	// APHELION EDIT ADDITION END
 	if err != nil {
 		return nil, err
 	}
+	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	defer loaded.Close()
+	objectTreeType := loaded.Tree
+	dme.CacheStatus = loaded.Status
+	// APHELION EDIT ADDITION END
 
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	reconstruct := uistage.Begin(uistage.EnvironmentReconstruct)
@@ -68,6 +87,12 @@ func New(path string) (*Dme, error) {
 	if err != nil {
 		return nil, err
 	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	loaded.Persist()
 	// APHELION EDIT ADDITION END
 	return &dme, nil
 }

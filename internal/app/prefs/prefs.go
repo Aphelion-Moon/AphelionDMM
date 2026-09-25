@@ -43,4 +43,7 @@ type Editor struct {
 type Application struct {
 	CheckForUpdates bool
 	AutoUpdate      bool
+	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	BypassEnvironmentCache bool
+	// APHELION EDIT ADDITION END
 }

@@ -16,6 +16,16 @@ use icon::parse_icon_metadata;
 mod environment;
 mod icon;
 
+// APHELION EDIT ADDITION START - PARSER INPUT TRACE
+#[no_mangle]
+#[allow(non_snake_case)]
+pub extern "C" fn SdmmParseEnvironmentWithTrace(native_path: *const c_char) -> *const c_char {
+    to_ptr(environment::parse_environment_with_trace(to_string(
+        native_path,
+    )))
+}
+// APHELION EDIT ADDITION END
+
 #[no_mangle]
 #[allow(non_snake_case)]
 // APHELION EDIT CHANGE - TOOLCHAIN_BASELINE - ORIGINAL: pub extern fn SdmmParseEnvironment(native_path: *const c_char) -> *const c_char {

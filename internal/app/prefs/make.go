@@ -104,6 +104,14 @@ func Make(app App, prefs *Prefs) wsprefs.Prefs {
 		},
 
 		wsprefs.GPApplication: {
+			// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+			boolPrefPrefab{
+				name:  "Bypass Environment Cache",
+				desc:  "Parse project sources on every open. Existing open maps keep their current environment until an explicit reload.",
+				label: "##bypass_environment_cache",
+				value: &prefs.Application.BypassEnvironmentCache,
+			},
+			// APHELION EDIT ADDITION END
 			boolPrefPrefab{
 				name:  "Check for Updates",
 				desc:  "When enabled, the editor will always check for updates on startup.",

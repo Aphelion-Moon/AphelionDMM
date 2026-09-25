@@ -28,6 +28,9 @@ type app interface {
 	DoLoadResource(path string)
 	DoClearRecentMaps()
 	DoCloseEnvironment()
+	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	DoRebuildEnvironmentCache()
+	// APHELION EDIT ADDITION END
 	DoClose()
 	DoCloseAll()
 	DoSave()
@@ -280,6 +283,9 @@ func (m *Menu) Process() {
 		// APHELION EDIT ADDITION END
 
 		w.Menu("View", w.Layout{
+			// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+			w.MenuItem("Rebuild Environment Cache", m.app.DoRebuildEnvironmentCache).IconEmpty().Enabled(m.app.HasLoadedEnvironment()),
+			// APHELION EDIT ADDITION END
 			w.MenuItem("Show Area", m.doToggleArea).
 				IconEmpty().
 				Enabled(m.app.HasLoadedEnvironment()).

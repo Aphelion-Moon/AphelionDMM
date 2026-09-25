@@ -1,6 +1,9 @@
 package app
 
 import (
+	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	"sdmm/internal/aphelion/envsnapshot"
+	// APHELION EDIT ADDITION END
 	"context"
 	"fmt"
 	"os"
@@ -52,7 +55,8 @@ func (a *app) loadResourceV(path string, ws *workspace.Workspace) {
 		return
 	}
 
-	if filepath.Ext(path) != ".dmm" {
+	// APHELION EDIT CHANGE - SOURCE AUTHORING - ORIGINAL: if filepath.Ext(path) != ".dmm" {
+	if filepath.Ext(path) != ".dmm" && filepath.Ext(path) != ".tgm" {
 		log.Print("invalid resource to load:", path)
 		return
 	}
@@ -122,6 +126,12 @@ func (a *app) loadEnvironmentV(path string, callback func()) {
 }
 
 func (a *app) forceLoadEnvironment(path string, callback func()) {
+	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	a.forceLoadEnvironmentWithOptions(path, callback, envsnapshot.Options{Enabled: !a.preferencesConfig().Application.BypassEnvironmentCache})
+}
+
+func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), options envsnapshot.Options) {
+	// APHELION EDIT ADDITION END
 	log.Printf("opening environment [%s]...", path)
 	// APHELION EDIT ADDITION START - OWNED ENVIRONMENT LOAD
 	a.environmentLoadRequest++
@@ -167,7 +177,8 @@ func (a *app) forceLoadEnvironment(path string, callback func()) {
 		start := time.Now()
 		log.Printf("parsing environment: [%s]...", path)
 
-		env, err := dmenv.New(path)
+		// APHELION EDIT CHANGE - ENVIRONMENT SNAPSHOT - ORIGINAL: env, err := dmenv.New(path)
+		env, err := dmenv.NewWithOptions(context.Background(), path, options)
 		// APHELION EDIT ADDITION START - OWNED ENVIRONMENT LOAD
 		elapsed := time.Since(start)
 		window.RunLater(func() {
@@ -201,6 +212,9 @@ func (a *app) forceLoadEnvironment(path string, callback func()) {
 
 			// APHELION EDIT CHANGE - OWNED ENVIRONMENT LOAD - ORIGINAL: log.Printf("environment [%s] parsed in [%d] ms", path, time.Since(start).Milliseconds())
 			log.Printf("environment [%s] parsed in [%d] ms", path, elapsed.Milliseconds())
+			// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+			log.Info().Str("cache", env.CacheStatus).Msg("environment load completed")
+			// APHELION EDIT ADDITION END
 
 			// APHELION EDIT REMOVAL START - OWNED ENVIRONMENT LOAD
 			// window.RunLater(func() { moved before all completion UI.

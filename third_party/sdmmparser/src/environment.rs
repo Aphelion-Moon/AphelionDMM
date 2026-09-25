@@ -57,6 +57,36 @@ fn parse(env_path: &str) -> Option<String> {
     serde_json::to_string(&root).ok()
 }
 
+// APHELION EDIT ADDITION START - PARSER INPUT TRACE
+#[derive(Serialize)]
+struct TracedEnvironment {
+    object_tree: ObjectTreeType,
+    input_trace: Option<dm::SourceTrace>,
+}
+
+pub fn parse_environment_with_trace(path: String) -> String {
+    match panic::catch_unwind(|| {
+        let ctx = Context::default();
+        ctx.enable_source_trace();
+        let tree = match ctx.parse_environment(path.as_ref()) {
+            Ok(tree) => tree,
+            Err(_) => return format!("parser error: unable to parse environment {}", path),
+        };
+        if let Some(message) = errors_message(&ctx) {
+            return message;
+        }
+        let result = TracedEnvironment {
+            object_tree: recurse_objtree(&ctx, tree.root()),
+            input_trace: ctx.take_source_trace(),
+        };
+        serde_json::to_string(&result).unwrap_or_else(|e| format!("error: {}", e))
+    }) {
+        Ok(result) => result,
+        Err(_) => String::from("error: parser panicked while capturing environment inputs"),
+    }
+}
+// APHELION EDIT ADDITION END
+
 fn errors_message(ctx: &Context) -> Option<String> {
     let ctx_e = ctx.errors();
     let errors: Vec<_> = ctx_e
