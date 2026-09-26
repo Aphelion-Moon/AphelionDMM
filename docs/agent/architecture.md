@@ -311,6 +311,11 @@ The shared service package supports these entry points:
 
 - embedded loopback mode in the desktop;
 - `cmd/apheliondmm-collab` for local and explicitly enabled LAN service;
-- `cmd/apheliondmm-hosted` behind TLS, OIDC, PostgreSQL, backups, and operational monitoring.
+- `cmd/apheliondmm-hosted` behind TLS, selected Discord/OIDC authentication, PostgreSQL, backups, and operational monitoring.
+
+Hosted session visibility and labels are control-plane metadata. Community listings
+use live socket registrations (unique actors), while My sessions uses persistent
+enabled membership. Neither affects map operations, revisions or hashes. Discord
+is isolated behind the existing authorization flow; local editing is provider-free.
 
 Loopback is the default. A deployment mode may strengthen authentication and persistence, but it may not change operation semantics.

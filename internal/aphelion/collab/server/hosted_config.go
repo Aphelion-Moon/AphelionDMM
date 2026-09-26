@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -17,6 +18,11 @@ import (
 )
 
 const maxHostedConfigBytes = 1 << 20
+
+const (
+	HostedProviderOIDC    = "oidc"
+	HostedProviderDiscord = "discord"
+)
 
 var secretEnvironmentPattern = regexp.MustCompile(`^APHELIONDMM_[A-Z0-9_]+$`)
 
@@ -30,7 +36,9 @@ type HostedConfig struct {
 	PublicOrigin      string          `yaml:"public_origin"`
 	TrustedProxyCIDRs []string        `yaml:"trusted_proxy_cidrs"`
 	Database          HostedDatabase  `yaml:"database"`
+	AuthProvider      *string         `yaml:"auth_provider,omitempty"`
 	OIDC              HostedOIDC      `yaml:"oidc"`
+	Discord           HostedDiscord   `yaml:"discord"`
 	Limits            HostedLimits    `yaml:"limits"`
 	Telemetry         HostedTelemetry `yaml:"telemetry"`
 	trustedProxies    []*net.IPNet
@@ -45,6 +53,32 @@ type HostedOIDC struct {
 	ClientID     string       `yaml:"client_id"`
 	RedirectURL  string       `yaml:"redirect_url"`
 	ClientSecret SecretSource `yaml:"client_secret"`
+}
+
+type HostedDiscord struct {
+	ClientID     string       `yaml:"client_id"`
+	GuildID      string       `yaml:"guild_id"`
+	RedirectURL  string       `yaml:"redirect_url"`
+	ClientSecret SecretSource `yaml:"client_secret"`
+	SessionTTL   *string      `yaml:"session_ttl,omitempty"`
+}
+
+func (config HostedConfig) SelectedAuthProvider() string {
+	if config.AuthProvider == nil {
+		return HostedProviderOIDC
+	}
+	return *config.AuthProvider
+}
+
+func (config HostedDiscord) SessionLifetime() (time.Duration, error) {
+	if config.SessionTTL == nil {
+		return 12 * time.Hour, nil
+	}
+	lifetime, err := time.ParseDuration(strings.TrimSpace(*config.SessionTTL))
+	if err != nil || lifetime <= 0 || lifetime > 24*time.Hour {
+		return 0, fmt.Errorf("Discord session_ttl must be a positive duration of at most 24h")
+	}
+	return lifetime, nil
 }
 
 type HostedLimits struct {
@@ -102,17 +136,26 @@ func (config *HostedConfig) validate() error {
 	if err := config.Database.DSN.validate("database DSN"); err != nil {
 		return err
 	}
-	if err := validateOIDCIssuer(config.OIDC.Issuer); err != nil {
-		return err
-	}
-	if strings.TrimSpace(config.OIDC.ClientID) == "" || len(config.OIDC.ClientID) > protocol.MaxIdentifierBytes {
-		return fmt.Errorf("OIDC client ID is required and must be at most %d bytes", protocol.MaxIdentifierBytes)
-	}
-	if err := validateOIDCRedirect(config.PublicOrigin, config.OIDC.RedirectURL); err != nil {
-		return err
-	}
-	if err := config.OIDC.ClientSecret.validate("OIDC client secret"); err != nil {
-		return err
+	switch config.SelectedAuthProvider() {
+	case HostedProviderOIDC:
+		if err := validateOIDCIssuer(config.OIDC.Issuer); err != nil {
+			return err
+		}
+		if strings.TrimSpace(config.OIDC.ClientID) == "" || len(config.OIDC.ClientID) > protocol.MaxIdentifierBytes {
+			return fmt.Errorf("OIDC client ID is required and must be at most %d bytes", protocol.MaxIdentifierBytes)
+		}
+		if err := validateOIDCRedirect(config.PublicOrigin, config.OIDC.RedirectURL); err != nil {
+			return err
+		}
+		if err := config.OIDC.ClientSecret.validate("OIDC client secret"); err != nil {
+			return err
+		}
+	case HostedProviderDiscord:
+		if err := config.validateDiscord(); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("auth_provider must be %q or %q", HostedProviderOIDC, HostedProviderDiscord)
 	}
 	if config.Telemetry.Endpoint != "" {
 		if err := validateHTTPSOrigin("telemetry endpoint", config.Telemetry.Endpoint); err != nil {
@@ -133,6 +176,49 @@ func (config *HostedConfig) validate() error {
 	}
 	if config.Limits.MaxSnapshotBodyBytes <= 0 || config.Limits.MaxSnapshotBodyBytes > MaxSnapshotBodyBytes {
 		return fmt.Errorf("hosted snapshot body limit is invalid")
+	}
+	return nil
+}
+
+func (config HostedConfig) validateDiscord() error {
+	if !validHostedDecimalID(config.Discord.ClientID) {
+		return fmt.Errorf("Discord client_id must be a decimal ID of at most 20 digits")
+	}
+	if !validHostedDecimalID(config.Discord.GuildID) {
+		return fmt.Errorf("Discord guild_id must be a decimal ID of at most 20 digits")
+	}
+	if err := validateDiscordHostedRedirect(config.PublicOrigin, config.Discord.RedirectURL); err != nil {
+		return err
+	}
+	if err := config.Discord.ClientSecret.validate("Discord client secret"); err != nil {
+		return err
+	}
+	if _, err := config.Discord.SessionLifetime(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validHostedDecimalID(value string) bool {
+	if value == "" || len(value) > 20 {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func validateDiscordHostedRedirect(publicOrigin, value string) error {
+	redirect, err := url.Parse(value)
+	if err != nil || redirect.Scheme != "https" || redirect.Host == "" || redirect.User != nil || redirect.RawQuery != "" || redirect.ForceQuery || redirect.Fragment != "" || redirect.Path != "/v1/auth/complete" {
+		return fmt.Errorf("Discord redirect URL must be HTTPS /v1/auth/complete without credentials, query, or fragment")
+	}
+	public, err := url.Parse(publicOrigin)
+	if err != nil || !strings.EqualFold(redirect.Scheme, public.Scheme) || !strings.EqualFold(redirect.Host, public.Host) {
+		return fmt.Errorf("Discord redirect URL must use the public origin")
 	}
 	return nil
 }

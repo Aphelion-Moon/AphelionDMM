@@ -25,6 +25,7 @@ type HostedSignIn struct {
 	baseURL          string
 	handoffID        string
 	verifier         string
+	generation       uint64
 }
 
 func (client *SessionClient) BeginHostedSignIn(ctx context.Context, baseURL string) (HostedSignIn, error) {
@@ -32,6 +33,14 @@ func (client *SessionClient) BeginHostedSignIn(ctx context.Context, baseURL stri
 	if err := validateHostedEndpoint(baseURL); err != nil {
 		return HostedSignIn{}, err
 	}
+	client.mutex.Lock()
+	if client.joining || (client.hostedSession && (client.baseURL != baseURL || client.reconnecting)) || (!client.hostedSession && client.transport != nil) {
+		client.mutex.Unlock()
+		return HostedSignIn{}, ErrSessionChanged
+	}
+	client.hostedGeneration++
+	generation := client.hostedGeneration
+	client.mutex.Unlock()
 	verifierBytes := make([]byte, 32)
 	if _, err := rand.Read(verifierBytes); err != nil {
 		return HostedSignIn{}, fmt.Errorf("generate hosted sign-in verifier: %w", err)
@@ -65,49 +74,132 @@ func (client *SessionClient) BeginHostedSignIn(ctx context.Context, baseURL stri
 	if started.AuthorizationURL == "" || started.HandoffID == "" || len(started.HandoffID) > 128 {
 		return HostedSignIn{}, fmt.Errorf("hosted sign-in response is invalid")
 	}
-	return HostedSignIn{AuthorizationURL: started.AuthorizationURL, baseURL: baseURL, handoffID: started.HandoffID, verifier: verifier}, nil
+	authorizationURL, err := url.Parse(started.AuthorizationURL)
+	if err != nil || authorizationURL.User != nil {
+		return HostedSignIn{}, fmt.Errorf("invalid sign-in browser address")
+	}
+	if !authorizationURL.IsAbs() {
+		origin, _ := url.Parse(baseURL)
+		authorizationURL = origin.ResolveReference(authorizationURL)
+	}
+	if authorizationURL.Scheme != "https" && !(authorizationURL.Scheme == "http" && authorizationURL.Host == request.URL.Host) {
+		return HostedSignIn{}, fmt.Errorf("insecure sign-in browser address")
+	}
+	return HostedSignIn{AuthorizationURL: authorizationURL.String(), baseURL: baseURL, handoffID: started.HandoffID, verifier: verifier, generation: generation}, nil
 }
 
 func (client *SessionClient) CompleteHostedSignIn(ctx context.Context, signIn HostedSignIn) error {
+	result, err := client.exchangeHostedSignIn(ctx, signIn)
+	if err != nil {
+		if result.Token != "" {
+			client.discardHostedLogin(signIn.baseURL, result.Token)
+		}
+		return err
+	}
+	if err := client.acceptHostedSignIn(ctx, signIn, result); err != nil {
+		if result.Token != "" {
+			client.discardHostedLogin(signIn.baseURL, result.Token)
+		}
+		return err
+	}
+	return nil
+}
+
+type hostedSignInResult struct {
+	ActorID     model.ActorID
+	Token       string
+	DisplayName string
+	ExpiresAt   time.Time
+}
+
+func (client *SessionClient) exchangeHostedSignIn(ctx context.Context, signIn HostedSignIn) (hostedSignInResult, error) {
+	client.mutex.Lock()
+	current := client.hostedGeneration == signIn.generation
+	client.mutex.Unlock()
+	if !current {
+		return hostedSignInResult{}, ErrSessionChanged
+	}
 	if signIn.baseURL == "" || signIn.handoffID == "" || signIn.verifier == "" {
-		return fmt.Errorf("hosted sign-in handoff is incomplete")
+		return hostedSignInResult{}, fmt.Errorf("hosted sign-in handoff is incomplete")
 	}
 	body, err := json.Marshal(map[string]string{"handoff_id": signIn.handoffID, "verifier": signIn.verifier})
 	if err != nil {
-		return err
+		return hostedSignInResult{}, err
 	}
 	request, err := client.request(ctx, http.MethodPost, signIn.baseURL+"/v1/auth/desktop/exchange", "", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return hostedSignInResult{}, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	response, err := client.http.Do(request)
 	if err != nil {
-		return fmt.Errorf("complete hosted sign-in: %w", err)
+		return hostedSignInResult{}, fmt.Errorf("complete hosted sign-in: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusAccepted {
-		return ErrHostedSignInPending
+		return hostedSignInResult{}, ErrHostedSignInPending
 	}
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("complete hosted sign-in returned HTTP %d", response.StatusCode)
+		var failed struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		}
+		_ = decodeLimited(response.Body, &failed)
+		switch failed.Code {
+		case "not_a_member":
+			return hostedSignInResult{}, fmt.Errorf("this account is not a member of the required Discord server")
+		case "missing_permissions":
+			return hostedSignInResult{}, fmt.Errorf("grant the requested Discord permissions and sign in again")
+		case "provider_unavailable":
+			return hostedSignInResult{}, fmt.Errorf("Discord is temporarily unavailable; try again later")
+		case "consent_denied":
+			return hostedSignInResult{}, fmt.Errorf("browser authorization was canceled")
+		case "expired_sign_in":
+			return hostedSignInResult{}, fmt.Errorf("browser sign-in expired; start again")
+		}
+		return hostedSignInResult{}, fmt.Errorf("browser sign-in was rejected (HTTP %d); start again", response.StatusCode)
 	}
 	var authenticated struct {
-		Token       string    `json:"token"`
-		DisplayName string    `json:"display_name"`
-		ExpiresAt   time.Time `json:"expires_at"`
+		ActorID     model.ActorID `json:"actor_id"`
+		Token       string        `json:"token"`
+		DisplayName string        `json:"display_name"`
+		ExpiresAt   time.Time     `json:"expires_at"`
 	}
 	if err := decodeLimited(response.Body, &authenticated); err != nil {
-		return fmt.Errorf("decode hosted sign-in completion: %w", err)
+		return hostedSignInResult{ActorID: authenticated.ActorID, Token: authenticated.Token, DisplayName: authenticated.DisplayName, ExpiresAt: authenticated.ExpiresAt}, fmt.Errorf("decode hosted sign-in completion: %w", err)
 	}
+	result := hostedSignInResult{ActorID: authenticated.ActorID, Token: authenticated.Token, DisplayName: authenticated.DisplayName, ExpiresAt: authenticated.ExpiresAt}
+	if authenticated.Token == "" || authenticated.DisplayName == "" || !client.config.Now().Before(authenticated.ExpiresAt) {
+		return result, fmt.Errorf("hosted sign-in completion is invalid")
+	}
+	return result, nil
+}
+
+func (client *SessionClient) acceptHostedSignIn(ctx context.Context, signIn HostedSignIn, authenticated hostedSignInResult) error {
 	if authenticated.Token == "" || authenticated.DisplayName == "" || !client.config.Now().Before(authenticated.ExpiresAt) {
 		return fmt.Errorf("hosted sign-in completion is invalid")
 	}
 	client.mutex.Lock()
+	if ctx.Err() != nil || client.hostedGeneration != signIn.generation || client.joining || (client.hostedSession && (client.baseURL != signIn.baseURL || client.actorID != authenticated.ActorID || client.reconnecting)) {
+		client.mutex.Unlock()
+		return ErrSessionChanged
+	}
+	if client.hostedSession && authenticated.ActorID.Validate() != nil {
+		client.mutex.Unlock()
+		return ErrSessionChanged
+	}
 	client.hostedCredential = authenticated.Token
 	client.hostedCredentialExpires = authenticated.ExpiresAt
 	client.hostedDisplayName = authenticated.DisplayName
 	client.hostedBaseURL = signIn.baseURL
+	client.hostedActorID = authenticated.ActorID
+	client.hostedGeneration++
+	if client.hostedSession {
+		client.resumptionToken = authenticated.Token
+		client.resumptionExpiresAt = authenticated.ExpiresAt
+		client.administrationToken = authenticated.Token
+		client.administrationExpiresAt = authenticated.ExpiresAt
+	}
 	client.mutex.Unlock()
 	return nil
 }
@@ -120,12 +212,14 @@ func (client *SessionClient) HostedSignedIn() bool {
 
 func (client *SessionClient) SignOutHosted(ctx context.Context) error {
 	client.mutex.Lock()
-	if client.hostedSession {
+	if client.hostedSession || client.joining {
 		client.mutex.Unlock()
 		return fmt.Errorf("leave the hosted collaboration session before signing out")
 	}
 	baseURL := client.hostedBaseURL
 	credential := client.hostedCredential
+	client.hostedGeneration++
+	client.hostedActorID = ""
 	client.hostedCredential = ""
 	client.hostedCredentialExpires = time.Time{}
 	client.hostedDisplayName = ""

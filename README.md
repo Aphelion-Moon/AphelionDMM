@@ -114,6 +114,25 @@ The recovery view shows the values before the edit and the intended values. You 
 
 The default hosted service address is **[mapcollab.a13.info](https://mapcollab.a13.info)**. Access depends on the sign-in and membership rules of the host. Refer to the [hosting guide](docs/hosting/game-server-deployment-agent-handoff.md) to install your own service.
 
+Use **Collaboration → Sign In to Hosted Service**, then **Browse Sessions...**.
+Community lists sessions with connected participants; new members join as editors.
+My sessions also includes your admitted Private and idle sessions, so you can reopen
+them after everyone leaves or the server restarts. Refresh explicitly to update the
+list. Load a compatible local environment and save your active map before joining.
+
+New sessions default to Private and retain invitation-based admission. Owners can
+choose Community at creation or change title/visibility in the browser while their
+session is selected. Making a session Private retains previously admitted members;
+downloaded map content cannot be recalled. These controls require an updated service.
+
+Aphelion's approved provider is Discord, with server membership checked only at
+login and no role requirement. The application login defaults to 12 hours and is
+lost on service restart; sign in again with the same account to reconnect without
+discarding recovery drafts. Local draft export remains available while signed out.
+Self-hosters can retain OIDC. Production Discord activation requires the operator
+cutover described in the hosting guide; source support alone does not establish
+that the public service has switched providers.
+
 Local map editing does not require a hosted account or a collaboration server. Shared maps still require compatible DME environments, code, and assets. Collaboration does not replace the game environment.
 
 > [!NOTE]

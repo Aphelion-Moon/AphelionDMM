@@ -186,6 +186,29 @@ func (controller *Controller) Leave(ctx context.Context) error {
 	return controller.leave(ctx, 0, false)
 }
 
+func (controller *Controller) JoinHosted(ctx context.Context, target HostedConnection) error {
+	client, ok := controller.client.(interface {
+		JoinHosted(context.Context, HostedConnection) error
+	})
+	if !ok {
+		return fmt.Errorf("hosted session connection is unavailable")
+	}
+	reservation, err := controller.reserve()
+	if err != nil {
+		return err
+	}
+	if err = client.JoinHosted(ctx, target); err != nil {
+		controller.releaseReservation(reservation)
+		return err
+	}
+	if !controller.activate(reservation, Invitation{BaseURL: target.BaseURL, Origin: target.BaseURL, SessionID: target.SessionID, Hosted: true}, nil) {
+		_ = controller.client.Leave(context.Background())
+		controller.releaseReservation(reservation)
+		return ErrSessionChanged
+	}
+	return nil
+}
+
 func (controller *Controller) BeginProjectReplacement() (ProjectReplacementPermit, error) {
 	controller.mutex.Lock()
 	defer controller.mutex.Unlock()

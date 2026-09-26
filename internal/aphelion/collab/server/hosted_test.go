@@ -220,7 +220,8 @@ func TestHostedAuthenticationEndpointsDoNotExposeStateSeparately(t *testing.T) {
 	t.Cleanup(func() { _ = service.Shutdown(context.Background()) })
 	testServer := httptest.NewServer(service.Handler())
 	t.Cleanup(testServer.Close)
-	begin := postJSON(t, testServer.URL+"/v1/auth/begin", "", nil)
+	challenge := sha256.Sum256([]byte("verifier"))
+	begin := postJSON(t, testServer.URL+"/v1/auth/begin", "", []byte(`{"verifier_challenge":"`+base64.RawURLEncoding.EncodeToString(challenge[:])+`"}`))
 	var beginBody map[string]any
 	if err := json.NewDecoder(begin.Body).Decode(&beginBody); err != nil {
 		t.Fatal(err)
@@ -229,7 +230,7 @@ func TestHostedAuthenticationEndpointsDoNotExposeStateSeparately(t *testing.T) {
 	if begin.StatusCode != http.StatusOK || begin.Header.Get("Cache-Control") != "no-store" || beginBody["authorization_url"] == "" || beginBody["state"] != nil {
 		t.Fatalf("begin response = status %d body %#v", begin.StatusCode, beginBody)
 	}
-	complete, err := http.Get(testServer.URL + "/v1/auth/complete?state=state-value&code=code-value")
+	complete, err := completeBoundHostedLogin(t, service, testServer.URL, "code=code-value")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +239,7 @@ func TestHostedAuthenticationEndpointsDoNotExposeStateSeparately(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = complete.Body.Close()
-	if complete.StatusCode != http.StatusOK || complete.Header.Get("Cache-Control") != "no-store" || completeBody["token"] != "session-secret" {
+	if complete.StatusCode != http.StatusOK || complete.Header.Get("Cache-Control") != "no-store" || completeBody["token"] != nil {
 		t.Fatalf("complete response = status %d body %#v", complete.StatusCode, completeBody)
 	}
 	logout := postJSON(t, testServer.URL+"/v1/auth/logout", "session-secret", nil)
@@ -277,7 +278,7 @@ func TestHostedDesktopAuthenticationHandoffIsVerifierBoundAndSingleUse(t *testin
 	if begin.StatusCode != http.StatusOK || started.AuthorizationURL == "" || started.HandoffID == "" {
 		t.Fatalf("desktop begin = status %d body %#v", begin.StatusCode, started)
 	}
-	complete, err := http.Get(testServer.URL + "/v1/auth/complete?state=state-value&code=code-value")
+	complete, err := completeBoundHostedLogin(t, service, testServer.URL, "code=code-value")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +340,7 @@ func TestHostedDesktopAuthenticationExpiredCallbackDoesNotExposeCredential(t *te
 		t.Fatalf("desktop begin status = %d", begin.StatusCode)
 	}
 	now = now.Add(desktopAuthHandoffTTL + time.Second)
-	complete, err := http.Get(testServer.URL + "/v1/auth/complete?state=state-value&code=code-value")
+	complete, err := completeBoundHostedLogin(t, service, testServer.URL, "code=code-value")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,7 +381,7 @@ func TestHostedDesktopAuthenticationCanceledCallbackInvalidatesHandoff(t *testin
 	if begin.StatusCode != http.StatusOK || started.HandoffID == "" {
 		t.Fatalf("desktop begin = status %d body %#v", begin.StatusCode, started)
 	}
-	canceled, err := http.Get(testServer.URL + "/v1/auth/complete?state=state-value&error=access_denied")
+	canceled, err := completeBoundHostedLogin(t, service, testServer.URL, "error=access_denied")
 	if err != nil {
 		t.Fatal(err)
 	}

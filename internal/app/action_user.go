@@ -3,12 +3,18 @@ package app
 import (
 	"context"
 	"errors"
+	// APHELION EDIT ADDITION START - COLLABORATION
+	"fmt"
+	// APHELION EDIT ADDITION END
 	"strconv"
 	"strings"
 	"time"
 
 	"sdmm/internal/aphelion/collab/executor"
 	"sdmm/internal/aphelion/collab/model"
+	// APHELION EDIT ADDITION START - COLLABORATION
+	"sdmm/internal/aphelion/collab/protocol"
+	// APHELION EDIT ADDITION END
 	collabui "sdmm/internal/aphelion/collab/ui"
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/render"
@@ -222,98 +228,134 @@ func (a *app) DoCreateLocalCollaborationSession() {
 }
 
 func (a *app) DoSignInHostedCollaboration() {
-	if a.collaborationClient == nil || a.HasActiveCollaboration() {
+	if a.collaborationClient == nil || a.hostedLogin != nil {
 		return
 	}
-	hostedURL := collabui.DefaultHostedOrigin
-	dial.Open(dial.TypeCustom{
-		Title:       "Sign In to Hosted Collaboration",
-		CloseButton: true,
-		Layout: w.Layout{
-			w.Text("Enter the HTTPS address of the hosted collaboration service."),
-			w.InputTextWithHint("##collaboration-hosted-url", "https://collaboration.example", &hostedURL).Width(-1),
-			w.Button("Sign In", func() {
-				baseURL := strings.TrimSpace(hostedURL)
-				if baseURL == "" {
-					util.ShowErrorDialog("Unable to sign in: hosted service address is required")
-					return
-				}
-				if a.HasActiveCollaboration() || a.collaborationClient.HostedSignedIn() {
-					util.ShowErrorDialog("Unable to sign in: the collaboration state changed")
-					return
-				}
-				imgui.CloseCurrentPopup()
-				go a.signInHostedCollaboration(baseURL)
-			}),
-		},
-	})
+	account := a.collaborationClient.HostedAccount()
+	if a.HasActiveCollaboration() && !account.Attached {
+		return
+	}
+	origin := account.Origin
+	if origin == "" {
+		origin = collabui.DefaultHostedOrigin
+	}
+	login := &collabui.LoginDialog{Client: a.collaborationClient, Schedule: window.RunLater, OpenBrowser: open.Run, Origin: origin, Closed: func() { a.hostedLogin = nil }}
+	a.hostedLogin = login
+	dial.Open(login)
 }
 
-func (a *app) signInHostedCollaboration(baseURL string) {
-	ctx, cancel := context.WithTimeout(context.Background(), hostedCollaborationSignInTimeout)
-	defer cancel()
-	signIn, err := a.collaborationClient.BeginHostedSignIn(ctx, baseURL)
-	if err == nil {
-		err = open.Run(signIn.AuthorizationURL)
+func (a *app) DoBrowseHostedSessions() {
+	if a.collaborationClient == nil || a.hostedBrowser != nil {
+		return
 	}
-	for err == nil {
-		err = a.collaborationClient.CompleteHostedSignIn(ctx, signIn)
-		if !errors.Is(err, collabui.ErrHostedSignInPending) {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			err = ctx.Err()
-		case <-time.After(hostedCollaborationSignInPollDelay):
-			err = nil
-		}
-	}
-	window.RunLater(func() {
-		if err != nil {
-			log.Error().Err(err).Msg("Unable to sign in to hosted collaboration")
-			util.ShowErrorDialog("Unable to sign in to hosted collaboration: " + err.Error())
-			return
-		}
-		log.Info().Msg("signed in to hosted collaboration")
-	})
+	browser := &collabui.Browser{Client: a.collaborationClient, Schedule: window.RunLater, SignIn: a.DoSignInHostedCollaboration, CanJoin: a.hostedJoinBlocker, Join: a.joinBrowsedHostedSession, Closed: func() { a.hostedBrowser = nil }}
+	a.hostedBrowser = browser
+	dial.Open(browser)
 }
 
+func (a *app) hostedJoinBlocker() string {
+	if a.HasActiveCollaboration() {
+		return "Leave the current session before opening another."
+	}
+	current, ok := a.activeWsMap()
+	if !ok {
+		return "Load a compatible local environment and map before opening this session."
+	}
+	if current.HasUnsavedChanges() {
+		return "Save the active map before joining a session."
+	}
+	if !current.Map().Editor().CanStartMapEdit() {
+		return "Finish the active map operation before joining."
+	}
+	return ""
+}
+
+func (a *app) joinBrowsedHostedSession(ctx context.Context, id string, done func(error)) {
+	if reason := a.hostedJoinBlocker(); reason != "" {
+		done(fmt.Errorf("%s", reason))
+		return
+	}
+	selectedEditor := a.CurrentEditor()
+	environment := a.LoadedEnvironment()
+	generation, _ := selectedEditor.MapViewVersion()
+	account := a.collaborationClient.HostedAccount()
+	go func() {
+		target, err := a.collaborationClient.AdmitHostedSession(ctx, account, id)
+		var execution executor.Executor
+		if err == nil {
+			execution, err = collabui.PrepareHostedSession(ctx, a.collaborationController, a.collaborationClient, target)
+		}
+		window.RunLater(func() {
+			if err != nil {
+				done(err)
+				return
+			}
+			currentGeneration, ready := selectedEditor.MapViewVersion()
+			current := ctx.Err() == nil && a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && ready && currentGeneration == generation && a.collaborationClient.HostedAccountCurrent(account)
+			if ws, ok := a.activeWsMap(); !ok || ws.HasUnsavedChanges() {
+				current = false
+			}
+			err = collabui.AttachPreparedSession(execution, selectedEditor, current)
+			if err != nil {
+				go a.leaveCollaborationAfterAttachmentFailure()
+			} else {
+				a.collaborationEditor = selectedEditor
+			}
+			done(err)
+		})
+	}()
+}
 func (a *app) DoCreateHostedCollaborationSession() {
 	selectedEditor := a.CurrentEditor()
 	if selectedEditor == nil || a.collaborationClient == nil || !a.collaborationClient.HostedSignedIn() || a.HasActiveCollaboration() {
 		return
 	}
-	snapshot, err := selectedEditor.CollaborationSnapshot(context.Background())
-	if err != nil {
-		util.ShowErrorDialog("Unable to start hosted collaboration: " + err.Error())
-		return
-	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), hostedCollaborationActionTimeout)
-		defer cancel()
-		invitation, prepareErr := a.collaborationClient.CreateHosted(ctx, snapshot)
-		var execution executor.Executor
-		if prepareErr == nil {
-			execution, prepareErr = collabui.PrepareJoinedSession(ctx, a.collaborationController, a.collaborationClient, invitation)
+	dial.Open(&collabui.SessionMetadataDialog{Submit: func(title string, community bool) {
+		if a.CurrentEditor() != selectedEditor || a.HasActiveCollaboration() {
+			util.ShowErrorDialog("The active map or session changed.")
+			return
 		}
-		window.RunLater(func() {
-			if prepareErr != nil {
-				log.Error().Err(prepareErr).Msg("Unable to start hosted collaboration")
-				util.ShowErrorDialog("Unable to start hosted collaboration: " + prepareErr.Error())
-				return
+		snapshot, err := selectedEditor.CollaborationSnapshot(context.Background())
+		if err != nil {
+			util.ShowErrorDialog(err.Error())
+			return
+		}
+		metadata := protocol.HostedSessionMetadata{Title: title, Visibility: "private"}
+		if community {
+			metadata.Visibility = "community"
+		}
+		environment := a.LoadedEnvironment()
+		generation, _ := selectedEditor.MapViewVersion()
+		account := a.collaborationClient.HostedAccount()
+		imgui.CloseCurrentPopup()
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), hostedCollaborationActionTimeout)
+			defer cancel()
+			target, prepareErr := a.collaborationClient.CreateHostedWithMetadata(ctx, account, snapshot, metadata)
+			var execution executor.Executor
+			if prepareErr == nil {
+				execution, prepareErr = collabui.PrepareHostedSession(ctx, a.collaborationController, a.collaborationClient, target)
 			}
-			attachErr := collabui.AttachPreparedSession(execution, selectedEditor, a.CurrentEditor() == selectedEditor)
-			if attachErr == nil {
+			window.RunLater(func() {
+				if prepareErr != nil {
+					util.ShowErrorDialog("Unable to start hosted session: " + prepareErr.Error())
+					return
+				}
+				currentGeneration, ready := selectedEditor.MapViewVersion()
+				err := collabui.AttachPreparedSession(execution, selectedEditor, a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && ready && currentGeneration == generation && a.collaborationClient.HostedAccountCurrent(account))
+				if err != nil {
+					util.ShowErrorDialog(err.Error())
+					go a.leaveCollaborationAfterAttachmentFailure()
+					return
+				}
 				a.collaborationEditor = selectedEditor
-				return
-			}
-			log.Error().Err(attachErr).Msg("Unable to attach hosted collaboration session")
-			util.ShowErrorDialog("Unable to attach hosted collaboration session: " + attachErr.Error())
-			go a.leaveCollaborationAfterAttachmentFailure()
-		})
-	}()
+				if a.hostedBrowser != nil {
+					a.hostedBrowser.Refresh()
+				}
+			})
+		}()
+	}})
 }
-
 func (a *app) DoSignOutHostedCollaboration() {
 	client := a.collaborationClient
 	if client == nil || a.HasActiveCollaboration() {

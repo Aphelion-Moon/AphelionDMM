@@ -64,6 +64,8 @@ type SessionClient struct {
 	hostedDisplayName       string
 	hostedBaseURL           string
 	hostedSession           bool
+	hostedGeneration        uint64
+	hostedActorID           model.ActorID
 	baseURL                 string
 	origin                  string
 	documentID              model.DocumentID
@@ -159,7 +161,35 @@ func (client *SessionClient) Join(ctx context.Context, invitation Invitation) er
 	if err := invitation.validate(); err != nil {
 		return err
 	}
+	return client.joinSession(ctx, connectionParameters{BaseURL: invitation.BaseURL, Origin: invitation.Origin, SessionID: invitation.SessionID, Token: invitation.Token, TokenExpiresAt: invitation.TokenExpiresAt, Hosted: invitation.Hosted})
+}
+
+// These private parameters are transport input, never an invitation or serialized URL.
+type connectionParameters struct {
+	BaseURL, Origin, SessionID, Token string
+	TokenExpiresAt                    time.Time
+	Hosted                            bool
+	fenceHosted                       bool
+	hostedGeneration                  uint64
+}
+
+func (client *SessionClient) JoinHosted(ctx context.Context, target HostedConnection) error {
 	client.mutex.Lock()
+	if client.hostedGeneration != target.generation || client.hostedBaseURL != target.BaseURL || client.hostedCredential == "" || !client.config.Now().Before(client.hostedCredentialExpires) {
+		client.mutex.Unlock()
+		return ErrSessionChanged
+	}
+	parameters := connectionParameters{BaseURL: target.BaseURL, Origin: target.BaseURL, SessionID: target.SessionID, Token: client.hostedCredential, TokenExpiresAt: client.hostedCredentialExpires, Hosted: true, fenceHosted: true, hostedGeneration: target.generation}
+	client.mutex.Unlock()
+	return client.joinSession(ctx, parameters)
+}
+
+func (client *SessionClient) joinSession(ctx context.Context, invitation connectionParameters) error {
+	client.mutex.Lock()
+	if invitation.fenceHosted && (invitation.hostedGeneration != client.hostedGeneration || invitation.BaseURL != client.hostedBaseURL) {
+		client.mutex.Unlock()
+		return ErrSessionChanged
+	}
 	if client.joining || client.transport != nil {
 		client.mutex.Unlock()
 		return ErrSessionActive
@@ -209,7 +239,7 @@ func (client *SessionClient) Join(ctx context.Context, invitation Invitation) er
 		}
 	}()
 
-	snapshot, err := client.fetchSnapshot(ctx, invitation)
+	snapshot, err := client.fetchConnectionSnapshot(ctx, invitation)
 	if err != nil {
 		client.recordConnectionFailure(machine, err)
 		return err
@@ -234,8 +264,8 @@ func (client *SessionClient) Join(ctx context.Context, invitation Invitation) er
 		if retryToken == "" || (!retryExpiry.IsZero() && !client.config.Now().Before(retryExpiry)) {
 			return collabclient.ErrAuthenticationDenied
 		}
-		retryInvitation := Invitation{BaseURL: invitation.BaseURL, Origin: invitation.Origin, SessionID: invitation.SessionID, Token: retryToken}
-		freshSnapshot, snapshotErr := client.fetchSnapshot(ctx, retryInvitation)
+		retryInvitation := connectionParameters{BaseURL: invitation.BaseURL, Origin: invitation.Origin, SessionID: invitation.SessionID, Token: retryToken}
+		freshSnapshot, snapshotErr := client.fetchConnectionSnapshot(ctx, retryInvitation)
 		if snapshotErr != nil {
 			return snapshotErr
 		}
@@ -376,6 +406,11 @@ joinAttempts:
 		break joinAttempts
 	}
 	client.mutex.Lock()
+	if invitation.fenceHosted && (invitation.hostedGeneration != client.hostedGeneration || ctx.Err() != nil) {
+		client.mutex.Unlock()
+		_ = transport.Close(websocket.StatusGoingAway, "hosted account changed")
+		return ErrSessionChanged
+	}
 	client.transport = transport
 	client.network = joinedNetwork
 	client.hostedSession = invitation.Hosted
@@ -1059,9 +1094,9 @@ func (client *SessionClient) reconnectAttempt(ctx context.Context, machine *coll
 
 func (client *SessionClient) installReconnectSnapshot(ctx context.Context, network *collabclient.NetworkExecutor) error {
 	client.mutex.Lock()
-	invitation := Invitation{BaseURL: client.baseURL, Origin: client.origin, SessionID: client.sessionID, Token: client.resumptionToken}
+	invitation := connectionParameters{BaseURL: client.baseURL, Origin: client.origin, SessionID: client.sessionID, Token: client.resumptionToken}
 	client.mutex.Unlock()
-	snapshot, err := client.fetchSnapshot(ctx, invitation)
+	snapshot, err := client.fetchConnectionSnapshot(ctx, invitation)
 	invitation.Token = ""
 	if err != nil {
 		return err
@@ -1090,6 +1125,10 @@ func cloneParticipantPresence(participant protocol.ParticipantPresence) protocol
 }
 
 func (client *SessionClient) fetchSnapshot(ctx context.Context, invitation Invitation) (model.Snapshot, error) {
+	return client.fetchConnectionSnapshot(ctx, connectionParameters{BaseURL: invitation.BaseURL, SessionID: invitation.SessionID, Token: invitation.Token})
+}
+
+func (client *SessionClient) fetchConnectionSnapshot(ctx context.Context, invitation connectionParameters) (model.Snapshot, error) {
 	path := strings.TrimRight(invitation.BaseURL, "/") + "/v1/sessions/" + url.PathEscape(invitation.SessionID) + "/snapshot"
 	request, err := client.request(ctx, http.MethodGet, path, invitation.Token, nil)
 	if err != nil {

@@ -1,5 +1,62 @@
 # Game-server deployment agent handoff
 
+## Current native Windows direction (September 26)
+
+Aphelion uses `https://mapcollab.a13.info` and the existing native Windows service,
+dedicated tunnel, PostgreSQL cluster, service accounts and backup process. The
+August Docker instructions below are historical for Aphelion; portable OIDC
+self-hosting remains supported. Do not recreate that topology or change unrelated
+services or tunnels as part of provider cutover.
+
+The new binary supports one selected provider. Omit `auth_provider` to preserve
+OIDC, or add the following to the existing operator-owned YAML configuration:
+
+```yaml
+auth_provider: discord
+discord:
+  client_id: "<application ID>"
+  guild_id: "<required Discord server ID>"
+  redirect_url: "https://mapcollab.a13.info/v1/auth/complete"
+  client_secret:
+    file: "<existing restricted secrets directory>/discord_client_secret.txt"
+  session_ttl: "12h"
+```
+
+Register that exact callback. Keep the secret in an ACL-restricted regular file;
+do not supply it through chat, repository files or logs. Only the selected provider
+is initialized. An inactive OIDC block can remain for coordinated rollback but
+cannot authenticate anyone while Discord is selected. A Discord outage blocks new
+logins; it does not invalidate an existing application login.
+
+Before authorizing production cutover:
+
+1. Record the installed revision, binary hash, schema version and counts of sessions,
+   identities, enabled/disabled memberships and invitations without dumping data.
+2. If historical OIDC ownership exists, stop provider cutover until an operator-
+   verified principal-to-Discord mapping preserves canonical actor IDs and immutable
+   history. This release does not invent account links or migrate actors by name.
+3. Back up using the existing process and stage binary/configuration/database
+   together. Schema 5 adds Private-default metadata; it does not publish old sessions.
+4. Qualify real Discord member success and nonmember denial using the configured
+   application, and complete a disposable two-user Community/Private/restart pilot.
+   Confirm the documented confidential-client/browser-state protection; this release
+   does not claim Discord-side PKCE enforcement.
+5. Switch only the approved AphelionDMM service after explicit operator authorization.
+
+Application credentials are memory-only, expire after 12 hours by default (maximum
+24 hours), and are lost on restart. Membership persists. Reauthentication uses the
+same service and actor; uncertain drafts remain recoverable and are not replayed
+automatically. My sessions provides access to enabled Private/idle memberships.
+
+Rollback requires a coordinated decision: the previous binary rejects schema 5
+even though its changes are additive, and cannot authenticate Discord identities.
+Prefer forward repair once writes have advanced. Restoring a pre-cutover database
+requires explicit acceptance of losing post-backup edits; do not silently restore
+over newer work. Retain the previous configuration/binary/provider resources until
+acceptance. Source tests and rebuilt binaries do not certify the live deployment.
+
+## Historical August handoff
+
 **Prepared:** 2026-08-26  
 **Target:** AphelionDMM hosted collaboration at `https://mapping.a13.info`  
 **Host:** The dedicated server that already runs Meridian-Rift  

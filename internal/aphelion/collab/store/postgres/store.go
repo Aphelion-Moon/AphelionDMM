@@ -84,7 +84,7 @@ func Open(ctx context.Context, config Config) (*Store, error) {
 		return nil, err
 	}
 	var schemaVersion int
-	if err := pool.QueryRow(ctx, "SELECT COALESCE(MAX(version), 0) FROM collaboration_schema_migrations").Scan(&schemaVersion); err != nil {
+	if err := pool.QueryRow(ctx, `SELECT COALESCE(MAX(version) FILTER (WHERE version <= $1), 0) FROM collaboration_schema_migrations`, postgresTransactionSchemaVersion).Scan(&schemaVersion); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("read PostgreSQL schema version: %w", err)
 	}

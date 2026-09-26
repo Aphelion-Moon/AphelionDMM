@@ -12,22 +12,28 @@ servers:
 paths:
   /v1/auth/begin:
     post:
-      summary: Begin hosted OIDC authentication
+      summary: Begin verifier-bound hosted authentication (legacy alias)
       operationId: beginHostedAuthentication
       security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HostedDesktopAuthBeginRequest' }
       responses:
         '200':
-          description: OIDC authorization URL containing the one-use state value
+          description: Same-origin browser-start URL and verifier-protected handoff
           headers:
             Cache-Control: { schema: { type: string, const: no-store } }
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/HostedAuthBegin' }
+              schema: { $ref: '#/components/schemas/HostedDesktopAuthBegin' }
+        '400': { $ref: '#/components/responses/Error' }
         '429': { $ref: '#/components/responses/Error' }
         '503': { $ref: '#/components/responses/Error' }
   /v1/auth/desktop/begin:
     post:
-      summary: Begin verifier-bound desktop OIDC authentication
+      summary: Begin verifier-bound desktop authentication with the configured provider
       operationId: beginHostedDesktopAuthentication
       security: []
       requestBody:
@@ -37,7 +43,7 @@ paths:
             schema: { $ref: '#/components/schemas/HostedDesktopAuthBeginRequest' }
       responses:
         '200':
-          description: OIDC authorization URL and opaque desktop handoff identifier
+          description: Same-origin browser-start URL and opaque desktop handoff identifier
           headers:
             Cache-Control: { schema: { type: string, const: no-store } }
           content:
@@ -71,25 +77,36 @@ paths:
               schema: { $ref: '#/components/schemas/HostedDesktopAuthPending' }
         '400': { $ref: '#/components/responses/Error' }
         '401': { $ref: '#/components/responses/Error' }
+  /v1/auth/browser/start:
+    get:
+      summary: Bind a one-use browser transaction before redirecting to the provider
+      operationId: startHostedBrowserAuthentication
+      security: []
+      parameters:
+        - { name: handoff, in: query, required: true, schema: { type: string, maxLength: 128 } }
+        - { name: start, in: query, required: true, schema: { type: string, maxLength: 128 } }
+      responses:
+        '302': { description: Sets a short-lived Secure HttpOnly SameSite=Lax cookie and redirects to the configured provider }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
   /v1/auth/complete:
     get:
-      summary: Complete hosted OIDC authentication
+      summary: Complete the browser-bound hosted login without exposing credentials
       operationId: completeHostedAuthentication
       security: []
       parameters:
         - { name: state, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 512 } }
-        - { name: code, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 4096 } }
+        - { name: code, in: query, schema: { type: string, minLength: 1, maxLength: 4096 } }
+        - { name: error, in: query, schema: { type: string } }
       responses:
         '200':
-          description: Short-lived hosted authentication session
+          description: Credentials are available only through the verifier-protected desktop exchange
           headers:
             Cache-Control: { schema: { type: string, const: no-store } }
           content:
             application/json:
-              schema:
-                oneOf:
-                  - { $ref: '#/components/schemas/HostedAuthentication' }
-                  - { $ref: '#/components/schemas/HostedDesktopAuthComplete' }
+              schema: { $ref: '#/components/schemas/HostedDesktopAuthComplete' }
         '401': { $ref: '#/components/responses/Error' }
   /v1/auth/logout:
     post:
@@ -99,7 +116,83 @@ paths:
       responses:
         '204': { description: Hosted authentication session removed }
         '503': { $ref: '#/components/responses/Error' }
+  /v1/hosted/capabilities:
+    get:
+      summary: Non-secret selected provider and browser feature descriptor
+      operationId: getHostedCapabilities
+      security: []
+      responses:
+        '200':
+          description: Does not include session or user data
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [provider, session_browser]
+                properties:
+                  provider: { type: string, enum: [oidc, discord] }
+                  session_browser: { type: boolean }
+  /v1/hosted/sessions/{session_id}/join:
+    parameters: [{ $ref: '#/components/parameters/SessionID' }]
+    post:
+      summary: Resolve enabled membership or atomically admit a new active Community editor
+      operationId: joinHostedSession
+      security: [{ bearerToken: [] }]
+      responses:
+        '200':
+          description: Existing roles and disabled restrictions take precedence; contains no credentials
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HostedMembership' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /v1/hosted/sessions/{session_id}:
+    parameters: [{ $ref: '#/components/parameters/SessionID' }]
+    patch:
+      summary: Replace owner-controlled labels and visibility without changing map revisions
+      operationId: updateHostedSessionMetadata
+      security: [{ bearerToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HostedSessionMetadata' }
+      responses:
+        '204': { description: Updated; existing admitted members retain access }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
   /v1/hosted/sessions:
+    get:
+      summary: List active Community sessions or enabled owned/admitted sessions
+      operationId: listHostedSessions
+      security: [{ bearerToken: [] }]
+      parameters:
+        - { name: scope, in: query, required: true, schema: { type: string, enum: [community, mine] } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string, maxLength: 128 } }
+      responses:
+        '200':
+          description: Stable ID cursor; activity is a point-in-time observation; compatibility remains unchecked
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [sessions]
+                properties:
+                  sessions: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/HostedSessionSummary' } }
+                  next_cursor: { type: string, maxLength: 128 }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '429': { $ref: '#/components/responses/Error' }
+        '501': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
     post:
       summary: Create a durable hosted collaboration session
       operationId: createHostedSession
@@ -108,7 +201,7 @@ paths:
         required: true
         content:
           application/json:
-            schema: { $ref: '#/components/schemas/CreateSessionRequest' }
+            schema: { $ref: '#/components/schemas/CreateHostedSessionRequest' }
       responses:
         '201':
           description: Durable hosted session created with the authenticated identity as owner
@@ -347,6 +440,38 @@ components:
         document_id: { type: string, format: uuid }
         revision: { type: integer, minimum: 0 }
         map_hash: { $ref: '#/components/schemas/SHA256' }
+    CreateHostedSessionRequest:
+      type: object
+      additionalProperties: false
+      required: [snapshot]
+      properties:
+        snapshot: { $ref: '#/components/schemas/Snapshot' }
+        bulk_edits: { type: boolean, default: false }
+        visibility: { type: string, enum: [private, community], default: private }
+        title: { type: string, maxLength: 128, description: Maximum 128 UTF-8 bytes; labels cannot contain controls or absolute paths }
+        map_label: { type: string, maxLength: 128 }
+        environment_label: { type: string, maxLength: 128 }
+    HostedSessionMetadata:
+      type: object
+      additionalProperties: false
+      properties:
+        visibility: { type: string, enum: [private, community], default: private }
+        title: { type: string, maxLength: 128, description: Maximum 128 UTF-8 bytes }
+        map_label: { type: string, maxLength: 128 }
+        environment_label: { type: string, maxLength: 128 }
+    HostedSessionSummary:
+      type: object
+      additionalProperties: false
+      required: [session_id, visibility, title, map_label, environment_label, owner_display_name, participants, available]
+      properties:
+        session_id: { type: string, minLength: 1, maxLength: 128 }
+        visibility: { type: string, enum: [private, community] }
+        title: { type: string, maxLength: 128 }
+        map_label: { type: string, maxLength: 128 }
+        environment_label: { type: string, maxLength: 128 }
+        owner_display_name: { type: string, maxLength: 128 }
+        participants: { type: integer, minimum: 0 }
+        available: { type: boolean }
     HostedAuthBegin:
       type: object
       additionalProperties: false
@@ -421,7 +546,7 @@ components:
       properties:
         session_id: { type: string, minLength: 1, maxLength: 128 }
         actor_id: { type: string, format: uuid }
-        role: { type: string, enum: [viewer, editor] }
+        role: { type: string, enum: [viewer, editor, owner] }
     Session:
       type: object
       additionalProperties: false

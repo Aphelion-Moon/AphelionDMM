@@ -1,6 +1,6 @@
 # Production hosted collaboration
 
-This directory is the portable, single-replica deployment for AphelionDMM hosted collaboration. The Aphelion reference service uses the Cloudflare overlay at `https://mapping.a13.info`; Cloudflare Access is deliberately not enabled. End users connect normally over HTTPS/WSS and authenticate through the configured OIDC provider.
+This directory is the portable, single-replica deployment for AphelionDMM hosted collaboration. End users connect over HTTPS/WSS and authenticate through the selected provider. Aphelion's current target is the existing native Windows service at `https://mapcollab.a13.info`; see the [current operator handoff](../../docs/hosting/game-server-deployment-agent-handoff.md). The Compose setup below retains the OIDC self-hosting path.
 
 The base Compose project is provider-neutral. Other operators can select the loopback overlay and place Caddy, nginx, Traefik, or another WebSocket-capable HTTPS proxy in front of it.
 
@@ -8,7 +8,7 @@ The base Compose project is provider-neutral. Other operators can select the loo
 
 - Docker Engine 27 or newer with Docker Compose v2.
 - A DNS hostname and trusted HTTPS edge.
-- A standards-compatible OIDC confidential client using Authorization Code and PKCE.
+- A standards-compatible OIDC confidential client using Authorization Code and PKCE, or a Discord confidential client configured as described in the operator handoff.
 - Persistent local storage plus a separate encrypted backup destination.
 - Exactly one `hosted` replica. Multi-replica deployment is unsupported.
 

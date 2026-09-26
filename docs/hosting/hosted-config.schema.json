@@ -4,7 +4,7 @@
   "title": "AphelionDMM hosted collaboration configuration",
   "type": "object",
   "additionalProperties": false,
-  "required": ["bind_address", "public_origin", "trusted_proxy_cidrs", "database", "oidc", "limits", "telemetry"],
+  "required": ["bind_address", "public_origin", "trusted_proxy_cidrs", "database", "limits", "telemetry"],
   "properties": {
     "bind_address": { "type": "string", "minLength": 1, "maxLength": 255 },
     "public_origin": { "$ref": "#/$defs/httpsOrigin" },
@@ -19,17 +19,14 @@
       "required": ["dsn"],
       "properties": { "dsn": { "$ref": "#/$defs/secretSource" } }
     },
-    "oidc": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["issuer", "client_id", "redirect_url", "client_secret"],
-      "properties": {
-        "issuer": { "$ref": "#/$defs/httpsIssuer" },
-        "client_id": { "type": "string", "minLength": 1, "maxLength": 255 },
-        "redirect_url": { "type": "string", "format": "uri", "pattern": "^https://[^?#]+/v1/auth/complete$" },
-        "client_secret": { "$ref": "#/$defs/secretSource" }
-      }
+    "auth_provider": {
+      "type": "string",
+      "enum": ["oidc", "discord"],
+      "default": "oidc",
+      "description": "Omitted values retain OIDC compatibility. Only the selected provider is initialized."
     },
+    "oidc": { "type": "object" },
+    "discord": { "type": "object" },
     "limits": {
       "type": "object",
       "additionalProperties": false,
@@ -58,7 +55,52 @@
       }
     }
   },
+  "oneOf": [
+    {
+      "properties": { "auth_provider": { "const": "oidc" }, "oidc": { "$ref": "#/$defs/oidc" } },
+      "required": ["auth_provider", "oidc"]
+    },
+    {
+      "properties": { "auth_provider": { "const": "discord" }, "discord": { "$ref": "#/$defs/discord" } },
+      "required": ["auth_provider", "discord"]
+    },
+    {
+      "not": { "required": ["auth_provider"] },
+      "properties": { "oidc": { "$ref": "#/$defs/oidc" } },
+      "required": ["oidc"]
+    }
+  ],
   "$defs": {
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuer", "client_id", "redirect_url", "client_secret"],
+      "properties": {
+        "issuer": { "$ref": "#/$defs/httpsIssuer" },
+        "client_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+        "redirect_url": { "type": "string", "format": "uri", "pattern": "^https://[^?#]+/v1/auth/complete$" },
+        "client_secret": { "$ref": "#/$defs/secretSource" }
+      }
+    },
+    "discord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["client_id", "guild_id", "redirect_url", "client_secret"],
+      "properties": {
+        "client_id": { "type": "string", "pattern": "^[0-9]{1,20}$" },
+        "guild_id": { "type": "string", "pattern": "^[0-9]{1,20}$" },
+        "redirect_url": { "type": "string", "format": "uri", "pattern": "^https://[^?#]+/v1/auth/complete$" },
+        "client_secret": { "$ref": "#/$defs/secretSource" },
+        "session_ttl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32,
+          "default": "12h",
+          "description": "Go duration greater than zero and at most 24h; omitted values default to 12h."
+        }
+      }
+    },
+
     "httpsIssuer": {
       "type": "string",
       "format": "uri",
@@ -71,7 +113,7 @@
     },
     "secretSource": {
       "type": "object",
-      "additionalProperties": false,
+      "unevaluatedProperties": false,
       "oneOf": [
         {
           "required": ["environment"],
@@ -89,4 +131,3 @@
     }
   }
 }
-

@@ -138,6 +138,11 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		}
 		parent = context.WithValue(parent, bulkContextKey{}, bulkConnection{codec: service.bulk, canUpload: auth.principal.CanEdit()})
 	}
+	if auth.hosted {
+		var cancelExpiry context.CancelFunc
+		parent, cancelExpiry = context.WithTimeout(parent, auth.expiresAt.Sub(service.config.Now()))
+		defer cancelExpiry()
+	}
 	durable, cancelDurable, err := session.owner.subscribeSharedDurable(service.limits.DurableQueueDepth)
 	if err != nil {
 		return fmt.Errorf("subscribe durable operations: %w", err)
@@ -148,7 +153,9 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		return fmt.Errorf("subscribe presence: %w", err)
 	}
 	defer cancelPresence()
-	defer service.hub.DisconnectPresence(auth.sessionID, auth.principal.ActorID())
+	if !auth.hosted {
+		defer service.hub.DisconnectPresence(auth.sessionID, auth.principal.ActorID())
+	}
 	snapshot, err := session.owner.Snapshot(parent)
 	if err != nil {
 		return fmt.Errorf("load joined snapshot: %w", err)
@@ -269,6 +276,10 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		return fmt.Errorf("write presence snapshot: %w", err)
 	}
 
+	if auth.hosted {
+		unregister := service.trackHostedConnection(auth.sessionID, auth.principal.ActorID(), auth.expiresAt)
+		defer unregister()
+	}
 	incoming := make(chan incomingMessage)
 	readErrors := make(chan error, 1)
 	go func() {

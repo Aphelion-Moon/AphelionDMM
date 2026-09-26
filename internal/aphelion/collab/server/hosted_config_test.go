@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const validHostedYAML = `
@@ -31,6 +32,31 @@ telemetry:
   endpoint: "https://telemetry.example.test"
 `
 
+const validDiscordHostedYAML = `
+bind_address: "0.0.0.0:8443"
+public_origin: "https://maps.example.test"
+trusted_proxy_cidrs:
+  - "10.0.0.0/8"
+database:
+  dsn:
+    environment: "APHELIONDMM_DATABASE_DSN"
+auth_provider: "discord"
+discord:
+  client_id: "123456"
+  guild_id: "112233445566778899"
+  redirect_url: "https://maps.example.test/v1/auth/complete"
+  client_secret:
+    environment: "APHELIONDMM_DISCORD_CLIENT_SECRET"
+limits:
+  max_connections: 64
+  max_operation_changes: 512
+  max_websocket_message_bytes: 262144
+  max_http_body_bytes: 524288
+  max_snapshot_body_bytes: 268435456
+telemetry:
+  endpoint: "https://telemetry.example.test"
+`
+
 func TestLoadHostedConfigAcceptsStrictValidConfiguration(t *testing.T) {
 	config, err := LoadHostedConfig(strings.NewReader(validHostedYAML))
 	if err != nil {
@@ -41,6 +67,61 @@ func TestLoadHostedConfigAcceptsStrictValidConfiguration(t *testing.T) {
 	}
 	if config.Limits.MaxConnections != 64 || len(config.TrustedProxyCIDRs) != 1 {
 		t.Fatalf("config limits/proxies = %#v", config)
+	}
+	if config.SelectedAuthProvider() != HostedProviderOIDC {
+		t.Fatalf("omitted auth_provider = %q, want oidc compatibility default", config.SelectedAuthProvider())
+	}
+}
+
+func TestLoadHostedConfigSelectsOnlyTheConfiguredProvider(t *testing.T) {
+	data := validDiscordHostedYAML + `
+oidc:
+  issuer: "http://inactive.invalid"
+`
+	config, err := LoadHostedConfig(strings.NewReader(data))
+	if err != nil {
+		t.Fatalf("Discord config required inactive OIDC settings: %v", err)
+	}
+	if config.SelectedAuthProvider() != HostedProviderDiscord {
+		t.Fatalf("auth_provider = %q", config.SelectedAuthProvider())
+	}
+	if lifetime, err := config.Discord.SessionLifetime(); err != nil || lifetime != 12*time.Hour {
+		t.Fatalf("default Discord session lifetime = %s, error = %v", lifetime, err)
+	}
+
+	data = strings.Replace(validHostedYAML, "oidc:\n", "auth_provider: oidc\ndiscord:\n  client_id: invalid\n  session_ttl: \"0s\"\noidc:\n", 1)
+	if _, err := LoadHostedConfig(strings.NewReader(data)); err != nil {
+		t.Fatalf("OIDC config required inactive Discord settings: %v", err)
+	}
+}
+
+func TestLoadHostedConfigValidatesDiscordSessionLifetime(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  time.Duration
+		valid bool
+	}{
+		{value: "24h", want: 24 * time.Hour, valid: true},
+		{value: "0s"},
+		{value: "-1h"},
+		{value: "24h1s"},
+		{value: "not-a-duration"},
+		{value: ""},
+	} {
+		data := strings.Replace(validDiscordHostedYAML, "  client_secret:\n", "  session_ttl: \""+test.value+"\"\n  client_secret:\n", 1)
+		_, err := LoadHostedConfig(strings.NewReader(data))
+		if test.valid && err != nil {
+			t.Errorf("session_ttl %q rejected: %v", test.value, err)
+		} else if !test.valid && err == nil {
+			t.Errorf("session_ttl %q accepted", test.value)
+		}
+	}
+}
+
+func TestLoadHostedConfigRejectsUnknownProvider(t *testing.T) {
+	data := strings.Replace(validHostedYAML, "oidc:\n", "auth_provider: discord-bypass\noidc:\n", 1)
+	if _, err := LoadHostedConfig(strings.NewReader(data)); err == nil {
+		t.Fatal("unknown auth_provider accepted")
 	}
 }
 

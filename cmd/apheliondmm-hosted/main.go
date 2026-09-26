@@ -59,20 +59,14 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		_, _ = fmt.Fprintf(stderr, "resolve database secret: %v\n", err)
 		return 1
 	}
-	clientSecret, err := config.OIDC.ClientSecret.Resolve(os.LookupEnv)
+	flow, err := newHostedAuthorizationFlow(ctx, config, os.LookupEnv)
 	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "resolve OIDC secret: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "initialize hosted authentication: %v\n", err)
 		return 1
 	}
 	store, err := postgres.Open(ctx, postgres.Config{DSN: databaseDSN, MaxConnections: int32(config.Limits.MaxConnections), ConnectTimeout: 10 * time.Second, StatementTimeout: 5 * time.Second})
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "open collaboration store: %v\n", err)
-		return 1
-	}
-	flow, err := auth.NewOIDCFlow(ctx, auth.OIDCConfig{Issuer: config.OIDC.Issuer, ClientID: config.OIDC.ClientID, ClientSecret: clientSecret, RedirectURL: config.OIDC.RedirectURL})
-	if err != nil {
-		_ = store.Close()
-		_, _ = fmt.Fprintf(stderr, "initialize OIDC: %v\n", err)
 		return 1
 	}
 	directory := auth.NewRegistryDirectory(store)
@@ -98,6 +92,7 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 	service := server.NewService(server.ServiceConfig{
 		BulkSpoolBytes: config.Limits.BulkSpoolBytes, BulkWorkingBytes: config.Limits.BulkWorkingBytes,
 		Store: store, Limits: limits, AllowedOrigins: []string{config.PublicOrigin}, Build: build, Revision: revision,
+		HostedProvider: config.SelectedAuthProvider(), HostedPublicOrigin: config.PublicOrigin,
 		HostedAuth: authentication, HostedLogin: authentication, HostedRegistry: store,
 		Telemetry: observability,
 		Document:  server.DocumentConfig{SnapshotOperationThreshold: 1000, SnapshotInterval: 5 * time.Minute},
@@ -152,6 +147,36 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		}
 	}
 	return 0
+}
+
+func newHostedAuthorizationFlow(ctx context.Context, config server.HostedConfig, lookup func(string) (string, bool)) (auth.AuthorizationFlow, error) {
+	switch config.SelectedAuthProvider() {
+	case server.HostedProviderOIDC:
+		clientSecret, err := config.OIDC.ClientSecret.Resolve(lookup)
+		if err != nil {
+			return nil, err
+		}
+		return auth.NewOIDCFlow(ctx, auth.OIDCConfig{
+			Issuer: config.OIDC.Issuer, ClientID: config.OIDC.ClientID,
+			ClientSecret: clientSecret, RedirectURL: config.OIDC.RedirectURL,
+		})
+	case server.HostedProviderDiscord:
+		clientSecret, err := config.Discord.ClientSecret.Resolve(lookup)
+		if err != nil {
+			return nil, err
+		}
+		sessionTTL, err := config.Discord.SessionLifetime()
+		if err != nil {
+			return nil, err
+		}
+		return auth.NewDiscordFlow(auth.DiscordConfig{
+			ClientID: config.Discord.ClientID, ClientSecret: clientSecret,
+			GuildID: config.Discord.GuildID, RedirectURL: config.Discord.RedirectURL,
+			SessionTTL: sessionTTL,
+		})
+	default:
+		return nil, fmt.Errorf("auth_provider must be %q or %q", server.HostedProviderOIDC, server.HostedProviderDiscord)
+	}
 }
 
 func shutdownTelemetryNow(shutdown collabtelemetry.Shutdown) {

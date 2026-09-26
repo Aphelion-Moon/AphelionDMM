@@ -25,24 +25,11 @@ type HostedSessionResponse struct {
 	MapHash    string           `json:"map_hash"`
 }
 
+// Browser callbacks never return application credentials. The legacy begin route
+// accepts the same verifier-protected handoff as the desktop route.
 func (service *Service) handleHostedAuthBegin(writer http.ResponseWriter, request *http.Request) {
-	writer.Header().Set("Cache-Control", "no-store")
-	if service.config.HostedLogin == nil {
-		writeError(writer, http.StatusServiceUnavailable, "unavailable", "hosted authentication is unavailable")
-		return
-	}
-	if !service.joinLimiter.Allow("auth-begin:"+remoteIP(request), service.config.Now()) {
-		writeError(writer, http.StatusTooManyRequests, "rate_limited", "hosted authentication rate limit exceeded")
-		return
-	}
-	result, err := service.config.HostedLogin.Begin(request.Context())
-	if err != nil {
-		writeError(writer, http.StatusServiceUnavailable, "unavailable", "hosted authentication could not start")
-		return
-	}
-	writeJSON(writer, http.StatusOK, map[string]string{"authorization_url": result.AuthorizationURL})
+	service.handleHostedDesktopAuthBegin(writer, request)
 }
-
 func (service *Service) handleHostedDesktopAuthBegin(writer http.ResponseWriter, request *http.Request) {
 	writer.Header().Set("Cache-Control", "no-store")
 	if service.config.HostedLogin == nil {
@@ -87,69 +74,20 @@ func (service *Service) handleHostedDesktopAuthBegin(writer http.ResponseWriter,
 		return
 	}
 	handoffHash := sha256.Sum256([]byte(handoffID))
+	startToken, err := randomToken()
+	if err != nil {
+		writeError(writer, http.StatusInternalServerError, "internal", "browser authentication could not start")
+		return
+	}
 	stateHash := sha256.Sum256([]byte(result.State))
 	var challengeHash [sha256.Size]byte
 	copy(challengeHash[:], challenge)
 	service.mutex.Lock()
 	service.cleanupDesktopAuthHandoffsLocked(service.config.Now())
-	service.desktopHandoffs[handoffHash] = desktopAuthHandoff{challenge: challengeHash, stateHash: stateHash, expiresAt: service.config.Now().Add(desktopAuthHandoffTTL)}
+	service.desktopHandoffs[handoffHash] = desktopAuthHandoff{challenge: challengeHash, stateHash: stateHash, startHash: sha256.Sum256([]byte(startToken)), authorizationURL: result.AuthorizationURL, expiresAt: service.config.Now().Add(desktopAuthHandoffTTL)}
 	service.desktopAuthStates[stateHash] = handoffHash
 	service.mutex.Unlock()
-	writeJSON(writer, http.StatusOK, map[string]string{"authorization_url": result.AuthorizationURL, "handoff_id": handoffID})
-}
-
-func (service *Service) handleHostedAuthComplete(writer http.ResponseWriter, request *http.Request) {
-	writer.Header().Set("Cache-Control", "no-store")
-	if service.config.HostedLogin == nil {
-		writeError(writer, http.StatusServiceUnavailable, "unavailable", "hosted authentication is unavailable")
-		return
-	}
-	state := request.URL.Query().Get("state")
-	code := request.URL.Query().Get("code")
-	if len(state) > 512 || len(code) > 4096 {
-		writeError(writer, http.StatusBadRequest, "invalid_request", "OIDC callback is invalid")
-		return
-	}
-	stateHash := sha256.Sum256([]byte(state))
-	service.mutex.Lock()
-	handoffHash, desktop := service.desktopAuthStates[stateHash]
-	handoff, handoffExists := service.desktopHandoffs[handoffHash]
-	desktopExpired := desktop && (!handoffExists || !service.config.Now().Before(handoff.expiresAt))
-	if desktopExpired {
-		delete(service.desktopAuthStates, stateHash)
-		delete(service.desktopHandoffs, handoffHash)
-	}
-	service.mutex.Unlock()
-	if desktopExpired {
-		writeError(writer, http.StatusUnauthorized, "unauthorized", "desktop authentication handoff is invalid or expired")
-		return
-	}
-	session, err := service.config.HostedLogin.Complete(request.Context(), state, code)
-	if err != nil {
-		if desktop {
-			service.mutex.Lock()
-			delete(service.desktopAuthStates, stateHash)
-			delete(service.desktopHandoffs, handoffHash)
-			service.mutex.Unlock()
-		}
-		writeError(writer, http.StatusUnauthorized, "unauthorized", "OIDC callback was rejected")
-		return
-	}
-	service.mutex.Lock()
-	if desktop {
-		delete(service.desktopAuthStates, stateHash)
-		handoff, exists := service.desktopHandoffs[handoffHash]
-		if exists && service.config.Now().Before(handoff.expiresAt) {
-			completed := session
-			handoff.session = &completed
-			service.desktopHandoffs[handoffHash] = handoff
-			service.mutex.Unlock()
-			writeJSON(writer, http.StatusOK, map[string]string{"status": "complete"})
-			return
-		}
-	}
-	service.mutex.Unlock()
-	writeJSON(writer, http.StatusOK, map[string]any{"token": session.Token, "actor_id": session.ActorID, "display_name": session.DisplayName, "expires_at": session.ExpiresAt})
+	writeJSON(writer, http.StatusOK, map[string]string{"authorization_url": service.config.HostedPublicOrigin + "/v1/auth/browser/start?handoff=" + handoffID + "&start=" + startToken, "handoff_id": handoffID})
 }
 
 func (service *Service) handleHostedDesktopAuthExchange(writer http.ResponseWriter, request *http.Request) {
@@ -173,6 +111,12 @@ func (service *Service) handleHostedDesktopAuthExchange(writer http.ResponseWrit
 	if !exists || subtle.ConstantTimeCompare(verifierHash[:], handoff.challenge[:]) != 1 {
 		service.mutex.Unlock()
 		writeError(writer, http.StatusUnauthorized, "unauthorized", "desktop authentication handoff is invalid or expired")
+		return
+	}
+	if handoff.terminalError != "" {
+		delete(service.desktopHandoffs, handoffHash)
+		service.mutex.Unlock()
+		writeError(writer, http.StatusUnauthorized, handoff.terminalError, "Browser sign-in failed. Please try signing in again.")
 		return
 	}
 	if handoff.session == nil {
@@ -217,6 +161,7 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 	var body struct {
 		Snapshot  model.Snapshot `json:"snapshot"`
 		BulkEdits bool           `json:"bulk_edits,omitempty"`
+		collabstore.HostedSessionMetadata
 	}
 	decoder := json.NewDecoder(request.Body)
 	decoder.DisallowUnknownFields()
@@ -228,6 +173,12 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		writeError(writer, http.StatusBadRequest, "invalid_snapshot", "snapshot document id is required")
 		return
 	}
+	metadata, err := collabstore.NormalizeHostedSessionMetadata(body.HostedSessionMetadata)
+	if err != nil {
+		writeHostedDecodeError(writer, err, "Invalid session metadata.")
+		return
+	}
+	body.HostedSessionMetadata = metadata
 	sessionID := string(body.Snapshot.DocumentID)
 	ownerMember := hostedMember(sessionID, identity, collabstore.HostedRoleOwner)
 	principal, err := principalFromHostedMember(ownerMember)
@@ -261,7 +212,7 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		writeError(writer, http.StatusInternalServerError, "internal", "session recovery hash failed")
 		return
 	}
-	created := collabstore.HostedSession{SessionID: sessionID, DocumentID: current.DocumentID, CreatedAt: service.config.Now()}
+	created := collabstore.HostedSession{SessionID: sessionID, DocumentID: current.DocumentID, CreatedAt: service.config.Now(), Visibility: body.Visibility, Title: body.Title, MapLabel: body.MapLabel, EnvironmentLabel: body.EnvironmentLabel}
 	if err := service.config.HostedRegistry.CreateHostedSession(request.Context(), created, ownerMember); err != nil {
 		_ = owner.Close(request.Context())
 		if errors.Is(err, collabstore.ErrHostedSessionExists) {
@@ -354,8 +305,7 @@ func (service *Service) handleRedeemHostedInvitation(writer http.ResponseWriter,
 		writeError(writer, http.StatusUnauthorized, "unauthorized", "hosted invitation is invalid, expired, or redeemed")
 		return
 	}
-	principal, err := principalFromHostedMember(member)
-	if err != nil || service.hub.Join(member.SessionID, principal) != nil {
+	if member.Disabled || service.registerHostedMember(member) != nil {
 		writeError(writer, http.StatusInternalServerError, "internal", "hosted membership initialization failed")
 		return
 	}
@@ -389,6 +339,9 @@ func hostedMember(sessionID string, identity auth.Session, role collabstore.Host
 }
 
 func principalFromHostedMember(member collabstore.HostedMember) (Principal, error) {
+	if member.Disabled {
+		return Principal{}, collabstore.ErrHostedMemberDisabled
+	}
 	identityHash := sha256.Sum256([]byte(member.Issuer + "\x00" + member.Subject))
 	return NewPrincipal(fmt.Sprintf("oidc-%x", identityHash), member.ActorID, member.DisplayName, Role(member.Role))
 }

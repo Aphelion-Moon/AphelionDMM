@@ -13,11 +13,30 @@ records running services and public readiness, with the OIDC allow policy still
 awaiting the user's choice. The Docker topology below remains historical for
 this installation and available to other self-hosters.
 
-## Objective
+## Current approved direction
+
+**September 26 approved update:** Discord login with a configured-guild membership
+check at login replaces Cloudflare OIDC for Aphelion once the operator completes
+cutover. OIDC remains the self-hosting default. The historical all-unlisted policy
+below is superseded by explicit Private/Community visibility: existing sessions
+migrate Private; active Community sessions are visible only to signed-in users,
+who may join as editors subject to existing roles and disabled-member restrictions.
+My sessions permits enabled members to reopen idle sessions. Native Windows at
+`mapcollab.a13.info` remains the deployment target. This approval is not evidence
+that the live service has been migrated.
+
+## Historical August 26 design
+
+Everything below records the original approval for historical context. Its hostname,
+OIDC-only policy, invitation-only discovery, and Docker deployment are superseded
+for the Aphelion installation by the dated decisions above. Current operator steps
+are in the [deployment handoff](../../hosting/game-server-deployment-agent-handoff.md).
+
+### Original objective
 
 Expose the single-replica hosted collaboration service at `https://mapping.a13.info` without requiring end users to hold Cloudflare accounts or install Cloudflare software, while preserving a documented, vendor-neutral path for other operators to host compatible servers.
 
-## Public service policy
+### Original public service policy
 
 - StrongDMM defaults its editable hosted-service field to `https://mapping.a13.info`.
 - A user may replace that origin with any compatible HTTPS service. Hosted credentials remain in memory and are never copied between origins.

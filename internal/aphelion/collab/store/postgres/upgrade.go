@@ -13,9 +13,9 @@ import (
 	collabstore "sdmm/internal/aphelion/collab/store"
 )
 
-// UpgradeTransactions copies a validated V3 schema into a distinct V4 schema
-// on the same PostgreSQL database. The V3 source schema remains intact; it is
-// a retained source, not an off-host disaster backup.
+// UpgradeTransactions copies a validated V3 transaction schema into a distinct
+// V4 transaction schema on the same PostgreSQL database. Hosted metadata is
+// preserved; the V3 source schema remains intact and is not an off-host backup.
 func UpgradeTransactions(ctx context.Context, sourceConfig, destinationConfig Config) (err error) {
 	if strings.TrimSpace(sourceConfig.DSN) == "" || strings.TrimSpace(destinationConfig.DSN) == "" || sourceConfig.DSN != destinationConfig.DSN {
 		return fmt.Errorf("PostgreSQL transaction upgrade requires the same non-empty DSN for source and destination")
@@ -162,18 +162,18 @@ func copyPostgresV3(ctx context.Context, source queryer, target pgx.Tx) error {
 	if err := documentsErr; err != nil {
 		return fmt.Errorf("read PostgreSQL source documents: %w", err)
 	}
-	hostedSessions, err := source.Query(ctx, `SELECT session_id, document_id, created_at FROM collaboration_hosted_sessions ORDER BY session_id`)
+	hostedSessions, err := source.Query(ctx, `SELECT session_id, document_id, created_at, visibility, title, map_label, environment_label FROM collaboration_hosted_sessions ORDER BY session_id`)
 	if err != nil {
 		return err
 	}
 	for hostedSessions.Next() {
-		var sessionID, documentID string
+		var sessionID, documentID, visibility, title, mapLabel, environmentLabel string
 		var createdAt any
-		if err := hostedSessions.Scan(&sessionID, &documentID, &createdAt); err != nil {
+		if err := hostedSessions.Scan(&sessionID, &documentID, &createdAt, &visibility, &title, &mapLabel, &environmentLabel); err != nil {
 			hostedSessions.Close()
 			return err
 		}
-		if _, err := target.Exec(ctx, `INSERT INTO collaboration_hosted_sessions(session_id, document_id, created_at) VALUES($1, $2, $3)`, sessionID, documentID, createdAt); err != nil {
+		if _, err := target.Exec(ctx, `INSERT INTO collaboration_hosted_sessions(session_id, document_id, created_at, visibility, title, map_label, environment_label) VALUES($1, $2, $3, $4, $5, $6, $7)`, sessionID, documentID, createdAt, visibility, title, mapLabel, environmentLabel); err != nil {
 			hostedSessions.Close()
 			return fmt.Errorf("copy PostgreSQL hosted session: %w", err)
 		}

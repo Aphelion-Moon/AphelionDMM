@@ -1,5 +1,9 @@
 # Native Windows hosted deployment
 
+Historical observations as of September 20. The September 26 Discord/Community
+implementation supersedes the provider policy after an independently verified
+operator cutover; this report does not establish current configuration or data.
+
 The user selected the current Windows server, `https://mapcollab.a13.info`,
 Cloudflare OIDC, and `D:\Backups`. This supersedes the older Linux Compose and
 `mapping.a13.info` deployment selection for this installation. The portable

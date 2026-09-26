@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"gopkg.in/yaml.v3"
 )
 
@@ -92,6 +93,71 @@ func TestProductionHostedConfigAndSchemaParse(t *testing.T) {
 	}
 	if schemaDocument["$schema"] != "https://json-schema.org/draft/2020-12/schema" {
 		t.Fatalf("schema declaration = %#v", schemaDocument["$schema"])
+	}
+}
+
+func TestHostedConfigSchemaValidatesOnlySelectedProvider(t *testing.T) {
+	root := productionDeploymentRoot(t)
+	schemaData, err := os.ReadFile(filepath.Join(root, "..", "..", "docs", "hosting", "hosted-config.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document any
+	if err := json.Unmarshal(schemaData, &document); err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	const schemaURL = "https://mapping.a13.info/schemas/apheliondmm-hosted-config-v1.json"
+	if err := compiler.AddResource(schemaURL, document); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile(schemaURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configData, err := os.ReadFile(filepath.Join(root, "config.yaml.example"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, provider string
+		valid          bool
+	}{
+		{"legacy_oidc", "", true}, {"explicit_oidc", "oidc", true},
+		{"discord", "discord", true}, {"unknown", "unknown", false},
+		{"missing_selected_secret", "discord", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var config map[string]any
+			if err := yaml.Unmarshal(configData, &config); err != nil {
+				t.Fatal(err)
+			}
+			if test.provider != "" {
+				config["auth_provider"] = test.provider
+			}
+			if test.provider == "discord" {
+				config["oidc"] = map[string]any{"issuer": "unused-invalid-issuer"}
+				discord := map[string]any{"client_id": "123", "guild_id": "456", "redirect_url": "https://mapping.a13.info/v1/auth/complete", "client_secret": map[string]any{"environment": "APHELIONDMM_DISCORD_CLIENT_SECRET"}}
+				if test.name == "missing_selected_secret" {
+					delete(discord, "client_secret")
+				}
+				config["discord"] = discord
+			} else {
+				config["discord"] = map[string]any{"client_id": "unused-invalid-id"}
+			}
+			// Normalize YAML integers to the JSON representation consumed by the schema.
+			data, err := json.Marshal(config)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var value any
+			if err := json.Unmarshal(data, &value); err != nil {
+				t.Fatal(err)
+			}
+			if err := schema.Validate(value); (err == nil) != test.valid {
+				t.Fatalf("valid=%v: %v", test.valid, err)
+			}
+		})
 	}
 }
 

@@ -40,6 +40,7 @@ type app interface {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	DoCreateLocalCollaborationSession()
 	DoSignInHostedCollaboration()
+	DoBrowseHostedSessions()
 	DoCreateHostedCollaborationSession()
 	DoSignOutHostedCollaboration()
 	DoJoinCollaborationSession()
@@ -266,7 +267,8 @@ func (m *Menu) Process() {
 				Enabled(m.app.HasActiveMap() && !m.app.HasActiveCollaboration()),
 			w.MenuItem("Sign In to Hosted Service", m.app.DoSignInHostedCollaboration).
 				IconEmpty().
-				Enabled(!m.app.HasHostedCollaborationSignIn() && !m.app.HasActiveCollaboration()),
+				Enabled(true),
+			w.MenuItem("Browse Sessions...", m.app.DoBrowseHostedSessions).IconEmpty(),
 			w.MenuItem("Start Hosted Session", m.app.DoCreateHostedCollaborationSession).
 				IconEmpty().
 				Enabled(m.app.HasActiveMap() && m.app.HasHostedCollaborationSignIn() && !m.app.HasActiveCollaboration()),

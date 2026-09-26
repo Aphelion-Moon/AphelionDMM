@@ -29,6 +29,23 @@ type JoinedSessionLifecycle interface {
 	Leave(context.Context) error
 }
 
+type HostedSessionLifecycle interface {
+	JoinHosted(context.Context, HostedConnection) error
+	Leave(context.Context) error
+}
+
+func PrepareHostedSession(ctx context.Context, lifecycle HostedSessionLifecycle, provider CollaborationExecutorProvider, target HostedConnection) (executor.Executor, error) {
+	if err := lifecycle.JoinHosted(ctx, target); err != nil {
+		return nil, err
+	}
+	if execution := provider.CollaborationExecutor(); execution != nil {
+		return execution, nil
+	}
+	cleanup, cancel := context.WithTimeout(context.Background(), incompleteSessionCleanupTimeout)
+	defer cancel()
+	return nil, errors.Join(fmt.Errorf("synchronized hosted executor is unavailable"), lifecycle.Leave(cleanup))
+}
+
 type CollaborationExecutorProvider interface {
 	CollaborationExecutor() executor.Executor
 }

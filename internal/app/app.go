@@ -142,6 +142,8 @@ type app struct {
 	clipboard      *dmmclip.Clipboard
 	// APHELION EDIT ADDITION START - COLLABORATION
 	collaborationClient     *collabui.SessionClient
+	hostedBrowser           *collabui.Browser
+	hostedLogin             *collabui.LoginDialog
 	collaborationController *collabui.Controller
 	collaborationEditor     *editor.Editor
 	// APHELION EDIT ADDITION END

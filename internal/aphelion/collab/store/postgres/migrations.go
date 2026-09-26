@@ -9,8 +9,9 @@ import (
 )
 
 const (
-	postgresSchemaVersion = 4
-	migrationLockID       = 0x415048454c494f4e
+	postgresSchemaVersion            = 5
+	postgresTransactionSchemaVersion = 4
+	migrationLockID                  = 0x415048454c494f4e
 )
 
 //go:embed schema/001_initial.sql
@@ -24,6 +25,9 @@ var exportCheckpointsSchema string
 
 //go:embed schema/004_versioned_transactions.sql
 var versionedTransactionsSchema string
+
+//go:embed schema/005_hosted_session_metadata.sql
+var hostedSessionMetadataSchema string
 
 func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	transaction, err := pool.Begin(ctx)
@@ -74,6 +78,14 @@ func migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		if _, err := transaction.Exec(ctx, "INSERT INTO collaboration_schema_migrations(version) VALUES(4)"); err != nil {
 			return fmt.Errorf("record versioned transactions PostgreSQL schema: %w", err)
+		}
+	}
+	if version < 5 {
+		if _, err := transaction.Exec(ctx, hostedSessionMetadataSchema); err != nil {
+			return fmt.Errorf("apply hosted session metadata PostgreSQL schema: %w", err)
+		}
+		if _, err := transaction.Exec(ctx, "INSERT INTO collaboration_schema_migrations(version) VALUES(5)"); err != nil {
+			return fmt.Errorf("record hosted session metadata PostgreSQL schema: %w", err)
 		}
 	}
 	if err := transaction.Commit(ctx); err != nil {

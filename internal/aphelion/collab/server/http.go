@@ -52,6 +52,8 @@ type ServiceConfig struct {
 	Compatibility                 compat.Matrix
 	HostedAuth                    HostedSessionAuthorizer
 	HostedLogin                   HostedLoginManager
+	HostedProvider                string
+	HostedPublicOrigin            string
 	HostedRegistry                collabstore.HostedRegistry
 	HostedReauthorizationInterval time.Duration
 }
@@ -94,34 +96,41 @@ type sessionRecord struct {
 }
 
 type desktopAuthHandoff struct {
-	challenge [sha256.Size]byte
-	stateHash [sha256.Size]byte
-	expiresAt time.Time
-	session   *auth.Session
+	startHash        [sha256.Size]byte
+	browserHash      [sha256.Size]byte
+	authorizationURL string
+	terminalError    string
+	browserStarted   bool
+	challenge        [sha256.Size]byte
+	stateHash        [sha256.Size]byte
+	expiresAt        time.Time
+	session          *auth.Session
 }
 
 type Service struct {
-	bulk              *bulktransport.Codec
-	config            ServiceConfig
-	context           context.Context
-	cancel            context.CancelFunc
-	hub               *Hub
-	store             SessionStore
-	documentConfig    DocumentConfig
-	limits            Limits
-	mutex             sync.RWMutex
-	tokens            map[string]tokenRecord
-	sessions          map[string]sessionRecord
-	recoveryErrors    map[model.DocumentID]error
-	desktopHandoffs   map[[sha256.Size]byte]desktopAuthHandoff
-	desktopAuthStates map[[sha256.Size]byte][sha256.Size]byte
-	activeConnections int
-	joinLimiter       *rateLimiter
-	durableLimiter    *rateLimiter
-	presenceLimiter   *rateLimiter
-	telemetry         *collabtelemetry.Telemetry
-	compatibility     compat.Matrix
-	server            *http.ServeMux
+	bulk                 *bulktransport.Codec
+	config               ServiceConfig
+	context              context.Context
+	cancel               context.CancelFunc
+	hub                  *Hub
+	store                SessionStore
+	documentConfig       DocumentConfig
+	limits               Limits
+	mutex                sync.RWMutex
+	tokens               map[string]tokenRecord
+	sessions             map[string]sessionRecord
+	recoveryErrors       map[model.DocumentID]error
+	desktopHandoffs      map[[sha256.Size]byte]desktopAuthHandoff
+	desktopAuthStates    map[[sha256.Size]byte][sha256.Size]byte
+	activeConnections    int
+	hostedConnections    map[uint64]hostedConnection
+	nextHostedConnection uint64
+	joinLimiter          *rateLimiter
+	durableLimiter       *rateLimiter
+	presenceLimiter      *rateLimiter
+	telemetry            *collabtelemetry.Telemetry
+	compatibility        compat.Matrix
+	server               *http.ServeMux
 }
 
 func NewService(config ServiceConfig) *Service {
@@ -182,6 +191,7 @@ func NewService(config ServiceConfig) *Service {
 		compatibility:     config.Compatibility,
 		tokens:            make(map[string]tokenRecord),
 		sessions:          make(map[string]sessionRecord),
+		hostedConnections: make(map[uint64]hostedConnection),
 		recoveryErrors:    make(map[model.DocumentID]error),
 		desktopHandoffs:   make(map[[sha256.Size]byte]desktopAuthHandoff),
 		desktopAuthStates: make(map[[sha256.Size]byte][sha256.Size]byte),
@@ -279,11 +289,16 @@ func (service *Service) routes() {
 	service.server.HandleFunc("GET /v1/version", service.handleVersion)
 	service.server.HandleFunc("POST /v1/auth/begin", service.handleHostedAuthBegin)
 	service.server.HandleFunc("POST /v1/auth/desktop/begin", service.handleHostedDesktopAuthBegin)
+	service.server.HandleFunc("GET /v1/auth/browser/start", service.handleHostedBrowserStart)
 	service.server.HandleFunc("POST /v1/auth/desktop/exchange", service.handleHostedDesktopAuthExchange)
 	service.server.HandleFunc("GET /v1/auth/complete", service.handleHostedAuthComplete)
 	service.server.HandleFunc("POST /v1/auth/logout", service.handleHostedAuthLogout)
 	service.server.HandleFunc("POST /v1/sessions", service.handleCreateSession)
 	service.server.HandleFunc("POST /v1/hosted/sessions", service.handleCreateHostedSession)
+	service.server.HandleFunc("GET /v1/hosted/capabilities", service.handleHostedCapabilities)
+	service.server.HandleFunc("GET /v1/hosted/sessions", service.handleListHostedSessions)
+	service.server.HandleFunc("POST /v1/hosted/sessions/{session_id}/join", service.handleJoinHostedSession)
+	service.server.HandleFunc("PATCH /v1/hosted/sessions/{session_id}", service.handleUpdateHostedSession)
 	service.server.HandleFunc("GET /v1/sessions/{session_id}", service.handleGetSession)
 	service.server.HandleFunc("GET /v1/sessions/{session_id}/snapshot", service.handleGetSnapshot)
 	service.server.HandleFunc("POST /v1/sessions/{session_id}/join-tokens", service.handleCreateJoinToken)
