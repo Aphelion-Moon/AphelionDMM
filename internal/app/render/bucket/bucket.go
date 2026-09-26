@@ -11,6 +11,9 @@ import (
 
 	"sdmm/internal/app/render/bucket/level"
 	"sdmm/internal/dmapi/dmmap"
+	// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
+	"sdmm/internal/dmapi/dmmap/dmminstance"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/util"
 
 	"github.com/rs/zerolog/log"
@@ -19,6 +22,9 @@ import (
 // Bucket contains data needed to render the map.
 // The Bucket itself is made of Level's which are made of Chunk's.
 type Bucket struct {
+	// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
+	InstanceFilter func(*dmminstance.Instance) bool
+	// APHELION EDIT ADDITION END
 	Levels []int
 	levels map[int]*level.Level
 }
@@ -36,7 +42,8 @@ func (b *Bucket) UpdateLevel(dmm *dmmap.Dmm, levelValue int, tilesToUpdate []uti
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - QUIET FRAME WORK - ORIGINAL: log.Printf("updating bucket with [%s]...", dmm.Path.Readable)
 	log.Debug().Str("map", dmm.Path.Readable).Msg("updating bucket")
-	b.getOrCreateLevel(dmm, levelValue).Update(dmm, tilesToUpdate)
+	// APHELION EDIT CHANGE - OCCURRENCE GEOMETRY - ORIGINAL: b.getOrCreateLevel(dmm, levelValue).Update(dmm, tilesToUpdate)
+	b.getOrCreateLevel(dmm, levelValue).Update(dmm, tilesToUpdate, b.InstanceFilter)
 	// APHELION EDIT CHANGE - QUIET FRAME WORK - ORIGINAL: log.Print("bucket updated")
 	log.Debug().Msg("bucket updated")
 }

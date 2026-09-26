@@ -1,6 +1,10 @@
 package wsempty
 
 import (
+	// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+	"context"
+	"sdmm/internal/aphelion/mapindex"
+	// APHELION EDIT ADDITION END
 	"fmt"
 	"math"
 	"strings"
@@ -41,7 +45,7 @@ type App interface {
 	RecentMapsByLoadedEnvironment() []string
 	RecentMaps() []string
 
-	AvailableMaps() []string
+	// APHELION EDIT REMOVAL - LOADING RESPONSIVENESS: AvailableMaps() []string
 }
 
 var (
@@ -66,7 +70,21 @@ type WsEmpty struct {
 	selectedMaps  []string
 
 	isDoSelectAllMaps bool
+	// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+	scanEnvironment *dmenv.Dme
+	scanResult      chan mapScanResult
+	scanCancel      context.CancelFunc
+	scanError       error
+	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+type mapScanResult struct {
+	paths []string
+	err   error
+}
+
+// APHELION EDIT ADDITION END
 
 func New(app App) *WsEmpty {
 	return &WsEmpty{
@@ -87,6 +105,7 @@ func (ws *WsEmpty) Initialize() {
 }
 
 func (ws *WsEmpty) PreProcess() {
+	/* APHELION EDIT REMOVAL START - LOADING RESPONSIVENESS
 	if ws.app.HasLoadedEnvironment() {
 		if ws.availableMaps == nil {
 			ws.availableMaps = ws.app.AvailableMaps()
@@ -95,9 +114,44 @@ func (ws *WsEmpty) PreProcess() {
 		ws.availableMaps = nil
 		ws.selectedMaps = nil
 	}
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+	environment := ws.app.LoadedEnvironment()
+	if environment != ws.scanEnvironment {
+		if ws.scanCancel != nil {
+			ws.scanCancel()
+		}
+		ws.scanEnvironment = environment
+		ws.availableMaps, ws.selectedMaps, ws.scanResult, ws.scanError = nil, nil, nil, nil
+		if environment != nil {
+			ctx, cancel := context.WithCancel(context.Background())
+			ws.scanCancel = cancel
+			results := make(chan mapScanResult, 1)
+			ws.scanResult = results
+			root := environment.RootDir
+			go func() { paths, err := mapindex.Scan(ctx, root); results <- mapScanResult{paths, err} }()
+		}
+	}
+	if ws.scanResult != nil {
+		select {
+		case result := <-ws.scanResult:
+			ws.availableMaps, ws.scanError = result.paths, result.err
+			ws.scanResult = nil
+		default:
+		}
+	}
+	// APHELION EDIT ADDITION END
 }
 
 func (ws *WsEmpty) Process() {
+	// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+	if ws.scanResult != nil {
+		imgui.Text("Discovering project maps…")
+	}
+	if ws.scanError != nil {
+		imgui.TextWrapped("Map discovery incomplete: " + ws.scanError.Error())
+	}
+	// APHELION EDIT ADDITION END
 	ws.showContent()
 }
 
@@ -105,7 +159,17 @@ func (ws *WsEmpty) PostProcess() {
 	ws.isDoSelectAllMaps = false
 }
 
+// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+func (ws *WsEmpty) DiscoveryReady() bool { return ws.scanResult == nil }
+
+// APHELION EDIT ADDITION END
+
 func (ws *WsEmpty) Dispose() {
+	// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+	if ws.scanCancel != nil {
+		ws.scanCancel()
+	}
+	// APHELION EDIT ADDITION END
 	ws.shortcuts.Dispose()
 }
 

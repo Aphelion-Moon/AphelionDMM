@@ -27,10 +27,32 @@ type Hub struct {
 	sessions       map[string]*Panel
 	contextCameras map[string]render.Camera
 	cursor         int
+	unavailable    map[string]string
 }
 
 func NewHub(app App) *Hub { return &Hub{app: app, sessions: map[string]*Panel{}} }
+
+func (h *Hub) ContextHeader(path string, dirty bool) bool {
+	start := imgui.CursorPos()
+	if p := h.forView(path); p != nil {
+		p.ContextHeader(path, dirty)
+	}
+	if reason := h.unavailable[viewKey(path)]; reason != "" {
+		imgui.TextWrapped(reason)
+		if host, ok := h.app.(interface{ ShowMappingEnvironment() }); ok && imgui.SmallButton("Environment / maps") {
+			host.ShowMappingEnvironment()
+		}
+	}
+	return imgui.CursorPos().Y != start.Y
+}
+func (h *Hub) ContextAlpha(path string) float32 {
+	if p := h.forView(path); p != nil && p.contextStyle == 1 {
+		return .4
+	}
+	return 1
+}
 func (h *Hub) SetContextCamera(parent, path string, camera render.Camera) {
+	delete(h.unavailable, viewKey(path))
 	if h.contextCameras == nil {
 		h.contextCameras = map[string]render.Camera{}
 	}
@@ -47,6 +69,13 @@ func (h *Hub) TakeContextCamera(path string) (render.Camera, bool) {
 	delete(h.contextCameras, viewKey(path))
 	return camera, ok
 }
+
+func (h *Hub) RestoreContextCamera(path string, camera render.Camera) {
+	if h.contextCameras == nil {
+		h.contextCameras = map[string]render.Camera{}
+	}
+	h.contextCameras[viewKey(path)] = camera
+}
 func viewKey(path string) string { return strings.ToLower(filepath.Clean(path)) }
 func (h *Hub) session(path string) *Panel {
 	key := viewKey(path)
@@ -56,22 +85,33 @@ func (h *Hub) session(path string) *Panel {
 	p := New(h.app)
 	p.parentPath, p.environment = path, h.app.LoadedEnvironment()
 	p.managed = true
+	p.previewVisible = false
 	h.sessions[key] = p
 	return p
 }
 func (h *Hub) Open() {
 	if path := h.app.ActiveMappingPath(); path != "" {
 		p := h.session(path)
+		if !p.open {
+			p.previewVisible = true
+		}
 		p.Open()
 		p.compose = true
-		if p.current == nil {
+		if p.current == nil && p.pending == nil && p.results == nil && p.operation.err == nil {
 			p.queue(nil)
 		}
 	}
 }
 func (h *Hub) CloseSource(path string) {
+	delete(h.unavailable, viewKey(path))
 	delete(h.contextCameras, viewKey(path))
 	if p := h.sessions[viewKey(path)]; p != nil {
+		if p.contextPath != "" && viewKey(p.contextPath) != viewKey(path) {
+			if h.unavailable == nil {
+				h.unavailable = map[string]string{}
+			}
+			h.unavailable[viewKey(p.contextPath)] = "Context unavailable — the host map was closed. This source remains independently editable."
+		}
 		p.open = false
 		p.Invalidate()
 		delete(h.sessions, viewKey(path))
@@ -83,6 +123,7 @@ func (h *Hub) CloseSource(path string) {
 	}
 }
 func (h *Hub) Invalidate() {
+	clear(h.unavailable)
 	clear(h.contextCameras)
 	for key, p := range h.sessions {
 		p.open = false
@@ -141,7 +182,7 @@ func (h *Hub) Draw(path string, camera render.Camera, size, origin imgui.Vec2) {
 }
 func (h *Hub) VisibleInMap(path string) bool {
 	p := h.forView(path)
-	return p != nil && viewKey(p.parentPath) == viewKey(path) && p.open && p.compose && p.current != nil
+	return p != nil && viewKey(p.parentPath) == viewKey(path) && p.open && p.previewVisible && p.compose && p.current != nil
 }
 func (h *Hub) Handle(path string, point util.Point, active, pressed, released, cancel, focused bool, tool string) bool {
 	if p := h.forView(path); p != nil && viewKey(p.parentPath) == viewKey(path) {
@@ -162,21 +203,20 @@ func (h *Hub) ArmAnchorMove(path string) bool {
 	return false
 }
 func (h *Hub) CancelDraft(path string) {
-	if p := h.sessions[viewKey(path)]; p != nil && p.draft != nil {
-		p.draft = nil
-		p.moveArmed = false
+	if p := h.sessions[viewKey(path)]; p != nil && (p.draft != nil || p.moveRoot != "" || p.moveArmed) {
+		p.cancelMove()
 		p.status = "Anchor draft cancelled"
 	}
 }
 func (h *Hub) TileLocked(path string, point util.Point) bool {
 	p := h.forView(path)
-	return p != nil && viewKey(p.parentPath) == viewKey(path) && p.open && p.compose && p.derivedCell(point)
+	return p != nil && viewKey(p.parentPath) == viewKey(path) && p.open && p.previewVisible && p.compose && p.derivedCell(point)
 }
 
 // EditFence captures immutable provenance for existing asynchronous edit workers.
 func (h *Hub) EditFence(path string) func(util.Point) bool {
 	p := h.forView(path)
-	if p == nil || viewKey(p.parentPath) != viewKey(path) || !p.open || !p.compose || p.current == nil || p.current.projection == nil {
+	if p == nil || viewKey(p.parentPath) != viewKey(path) || !p.open || !p.previewVisible || !p.compose || p.current == nil || p.current.projection == nil {
 		return nil
 	}
 	provenance := p.current.projection.Provenance

@@ -71,7 +71,8 @@ type Layout struct {
 	Collaboration *collabui.Panel
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
-	Composition *mappingui.Hub
+	Composition       *mappingui.Hub
+	compositionClosed bool
 	// APHELION EDIT ADDITION END
 
 	tmpNextShowNode  []string
@@ -118,7 +119,9 @@ func (l *Layout) Process() {
 	l.showCollaborationNode()
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 	l.Composition.Advance()
-	l.wrapNode(lnode.NameComposition, l.leftNodeId, l.Composition)
+	if !l.compositionClosed {
+		l.wrapNode(lnode.NameComposition, l.leftNodeId, l.Composition)
+	}
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION END
 	l.showWorkspaceAreaNode() // The latest node will have a focus by default
@@ -142,6 +145,11 @@ func (l *Layout) SyncLayoutState() {
 }
 
 func (l *Layout) ShowNode(nodeName string) {
+	// APHELION EDIT ADDITION START - COMPOSITION NAVIGATION
+	if nodeName == lnode.NameComposition {
+		l.compositionClosed = false
+	}
+	// APHELION EDIT ADDITION END
 	imgui.ExtSetDockTabSelected(nodeName)
 	l.tmpNextShowNode = append(l.tmpNextShowNode, nodeName)
 }
@@ -268,7 +276,18 @@ func (l *Layout) prepareNode(id string, dockId int32, cfg wrapCfg) {
 func (l *Layout) processNode(id string, dockId int32, node layoutNode, cfg wrapCfg) {
 	node.PreProcess()
 
-	visible := imgui.BeginV(id, nil, defaultWindowFlags)
+	// APHELION EDIT CHANGE - COMPOSITION NAVIGATION - ORIGINAL: visible := imgui.BeginV(id, nil, defaultWindowFlags)
+	var closeButton *bool
+	opened := true
+	if id == lnode.NameComposition {
+		closeButton = &opened
+	}
+	visible := imgui.BeginV(id, closeButton, defaultWindowFlags)
+	if !opened {
+		l.compositionClosed = true
+		l.ShowNode(lnode.NameEnvironment)
+		l.FocusNode(lnode.NameEnvironment)
+	}
 	// APHELION EDIT ADDITION START - COMPOSITION DOCK MIGRATION
 	if id == lnode.NameEnvironment && imgui.GetWindowDockID() != 0 {
 		l.leftNodeId = int32(imgui.GetWindowDockID())

@@ -109,6 +109,7 @@ func (c *Catalog) Compose(ctx context.Context, base *Source, scenario Scenario, 
 	if err != nil {
 		return nil, err
 	}
+	lease.Label(base.Identity.Path, "composition and provenance")
 	published := false
 	defer func() {
 		if !published {

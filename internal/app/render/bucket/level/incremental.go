@@ -5,15 +5,16 @@ import (
 	"sdmm/internal/app/render/bucket/level/chunk"
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/dmapi/dmmap"
+	"sdmm/internal/dmapi/dmmap/dmminstance"
 	"sdmm/internal/util"
 	"slices"
 	"sort"
 )
 
-func (l *Level) Update(dmm *dmmap.Dmm, tiles []util.Point) {
+func (l *Level) Update(dmm *dmmap.Dmm, tiles []util.Point, filters ...func(*dmminstance.Instance) bool) {
 	if tiles == nil || l.ChunksByLayers == nil {
 		for _, c := range l.Chunks {
-			c.Update(dmm, l.value)
+			c.Update(dmm, l.value, filters...)
 		}
 		l.createChunksLayers()
 		return
@@ -30,7 +31,7 @@ func (l *Level) Update(dmm *dmmap.Dmm, tiles []util.Point) {
 		seen[key] = struct{}{}
 		if c := l.Chunks[key]; c != nil {
 			old := c.UnitsByLayers
-			c.Update(dmm, l.value)
+			c.Update(dmm, l.value, filters...)
 			l.updateChunkLayers(c, old)
 		}
 	}

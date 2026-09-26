@@ -73,6 +73,7 @@ func LoadSource(ctx context.Context, path string, environment *dmenv.Dme) (*Sour
 	if err != nil {
 		return nil, err
 	}
+	lease.Label(abs, "source snapshot")
 	accepted := false
 	defer func() {
 		if !accepted {
@@ -192,9 +193,24 @@ func (s *Source) Cell(p util.Point) []Atom { return cloneAtoms(s.atomsAt(p)) }
 // DisplayMap is a private projection: it has no source filepath, backup,
 // authoritative document, command history, selection, or save route.
 func (s *Source) DisplayMap(ctx context.Context) (*dmmap.Dmm, error) {
+	return s.displayMap(ctx, nil)
+}
+
+// DisplayMapWithOccurrences indexes actual render instances, including identical
+// prefabs from different uses of one source. The index is not document identity.
+func (s *Source) DisplayMapWithOccurrences(ctx context.Context) (*dmmap.Dmm, map[uint64]string, error) {
+	index := make(map[uint64]string)
+	d, err := s.displayMap(ctx, index)
+	return d, index, err
+}
+
+func (s *Source) displayMap(ctx context.Context, occurrences map[uint64]string) (*dmmap.Dmm, error) {
 	bytes := uint64(s.Size.X) * uint64(s.Size.Y) * uint64(s.Size.Z) * 128
 	for _, key := range s.grid {
 		bytes += uint64(len(s.dictionary[key])) * 128
+		if occurrences != nil {
+			bytes += uint64(len(s.dictionary[key])) * 64
+		}
 	}
 	for _, atoms := range s.dictionary {
 		for _, atom := range atoms {
@@ -205,6 +221,7 @@ func (s *Source) DisplayMap(ctx context.Context) (*dmmap.Dmm, error) {
 	if err != nil {
 		return nil, err
 	}
+	lease.Label(s.Identity.Path, "display map")
 	complete := false
 	defer func() {
 		if !complete {
@@ -236,14 +253,29 @@ func (s *Source) DisplayMap(ctx context.Context) (*dmmap.Dmm, error) {
 		p := util.Point{X: n%d.MaxX + 1, Y: n/d.MaxX%d.MaxY + 1, Z: n/(d.MaxX*d.MaxY) + 1}
 		t := &dmmap.Tile{Coord: p}
 		sourcePoint := p
-		for _, prefab := range prefabs[s.grid[sourcePoint]] {
+		key := s.grid[sourcePoint]
+		for i, prefab := range prefabs[key] {
 			t.InstancesAdd(prefab)
+			if occurrences != nil && s.dictionary[key][i].Occurrence != "" {
+				instances := t.Instances()
+				occurrences[instances[len(instances)-1].Id()] = s.dictionary[key][i].Occurrence
+			}
 		}
 		d.Tiles[n] = t
 	}
 	complete = true
 	s.displayLeases = append(s.displayLeases, lease)
 	return d, nil
+}
+
+// LabelDisplayResources attributes request-owned display copies in diagnostics.
+func (s *Source) LabelDisplayResources(owner string) {
+	if s == nil {
+		return
+	}
+	for _, lease := range s.displayLeases {
+		lease.Label(owner, "display map")
+	}
 }
 
 // BoundPath is for runtime-declared dependencies. Manually opened references

@@ -57,6 +57,24 @@ func TestMapOpenLateResultCannotInstallAfterCancellationOrProjectChange(t *testi
 	}
 }
 
+func TestMapOpenNavigationRejectsLateResultAfterForegroundChange(t *testing.T) {
+	environment := &dmenv.Dme{}
+	a := &app{loadedEnvironment: environment}
+	notified := 0
+	req := &mapOpenRequest{environment: environment, results: make(chan mapOpenResult, 1), navigationCurrent: func() bool { return false }, navigationDone: func(err error) {
+		if err == nil {
+			t.Error("superseded navigation reported success")
+		}
+		notified++
+	}}
+	a.mapOpenActive = req
+	req.results <- mapOpenResult{data: &dmmdata.DmmData{}}
+	a.processMapOpen()
+	if a.mapOpenActive != nil || notified != 1 {
+		t.Fatal("stale navigation was not completed exactly once")
+	}
+}
+
 func TestOwnedMapOpenFailureRemovesPartialBackup(t *testing.T) {
 	root := t.TempDir()
 	result := prepareMapOpen(filepath.Join(root, "missing.dmm"), filepath.Join(root, "backup"), "project")

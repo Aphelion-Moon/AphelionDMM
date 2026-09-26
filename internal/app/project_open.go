@@ -24,6 +24,10 @@ import (
 )
 
 type mapOpenRequest struct {
+	navigationCurrent                           func() bool
+	navigationDone                              func(error)
+	completionErr                               error
+	installed                                   bool
 	path, backupDir, environmentName, contentID string
 	environment                                 *dmenv.Dme
 	workspace                                   *workspace.Workspace
@@ -206,7 +210,11 @@ func (a *app) processMapOpen() {
 			return
 		}
 		if result.err != nil {
+			request.completionErr = result.err
 			a.finishMapOpen(request)
+			if request.navigationDone != nil {
+				return
+			}
 			err := result.err
 			dialog.Open(dialog.TypeCustom{Title: "Unable to open map", Layout: w.Layout{
 				w.Text("The map was not installed. " + err.Error()),
@@ -216,6 +224,7 @@ func (a *app) processMapOpen() {
 		}
 		install := trace.StartRegion(request.ctx, string(uistage.MapInstall))
 		a.installOpenMap(request.path, request.workspace, result.prepared.Dmm(), result.unknown, result.prepared)
+		request.installed = a.mappingWorkspace(request.path) != nil
 		install.End()
 		a.finishMapOpen(request)
 	default:
@@ -224,9 +233,17 @@ func (a *app) processMapOpen() {
 
 func (a *app) mapOpenCurrent(request *mapOpenRequest) bool {
 	return !request.cancelled && !a.closed && a.loadedEnvironment == request.environment &&
+		(request.navigationCurrent == nil || request.navigationCurrent()) &&
 		(request.workspace == nil || a.layout != nil && a.layout.WsArea.OwnsWorkspaceContent(request.workspace, request.contentID))
 }
 func (a *app) finishMapOpen(request *mapOpenRequest) {
+	if request.navigationDone != nil {
+		err := request.completionErr
+		if !request.installed && err == nil {
+			err = context.Canceled
+		}
+		request.navigationDone(err)
+	}
 	if request.traceTask != nil {
 		trace.Logf(request.ctx, "intern-total", "items=%d slices=%d execution=%s longest=%s", request.internItems, request.internSlices, request.internTime, request.longestInternItem)
 		request.traceTask.End()

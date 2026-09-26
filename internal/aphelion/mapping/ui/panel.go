@@ -13,6 +13,7 @@ import (
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"sdmm/internal/aphelion/mapping"
 	"sdmm/internal/aphelion/mapview"
+	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/render"
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
@@ -33,6 +34,8 @@ type acceptedProvider interface {
 	CaptureMappingSources() map[string]mapping.AcceptedSource
 }
 type request struct {
+	retryMemory            bool
+	refresh                bool
 	contextRoot            string
 	focusRoot              string
 	thumbnail, scanProject bool
@@ -48,10 +51,10 @@ type request struct {
 	fixedChoices           map[string]int
 }
 type result struct {
-	contextSource       *mapping.Source
+	stage               string
+	occurrences         map[uint64]string
 	contextDisplay      *dmmap.Dmm
 	configurations      []string
-	layers              [2]*mapping.Source
 	layerDisplays       [2]*dmmap.Dmm
 	thumbnailSource     *mapping.Source
 	thumbnailDisplay    *dmmap.Dmm
@@ -73,10 +76,6 @@ type result struct {
 }
 
 func (r *result) close() {
-	r.contextSource.Close()
-	for _, s := range r.layers {
-		s.Close()
-	}
 	r.advisory.Close()
 	r.projection.Close()
 	r.catalog.Close()
@@ -85,59 +84,73 @@ func (r *result) close() {
 // Panel is a modeless source inspector. It owns no editable document, tools,
 // clipboard or history; opening a source for editing is an explicit separate action.
 type Panel struct {
-	contextRoot                            string
-	contextView                            *canvas.Canvas
-	managed, moveArmed, revealRoot         bool
-	rootFilter                             string
-	draft                                  *anchorDraft
-	split                                  float32
-	targetDeck                             int32
-	layerViews                             [2]*canvas.Canvas
-	thumbnail                              *canvas.Canvas
-	thumbnailRequested, scanNext           bool
-	discovered                             []string
-	browserFilter                          string
-	guidance                               bool
-	spawnSelection, spawnPage, spawnTarget int
-	author                                 authoringUI
-	app                                    App
-	open                                   bool
-	environment                            *dmenv.Dme
-	generation                             uint64
-	parentPath, referencePath, status      string
-	pending                                *request
-	results                                chan result
-	cancel                                 context.CancelFunc
-	current                                *result
-	reuse                                  *mapping.ReuseCache
-	views                                  [2]*canvas.Canvas
-	visualCursor                           int
-	camera                                 render.Camera
-	level                                  int32
-	offset                                 [3]int32
-	anchor                                 *util.Point
-	transformParent, transformReference    string
-	mode                                   int32
-	alpha                                  float32
-	wipe                                   float32
-	viewSize                               imgui.Vec2
-	compose                                bool
-	choices                                map[string]mapping.Choice
-	mapConfig                              string
-	fixedChoices                           map[string]int
-	scenario                               mapping.Scenario
-	showHelpers                            bool
-	policyRevision                         uint64
-	inspected                              util.Point
-	observedRevisions                      string
-	nextRevisionCheck                      time.Time
-	retryAccepted                          bool
-	contextPath, focusRoot                 string
-	backdrop                               *canvas.Canvas
+	refreshBlocked                          bool
+	previewVisible, comparisonActive, stale bool
+	operation                               previewOperation
+	contextStyle                            int
+	navigation                              uint64
+	openingSource, sourceStatus             string
+	history                                 []contextFrame
+	treeDirty                               bool
+	treeRows                                []occurrenceRow
+	expanded                                map[string]bool
+	treeFilter                              string
+	treeHeight                              float32
+	contributors                            []string
+	moveRoot                                string
+	contextRoot                             string
+	contextView                             *canvas.Canvas
+	managed, moveArmed, revealRoot          bool
+	rootFilter                              string
+	draft                                   *anchorDraft
+	split                                   float32
+	targetDeck                              int32
+	layerViews                              [2]*canvas.Canvas
+	thumbnail                               *canvas.Canvas
+	thumbnailRequested, scanNext            bool
+	discovered                              []string
+	browserFilter                           string
+	guidance                                bool
+	spawnSelection, spawnPage, spawnTarget  int
+	author                                  authoringUI
+	app                                     App
+	open                                    bool
+	environment                             *dmenv.Dme
+	generation                              uint64
+	parentPath, referencePath, status       string
+	pending                                 *request
+	results                                 chan result
+	cancel                                  context.CancelFunc
+	current                                 *result
+	reuse                                   *mapping.ReuseCache
+	views                                   [2]*canvas.Canvas
+	visualCursor                            int
+	camera                                  render.Camera
+	level                                   int32
+	offset                                  [3]int32
+	anchor                                  *util.Point
+	transformParent, transformReference     string
+	mode                                    int32
+	alpha                                   float32
+	wipe                                    float32
+	viewSize                                imgui.Vec2
+	compose                                 bool
+	choices                                 map[string]mapping.Choice
+	mapConfig                               string
+	fixedChoices                            map[string]int
+	scenario                                mapping.Scenario
+	showHelpers                             bool
+	policyRevision                          uint64
+	inspected                               util.Point
+	observedRevisions                       string
+	nextRevisionCheck                       time.Time
+	retryAccepted                           bool
+	contextPath, focusRoot                  string
+	backdrop                                *canvas.Canvas
 }
 
 func New(app App) *Panel {
-	return &Panel{app: app, choices: map[string]mapping.Choice{}, camera: render.Camera{Scale: .25, Level: 1}, level: 1, alpha: .5, wipe: .5, showHelpers: true}
+	return &Panel{app: app, choices: map[string]mapping.Choice{}, camera: render.Camera{Scale: .25, Level: 1}, level: 1, alpha: .5, wipe: .5, showHelpers: true, previewVisible: true, contextStyle: 1, expanded: map[string]bool{}}
 }
 func (p *Panel) Open() {
 	p.open = true
@@ -166,12 +179,23 @@ func (p *Panel) OpenReferenceForEditing() {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(p.environment.RootDir, path)
 	}
+	if _, ok := p.app.(interface {
+		OpenMappingSource(string, string, mapping.Transform, func() bool, func(error))
+	}); ok {
+		p.enterContext(contextFrame{path: path, transform: mapping.Transform{Offset: util.Point{X: int(p.offset[0]), Y: int(p.offset[1]), Z: int(p.offset[2])}}}, true)
+		return
+	}
 	p.app.DoLoadResource(path)
-	p.contextPath = path
+	if viewKey(p.app.ActiveMappingPath()) == viewKey(path) {
+		p.contextPath = path
+	}
 }
 func (p *Panel) clearContext() {
+	p.navigation++
+	p.openingSource = ""
 	p.contextPath = ""
 	p.contextRoot = ""
+	p.history = nil
 	if p.contextView != nil {
 		p.contextView.Dispose()
 		p.contextView = nil
@@ -212,6 +236,13 @@ func (p *Panel) release() {
 	}
 }
 func (p *Panel) Invalidate() {
+	p.navigation++
+	p.openingSource, p.sourceStatus = "", ""
+	p.history = nil
+	p.operation = previewOperation{}
+	p.stale, p.retryAccepted = false, false
+	p.moveRoot = ""
+	p.moveArmed = false
 	p.draft = nil
 	p.author.invalidate()
 	p.generation++
@@ -241,8 +272,10 @@ func (p *Panel) Invalidate() {
 	p.transformParent, p.transformReference = "", ""
 }
 func (p *Panel) queue(anchor *util.Point) {
+	p.refreshBlocked = false
+	p.operation = previewOperation{target: "preview"}
 	// Selection, binding, or accepted-source refresh invalidates a captured draft.
-	p.draft = nil
+	p.cancelMove()
 	if p.transformParent != p.parentPath || p.transformReference != p.referencePath {
 		p.anchor = nil
 		p.offset = [3]int32{}
@@ -257,7 +290,7 @@ func (p *Panel) queue(anchor *util.Point) {
 	p.pending = &request{generation: p.generation, environment: p.environment, parent: p.parentPath, reference: p.referencePath, anchor: p.anchor}
 	p.pending.compose = p.compose
 	p.pending.contextRoot = p.contextRoot
-	p.pending.focusRoot = p.focusRoot
+	p.pending.focusRoot = p.moveRoot
 	p.pending.guidance = p.guidance
 	p.pending.thumbnail = p.thumbnailRequested
 	p.pending.scanProject = p.scanNext
@@ -290,16 +323,7 @@ func (p *Panel) advance() {
 		p.environment = p.app.LoadedEnvironment()
 		p.status = "Project changed; reopen references for this environment."
 	}
-	if p.open && (p.current != nil || p.retryAccepted) {
-		paths := []string{p.parentPath, p.referencePath}
-		if p.current != nil {
-			paths = p.current.dependencies
-		}
-		if provider, ok := p.app.(acceptedProvider); ok && ((p.retryAccepted && time.Now().After(p.nextRevisionCheck)) || provider.MappingRevisionKey(paths) != p.observedRevisions) {
-			p.nextRevisionCheck = time.Now().Add(100 * time.Millisecond)
-			p.queue(nil)
-		}
-	}
+	p.observeSources()
 	if p.results != nil {
 		select {
 		case r := <-p.results:
@@ -309,17 +333,50 @@ func (p *Panel) advance() {
 				r.close()
 			} else if r.err != nil {
 				r.close()
+				var admission *resources.AdmissionError
+				if errors.As(r.err, &admission) && !r.request.retryMemory && p.reuse.EvictUnused() > 0 {
+					op := p.operation
+					p.queue(nil)
+					p.pending.scenario = r.request.scenario
+					p.pending.mapConfig = r.request.mapConfig
+					p.pending.fixedChoices = maps.Clone(r.request.fixedChoices)
+					p.pending.refresh = r.request.refresh
+					p.pending.retryMemory = true
+					if r.request.refresh {
+						p.operation = op
+					}
+					return
+				}
 				p.status = r.err.Error()
+				p.operation.err = r.err
+				if !r.request.refresh {
+					failed := r.request
+					p.operation.failed = &failed
+				}
 				p.retryAccepted = errors.Is(r.err, mapping.ErrAcceptedDeferred)
+				if p.retryAccepted {
+					p.operation = previewOperation{target: "accepted source changes"}
+				}
+				p.nextRevisionCheck = time.Now().Add(100 * time.Millisecond)
+				p.refreshBlocked = !p.retryAccepted
+				p.stale = p.stale || r.request.refresh
 			} else if !r.catalog.AcceptedCurrent() {
 				r.close()
-				p.queue(nil)
+				p.stale = true
+				p.retryAccepted = true
+				p.nextRevisionCheck = time.Now().Add(100 * time.Millisecond)
 			} else {
+				previous := p.current
 				p.release()
 				p.current = &r
+				p.stale = false
+				p.refreshBlocked = false
+				if p.operation.failed == nil {
+					p.operation.err = nil
+				}
 				if r.contextDisplay != nil {
 					v := canvas.New()
-					v.Render().SetUnitProcessor(p)
+					v.Render().SetUnitProcessor(p.occurrenceView(&r, r.request.contextRoot, false))
 					v.Render().BeginLevelBuild(r.contextDisplay, 1)
 					p.contextView = v
 				}
@@ -327,10 +384,10 @@ func (p *Panel) advance() {
 					p.mapConfig = r.request.mapConfig
 				}
 				for i, d := range r.layerDisplays {
-					if d != nil {
+					if d != nil && p.moveRoot != "" && p.moveRoot == r.request.focusRoot {
 						v := canvas.New()
 						v.SetTransparent(i == 0)
-						v.Render().SetUnitProcessor(p)
+						v.Render().SetUnitProcessor(p.occurrenceView(&r, r.request.focusRoot, i == 0))
 						v.Render().BeginLevelBuild(d, 1)
 						p.layerViews[i] = v
 					}
@@ -347,7 +404,7 @@ func (p *Panel) advance() {
 				if provider, ok := p.app.(acceptedProvider); ok {
 					p.observedRevisions = provider.MappingRevisionKey(r.dependencies)
 				}
-				if r.request.compose {
+				if r.request.compose && p.operation.failed == nil {
 					p.offset = [3]int32{}
 					p.scenario = r.projection.Scenario
 					p.choices = maps.Clone(p.scenario.Choices)
@@ -368,6 +425,7 @@ func (p *Panel) advance() {
 					}
 				}
 				p.status = "Locked reference context; open source documents use accepted revisions. Runtime initialization and asynchronous order are not simulated."
+				p.recoverSelection(previous)
 			}
 		default:
 		}
@@ -384,7 +442,7 @@ func (p *Panel) advance() {
 		}
 		reuse := p.reuse
 		go func() {
-			out := result{request: r, catalog: mapping.NewCatalogWithReuseCache(r.environment, reuse)}
+			out := result{request: r, catalog: mapping.NewCatalogWithReuseCache(r.environment, reuse), stage: "source snapshots"}
 			out.catalog.SetAcceptedSources(r.accepted)
 			out.request.accepted = nil
 			if r.scanProject {
@@ -432,10 +490,16 @@ func (p *Panel) advance() {
 					if r.mapConfig != "" {
 						fixed, out.fixed, fixedDiagnostics = out.catalog.Fixed(ctx, out.sources[0], r.mapConfig, r.fixedChoices)
 					}
+					out.stage = "composition"
 					out.projection, out.err = out.catalog.Compose(ctx, out.sources[0], r.scenario, fixed)
 					if out.err == nil {
+						out.stage = "composed display"
 						out.sources[1] = out.projection.Source
-						out.displays[1], out.err = out.sources[1].DisplayMap(ctx)
+						if r.contextRoot != "" || r.focusRoot != "" {
+							out.displays[1], out.occurrences, out.err = out.sources[1].DisplayMapWithOccurrences(ctx)
+						} else {
+							out.displays[1], out.err = out.sources[1].DisplayMap(ctx)
+						}
 						out.roots = out.projection.Roots
 						out.diagnostics = append(out.diagnostics, out.projection.Diagnostics...)
 						out.diagnostics = append(out.diagnostics, fixedDiagnostics...)
@@ -506,23 +570,18 @@ func (p *Panel) advance() {
 				}
 			}
 			out.dependencies = out.catalog.SourcePaths()
-			if out.err == nil && out.projection != nil && r.contextRoot != "" && r.contextRoot != r.focusRoot {
-				out.contextSource, out.err = out.projection.OccurrenceLayer(ctx, r.contextRoot, false)
-				if out.err == nil {
-					out.contextDisplay, out.err = out.contextSource.DisplayMap(ctx)
-				}
+			if out.err == nil && out.projection != nil && r.contextRoot != "" {
+				out.contextDisplay = out.displays[1]
 			}
 			if out.err == nil && out.projection != nil && r.focusRoot != "" {
-				for i := range 2 {
-					out.layers[i], out.err = out.projection.OccurrenceLayer(ctx, r.focusRoot, i == 0)
-					if out.err != nil {
-						break
-					}
-					out.layerDisplays[i], out.err = out.layers[i].DisplayMap(ctx)
-					if out.err != nil {
-						break
-					}
-				}
+				out.layerDisplays = [2]*dmmap.Dmm{out.displays[1], out.displays[1]}
+			}
+			owner := fmt.Sprintf("%s / request %d", filepath.Base(r.parent), r.generation)
+			for _, source := range out.sources {
+				source.LabelDisplayResources(owner)
+			}
+			if out.err != nil {
+				out.err = fmt.Errorf("%s: %s: %w", owner, out.stage, out.err)
 			}
 			results <- out
 		}()
@@ -611,6 +670,9 @@ func (p *Panel) controls() {
 }
 
 func (p *Panel) ProcessLevelBuildBudget(b *render.LevelBuildBudget) bool {
+	if !p.hasConsumer() {
+		return false
+	}
 	for range 7 {
 		idx := p.visualCursor % 7
 		p.visualCursor++
@@ -619,12 +681,21 @@ func (p *Panel) ProcessLevelBuildBudget(b *render.LevelBuildBudget) bool {
 			v = p.thumbnail
 		}
 		if idx < 2 {
+			if !p.comparisonActive && (idx == 0 || !p.previewVisible || viewKey(p.app.ActiveMappingPath()) != viewKey(p.parentPath)) && p.managed {
+				continue
+			}
 			v = p.views[idx]
 		}
 		if idx >= 4 && idx < 6 {
+			if p.moveRoot == "" {
+				continue
+			}
 			v = p.layerViews[idx-4]
 		}
 		if idx == 6 {
+			if p.contextStyle == 2 || viewKey(p.app.ActiveMappingPath()) != viewKey(p.contextPath) {
+				continue
+			}
 			v = p.contextView
 		}
 		if v != nil && v.Render().ProcessLevelBuildBudget(b) {
@@ -637,7 +708,7 @@ func (p *Panel) ProcessLevelBuildBudget(b *render.LevelBuildBudget) bool {
 // Backdrop supplies pixels only. The editable pane's tools, picking, bounds and
 // command executor remain attached exclusively to its own source document.
 func (p *Panel) Backdrop(path string, camera render.Camera, size imgui.Vec2) (uint32, bool) {
-	if !p.open || p.current == nil || p.current.displays[0] == nil || p.contextPath == "" || !strings.EqualFold(filepath.Clean(path), filepath.Clean(p.contextPath)) {
+	if !p.open || p.contextStyle == 2 || p.current == nil || p.current.displays[0] == nil || p.contextPath == "" || !strings.EqualFold(filepath.Clean(path), filepath.Clean(p.contextPath)) {
 		return 0, false
 	}
 	offset := util.Point{X: int(p.offset[0]), Y: int(p.offset[1]), Z: int(p.offset[2])}
@@ -655,9 +726,6 @@ func (p *Panel) Backdrop(path string, camera render.Camera, size imgui.Vec2) (ui
 		}
 	}
 	contextView, contextDisplay := p.contextView, p.current.contextDisplay
-	if p.contextRoot == p.current.request.focusRoot {
-		contextView, contextDisplay = p.layerViews[1], p.current.layerDisplays[1]
-	}
 	if p.current.projection != nil && contextView != nil && p.current.request.contextRoot == p.contextRoot {
 		camera.ShiftX -= float32(offset.X * dmmap.WorldIconSize)
 		camera.ShiftY -= float32(offset.Y * dmmap.WorldIconSize)
@@ -668,6 +736,9 @@ func (p *Panel) Backdrop(path string, camera render.Camera, size imgui.Vec2) (ui
 			return 0, false
 		}
 		v.Render().SetActiveLevel(contextDisplay, camera.Level)
+		if !v.Render().LevelReady(camera.Level) {
+			return 0, false
+		}
 		v.Process(size)
 		return v.Texture(), true
 	}
@@ -692,6 +763,26 @@ func (p *Panel) Backdrop(path string, camera render.Camera, size imgui.Vec2) (ui
 
 func (p *Panel) compareViews() {
 	if p.current == nil || p.views[0] == nil {
+		return
+	}
+	// The CPU projection and all geometry used for picking/overlays must belong
+	// to the same published result and have completed this requested deck.
+	ready := true
+	for i, v := range p.views {
+		if v == nil {
+			continue
+		}
+		z := int(p.level)
+		if i == 1 {
+			z -= int(p.offset[2])
+		}
+		if z > 0 && z <= p.current.displays[i].MaxZ {
+			v.Render().SetActiveLevel(p.current.displays[i], z)
+			ready = ready && v.Render().LevelReady(z)
+		}
+	}
+	if !ready {
+		imgui.TextWrapped("Preparing comparison geometry for this deck…")
 		return
 	}
 	size := imgui.ContentRegionAvail()
@@ -734,10 +825,7 @@ func (p *Panel) compareViews() {
 			p.inspected = mapview.Tile(p.camera, paneSize, origin, imgui.MousePos())
 			for _, root := range p.current.roots {
 				if root.Destination == p.inspected {
-					p.focusRoot = root.ID
-					p.revealRoot = true
-					p.moveArmed = false
-					p.queue(nil)
+					p.selectOccurrence(root.ID)
 					break
 				}
 			}
@@ -826,9 +914,19 @@ func (p *Panel) compareViews() {
 }
 
 func (p *Panel) navigate(point util.Point) {
+	p.level = int32(point.Z)
 	if p.managed {
 		if host, ok := p.app.(mapHost); ok {
-			host.FrameMappingSource(p.parentPath, point)
+			path := p.parentPath
+			if viewKey(p.app.ActiveMappingPath()) == viewKey(p.contextPath) {
+				if placement, ok := p.placement(p.contextRoot); ok {
+					path = p.contextPath
+					point.X -= placement.Transform.Offset.X
+					point.Y -= placement.Transform.Offset.Y
+					point.Z -= placement.Transform.Offset.Z
+				}
+			}
+			host.FrameMappingSource(path, point)
 			return
 		}
 	}

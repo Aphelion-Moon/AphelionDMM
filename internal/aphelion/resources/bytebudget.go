@@ -12,6 +12,7 @@ import (
 // currently available host memory. A single Budget should be shared by the
 // owners whose concurrent work competes for the same process memory.
 type Budget struct {
+	named    map[*Reservation]string
 	mu       sync.Mutex
 	used     uint64
 	limit    uint64
@@ -57,6 +58,8 @@ type Reservation struct {
 
 // AdmissionError reports the estimated requirement and current admission.
 type AdmissionError struct {
+	Incremental   bool
+	Reservations  map[string]uint64
 	Needed        uint64
 	Available     uint64
 	HostAvailable uint64
@@ -82,11 +85,11 @@ func (b *Budget) Reserve(needed uint64) (*Reservation, error) {
 		return nil, err
 	}
 	if b.used >= limit {
-		return nil, &AdmissionError{Needed: needed, Available: 0, HostAvailable: hostAvailable}
+		return nil, b.admissionError(needed, 0, hostAvailable, false)
 	}
 	remaining := limit - b.used
 	if needed > remaining || needed > math.MaxUint64-b.used {
-		return nil, &AdmissionError{Needed: needed, Available: remaining, HostAvailable: hostAvailable}
+		return nil, b.admissionError(needed, remaining, hostAvailable, false)
 	}
 	b.used += needed
 	return &Reservation{budget: b, bytes: needed}, nil
@@ -127,7 +130,7 @@ func (r *Reservation) Resize(needed uint64) error {
 		available = limit - b.used
 	}
 	if difference > available || difference > math.MaxUint64-b.used {
-		return &AdmissionError{Needed: difference, Available: available, HostAvailable: hostAvailable}
+		return b.admissionError(difference, available, hostAvailable, true)
 	}
 	b.used += difference
 	r.bytes = needed
@@ -143,12 +146,43 @@ func (r *Reservation) Release() {
 		r.budget.mu.Lock()
 		defer r.budget.mu.Unlock()
 		r.released = true
+		delete(r.budget.named, r)
 		if r.bytes <= r.budget.used {
 			r.budget.used -= r.bytes
 		} else {
 			r.budget.used = 0
 		}
 	})
+}
+
+// Label attaches diagnostic ownership without changing admission or lifetime.
+func (r *Reservation) Label(owner, purpose string) {
+	if r == nil || r.budget == nil {
+		return
+	}
+	b := r.budget
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if r.released {
+		return
+	}
+	if b.named == nil {
+		b.named = map[*Reservation]string{}
+	}
+	b.named[r] = owner + ": " + purpose
+}
+
+func (b *Budget) admissionError(needed, available, host uint64, incremental bool) *AdmissionError {
+	named := map[string]uint64{}
+	var accounted uint64
+	for r, name := range b.named {
+		named[name] += r.bytes
+		accounted += r.bytes
+	}
+	if b.used > accounted {
+		named["other reservations"] = b.used - accounted
+	}
+	return &AdmissionError{Needed: needed, Available: available, HostAvailable: host, Incremental: incremental, Reservations: named}
 }
 
 // Bytes reports the reserved amount.

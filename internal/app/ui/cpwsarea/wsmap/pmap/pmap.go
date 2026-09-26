@@ -384,7 +384,11 @@ func (p *PaneMap) showCanvas() {
 	uvMax := imgui.Vec2{X: 1, Y: 0}
 	// APHELION EDIT ADDITION START - LOCKED SOURCE CONTEXT
 	if p.contextTexture != 0 {
-		imgui.WindowDrawList().AddImageV(imgui.TextureID(p.contextTexture), p.canvasControl.PosMin(), p.canvasControl.PosMax(), uvMin, uvMax, style.ColorWhitePacked)
+		alpha := float32(1)
+		if host, ok := p.app.(interface{ CompositionContextAlpha(string) float32 }); ok {
+			alpha = host.CompositionContextAlpha(p.dmm.Path.Absolute)
+		}
+		imgui.WindowDrawList().AddImageV(imgui.TextureID(p.contextTexture), p.canvasControl.PosMin(), p.canvasControl.PosMax(), uvMin, uvMax, imgui.PackedColorFromVec4(imgui.Vec4{X: 1, Y: 1, Z: 1, W: alpha}))
 	}
 	// APHELION EDIT ADDITION END
 

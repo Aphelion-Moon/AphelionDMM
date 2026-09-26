@@ -109,6 +109,15 @@ func (ws *WsMap) PreProcess() {
 }
 
 func (ws *WsMap) Process() {
+	// APHELION EDIT ADDITION START - COMPOSITION NAVIGATION
+	// Use the same cheap accepted-version indicator as the tab title. The full
+	// authority/hash check is reserved for close decisions, never frame painting.
+	dirty := ws.diskConflict || ws.app.CommandStorage().IsModified(ws.CommandStackId()) || ws.paneMap.Editor().ChangedSinceSave(ws.savedGeneration, ws.savedRevision)
+	if host, ok := ws.app.(interface{ CompositionHeader(string, bool) bool }); ok && host.CompositionHeader(ws.paneMap.Dmm().Path.Absolute, dirty) {
+		imgui.BeginChild("source-canvas")
+		defer imgui.EndChild()
+	}
+	// APHELION EDIT ADDITION END
 	ws.paneMap.Process()
 	// APHELION EDIT ADDITION START - RESPONSIVE_SAVE
 	ws.tryCompleteSaveAcknowledgement()

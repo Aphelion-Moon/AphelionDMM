@@ -40,6 +40,16 @@ func New(path string) (*Dme, error) {
 }
 
 func NewWithOptions(ctx context.Context, path string, options envsnapshot.Options) (*Dme, error) {
+	return NewWithProgress(ctx, path, options, nil)
+}
+
+func NewWithProgress(ctx context.Context, path string, options envsnapshot.Options, progress func(string)) (*Dme, error) {
+	stage := func(name string) {
+		if progress != nil {
+			progress(name)
+		}
+	}
+	stage("Validating cache / parsing environment")
 	// APHELION EDIT ADDITION END
 	dme := Dme{
 		Name:     filepath.Base(path),
@@ -67,6 +77,7 @@ func NewWithOptions(ctx context.Context, path string, options envsnapshot.Option
 
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	reconstruct := uistage.Begin(uistage.EnvironmentReconstruct)
+	stage("Reconstructing and linking objects")
 	// APHELION EDIT ADDITION END
 	traverseTree0(objectTreeType, "", nil, &dme)
 
@@ -82,6 +93,7 @@ func NewWithOptions(ctx context.Context, path string, options envsnapshot.Option
 	// APHELION EDIT ADDITION START - ENVIRONMENT GENERATION FINGERPRINT
 	reconstruct.End()
 	fingerprint := uistage.Begin(uistage.EnvironmentFingerprint)
+	stage("Fingerprinting environment")
 	dme.fingerprint, err = dme.EnvironmentHash()
 	fingerprint.End()
 	if err != nil {
@@ -93,6 +105,7 @@ func NewWithOptions(ctx context.Context, path string, options envsnapshot.Option
 		return nil, err
 	}
 	loaded.Persist()
+	stage("Waiting for UI installation")
 	// APHELION EDIT ADDITION END
 	return &dme, nil
 }

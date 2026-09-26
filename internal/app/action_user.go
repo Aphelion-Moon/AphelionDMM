@@ -105,6 +105,17 @@ func (a *app) DoCloseEnvironment() {
 	log.Print("closing environment")
 	a.closeEnvironment(func(closed bool) {
 		if closed {
+			// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+			a.environmentLoadRequest++
+			if a.environmentLoadCancel != nil {
+				a.environmentLoadCancel()
+			}
+			if a.environmentLoadDialog != nil {
+				dial.Close(a.environmentLoadDialog)
+				a.environmentLoadDialog = nil
+			}
+			a.environmentLoadFinish = nil
+			// APHELION EDIT ADDITION END
 			a.freeEnvironmentResources()
 			a.layout.WsArea.AddEmptyWorkspaceIfNone()
 		}

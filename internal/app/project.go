@@ -2,7 +2,10 @@ package app
 
 import (
 	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
+	"sdmm/internal/aphelion/diagnostics/uistage"
+	"sdmm/internal/aphelion/envload"
 	"sdmm/internal/aphelion/envsnapshot"
+	"sdmm/internal/aphelion/mapindex"
 	// APHELION EDIT ADDITION END
 	"context"
 	"fmt"
@@ -16,6 +19,9 @@ import (
 	"time"
 
 	"sdmm/internal/app/ui/cpwsarea/workspace"
+	// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+	"sdmm/internal/app/ui/cpwsarea/wsmap"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/editor"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
@@ -23,9 +29,8 @@ import (
 	"sdmm/internal/app/ui/dialog"
 	"sdmm/internal/app/window"
 	"sdmm/internal/dmapi/dm"
-	"sdmm/internal/imguiext/style"
+	// APHELION EDIT REMOVAL - LOADING RESPONSIVENESS: "sdmm/internal/imguiext/style"
 	w "sdmm/internal/imguiext/widget"
-	"sdmm/internal/util/slice"
 
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmicon"
@@ -136,12 +141,50 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 	// APHELION EDIT ADDITION START - OWNED ENVIRONMENT LOAD
 	a.environmentLoadRequest++
 	request := a.environmentLoadRequest
-	dlg := makeLoadingDialog(path)
+	if a.environmentLoadCancel != nil {
+		a.environmentLoadCancel()
+	}
+	if a.environmentLoadDialog != nil {
+		dialog.Close(a.environmentLoadDialog)
+	}
+	a.environmentLoadFinish = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	a.environmentLoadCancel = cancel
+	progress := &envload.Progress{}
+	started := time.Now()
+	published := false
+	dlg := dialog.TypeCustom{Title: "Loading", Layout: w.Layout{w.Text(path), w.Custom(func() {
+		label := progress.Stage()
+		if ctx.Err() != nil {
+			label = "Cancelling - waiting for the current preparation step"
+		}
+		imgui.TextWrapped(label)
+		imgui.Text(fmt.Sprint(time.Since(started).Round(time.Second)))
+		imgui.BeginDisabledV(ctx.Err() != nil)
+		cancelLabel := "Cancel load"
+		if published {
+			cancelLabel = "Cancel remaining load"
+		}
+		if imgui.Button(cancelLabel) {
+			cancel()
+		}
+		imgui.EndDisabled()
+	})}}
+	a.environmentLoadDialog = dlg
 	dialog.Open(dlg)
 	// APHELION EDIT ADDITION END
 
 	afterLoad := func(env *dmenv.Dme) {
+		// Cancellation can discard prepared state until this UI-owned publication.
+		// Afterwards the ordinary close/save workflow owns the installed project.
+		published = true
+		progress.Set("Retiring previous environment resources")
+		retire := uistage.Begin(uistage.Stage("aphelion.environment.retire"))
 		a.freeEnvironmentResources()
+		retire.End()
+		install := uistage.Begin(uistage.Stage("aphelion.environment.install"))
+		defer install.End()
+		progress.Set("Installing environment and visibility")
 
 		a.projectConfig().AddProject(path)
 		a.loadedEnvironment = env
@@ -163,7 +206,46 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 		log.Print("environment opened:", path)
 
 		if callback != nil {
+			progress.Set("Opening requested map")
 			callback()
+		}
+		frames := 0
+		a.environmentLoadFinish = func() {
+			if request != a.environmentLoadRequest || a.loadedEnvironment != env || a.closed {
+				dialog.Close(dlg)
+				a.environmentLoadFinish = nil
+				return
+			}
+			if ctx.Err() != nil {
+				// Installed documents are valid independent owners. Stop pending
+				// opens and remove the modal without claiming geometry is ready.
+				a.cancelMapOpens()
+				dialog.Close(dlg)
+				a.environmentLoadDialog, a.environmentLoadFinish, a.environmentLoadCancel = nil, nil, nil
+				log.Info().Msg("environment installed; remaining load cancelled")
+				return
+			}
+			frames++
+			ready := a.layout.Environment.VisibilityReady() && a.layout.WsArea.ResourceDiscoveryReady() && a.mapOpenActive == nil && len(a.mapOpenQueue) == 0
+			for _, workspace := range a.layout.WsArea.MapWorkspaces() {
+				if ws, ok := workspace.Content().(*wsmap.WsMap); ok && !ws.Map().Canvas().Render().LevelReady(ws.Map().ActiveLevel()) {
+					ready = false
+				}
+			}
+			if !ready || frames < 2 {
+				progress.Set("Preparing visibility and current map view")
+				if !a.layout.WsArea.ResourceDiscoveryReady() {
+					progress.Set("Discovering project maps")
+				}
+				return
+			}
+			usable := uistage.Begin(uistage.Stage("aphelion.environment.first_usable_frame"))
+			usable.End()
+			log.Info().Dur("elapsed", time.Since(started)).Msg("environment usable")
+			dialog.Close(dlg)
+			a.environmentLoadDialog = nil
+			a.environmentLoadFinish = nil
+			a.environmentLoadCancel = nil
 		}
 	}
 
@@ -178,17 +260,25 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 		log.Printf("parsing environment: [%s]...", path)
 
 		// APHELION EDIT CHANGE - ENVIRONMENT SNAPSHOT - ORIGINAL: env, err := dmenv.New(path)
-		env, err := dmenv.NewWithOptions(context.Background(), path, options)
+		env, err := dmenv.NewWithProgress(ctx, path, options, progress.Set)
 		// APHELION EDIT ADDITION START - OWNED ENVIRONMENT LOAD
 		elapsed := time.Since(start)
 		window.RunLater(func() {
 			if request != a.environmentLoadRequest || a.closed {
 				return
 			}
-			dialog.Close(dlg)
+			if ctx.Err() != nil {
+				dialog.Close(dlg)
+				a.environmentLoadDialog = nil
+				a.environmentLoadCancel = nil
+				return
+			}
 			// APHELION EDIT ADDITION END
 
 			if err != nil {
+				dialog.Close(dlg)
+				a.environmentLoadDialog = nil
+				a.environmentLoadCancel = nil
 				log.Print("unable to open environment by path:", path, err)
 
 				if sdmmparser.IsParserError(err) {
@@ -224,6 +314,7 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 	}()
 }
 
+/* APHELION EDIT REMOVAL START - LOADING RESPONSIVENESS
 func makeLoadingDialog(path string) dialog.Type {
 	start := time.Now()
 	return dialog.TypeCustom{
@@ -242,6 +333,7 @@ func makeLoadingDialog(path string) dialog.Type {
 		},
 	}
 }
+APHELION EDIT REMOVAL END */
 
 // Configure paths filter to access a newly opened environment.
 func newPathsFilter(env *dmenv.Dme) *dm.PathsFilter {
@@ -306,7 +398,8 @@ func (a *app) installOpenMap(path string, workspace *workspace.Workspace, dmm *d
 	APHELION EDIT REMOVAL END */
 
 	// Add map to the recent only if it is a part of the currently opened environment.
-	if slice.StrContains(a.AvailableMaps(), path) {
+	// APHELION EDIT CHANGE - LOADING RESPONSIVENESS - ORIGINAL: if slice.StrContains(a.AvailableMaps(), path) {
+	if mapindex.Contains(a.LoadedEnvironment().RootDir, path) {
 		log.Print("adding map path to the recent:", path)
 		cfg := a.projectConfig()
 		cfg.AddMap(path)

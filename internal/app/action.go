@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	// APHELION EDIT REMOVAL START - LOADING RESPONSIVENESS
+	// "os"
+	// "path/filepath"
+	// APHELION EDIT REMOVAL END
 	"strings"
 
 	collabclient "sdmm/internal/aphelion/collab/client"
@@ -102,6 +104,7 @@ func (a *app) RecentMapsByLoadedEnvironment() (recentMaps []string) {
 	return recentMaps
 }
 
+/* APHELION EDIT REMOVAL START - LOADING RESPONSIVENESS
 // AvailableMaps returns all maps available for the currently loaded environment.
 // Commonly is a blocking operation, so it must be called rarely.
 func (a *app) AvailableMaps() (availableMaps []string) {
@@ -122,6 +125,7 @@ func (a *app) AvailableMaps() (availableMaps []string) {
 
 	return availableMaps
 }
+APHELION EDIT REMOVAL END */
 
 // LoadedEnvironment returns currently loaded environment.
 func (a *app) LoadedEnvironment() *dmenv.Dme {

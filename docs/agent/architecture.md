@@ -89,6 +89,29 @@ requests. Reuse checks full file content and the environment fingerprint; accept
 document snapshots remain request-owned. Teardown fences cache publication while
 outstanding request leases keep their resources valid until release.
 
+Inspection never schedules composition. Requested choices and the last published
+scenario have separate status; failed requests cannot authorize opening an old
+alternative as the requested source. Source navigation uses an acknowledged map
+open bound to environment, host workspace lifetime, and foreground workspace.
+Context breadcrumbs survive dock/preview hiding; closing the host invalidates
+navigation while leaving independently opened source documents intact.
+
+Accepted-revision changes invalidate dependent previews. Visible consumers
+coalesce refreshes after gestures; hidden consumers defer capture and rendering.
+Context and anchor-move canvases share one immutable composed display map with
+per-instance occurrence masks applied before geometry construction. Render-deck
+readiness gates composition picking and overlays so CPU provenance cannot be
+combined with unfinished geometry. Memory-denial details snapshot reservation
+ownership and distinguish incremental admission from total allocation estimates.
+
+Environment preparation remains on a worker. UI publication follows complete
+reconstruction/linkage; cancellation and supersession fence that publication.
+The loading dialog remains through map discovery, filter publication and current
+map geometry. Per-frame context headers use the cheap accepted-version dirty
+indicator; full authority hashing remains reserved for close/save decisions.
+Workspace map discovery runs off-thread, and map recents use lexical project
+membership of an already opened DMM instead of recursively scanning directories.
+
 Tool handlers expose `ActionContext` for effective-action feedback, toolbar/help,
 and captured modifier routing. Environment rows request prioritized icon demand
 through the shared async cache. That cache retains sprite handles across bounded

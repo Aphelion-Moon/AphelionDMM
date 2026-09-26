@@ -56,10 +56,13 @@ func (c *Comparison) Initialize() {
 	c.shortcuts.Add(shortcut.Shortcut{Name: "pmap#doNextLevel", FirstKey: platform.KeyModLeft(), FirstKeyAlt: platform.KeyModRight(), SecondKey: glfw.KeyUp, Action: func() { c.Panel.level++ }})
 	c.shortcuts.Add(shortcut.Shortcut{Name: "pmap#doPreviousLevel", FirstKey: platform.KeyModLeft(), FirstKeyAlt: platform.KeyModRight(), SecondKey: glfw.KeyDown, Action: func() { c.Panel.level = max(1, c.Panel.level-1) }})
 }
-func (c *Comparison) OnCommandContextChange(active bool) { c.shortcuts.SetVisible(active) }
-func (c *Comparison) Dispose()                           { c.shortcuts.Dispose() }
-func (c *Comparison) Name() string                       { return "Compare " + filepath.Base(c.Panel.parentPath) }
-func (c *Comparison) Title() string                      { return c.Name() }
+func (c *Comparison) OnCommandContextChange(active bool) {
+	c.shortcuts.SetVisible(active)
+	c.Panel.comparisonActive = active
+}
+func (c *Comparison) Dispose()      { c.shortcuts.Dispose(); c.Panel.comparisonActive = false }
+func (c *Comparison) Name() string  { return "Compare " + filepath.Base(c.Panel.parentPath) }
+func (c *Comparison) Title() string { return c.Name() }
 func (c *Comparison) Process() {
 	if !c.Panel.open {
 		imgui.TextWrapped("Source composition is closed. Reopen it from the source map.")

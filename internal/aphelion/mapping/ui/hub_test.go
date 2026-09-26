@@ -63,6 +63,7 @@ func TestAnchorDraftCancelsAndSubmitsOnlyOnceAtRelease(t *testing.T) {
 	if p.draft != nil || app.submissions != 0 {
 		t.Fatal("Escape modified source")
 	}
+	p.armAnchorMove()
 	p.handleInline(root.Local, true, true, false, false, true, "Pick")
 	p.handleInline(to, true, false, true, false, true, "Pick")
 	p.handleInline(to, true, false, false, false, true, "Pick")

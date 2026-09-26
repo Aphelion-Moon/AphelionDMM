@@ -7,6 +7,9 @@ import (
 	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/render/bucket"
 	"sdmm/internal/dmapi/dmmap"
+	// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
+	"sdmm/internal/dmapi/dmmap/dmminstance"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/util"
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	"time"
@@ -61,6 +64,17 @@ func (r *Render) SetUnitProcessor(processor unitProcessor) {
 	r.clearRetainedScene()
 	// APHELION EDIT ADDITION END
 	r.unitProcessor = processor
+	// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
+	r.bucket.InstanceFilter = nil
+	if mask, ok := processor.(interface {
+		GeometryInstanceVisible(*dmminstance.Instance) bool
+	}); ok {
+		r.bucket.InstanceFilter = mask.GeometryInstanceVisible
+	}
+	if r.levelBuildDmm != nil {
+		r.InvalidateLevelBuilds(r.levelBuildDmm)
+	}
+	// APHELION EDIT ADDITION END
 }
 
 func (r *Render) SetOverlay(state overlay) {

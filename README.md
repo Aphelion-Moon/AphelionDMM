@@ -214,25 +214,39 @@ Environment icons load when their rows become visible, even without an open map.
 A failed icon shows an error indicator with its reason. Right-click the row and
 choose **Retry Icon** after correcting the asset or freeing resources.
 
-Open **Window → Composition** to show its controls beside Environment. **Show
-composition in this map** overlays the supported composed result on the source
-map using its camera and deck. Select a root marker or its sidebar row, choose a
-candidate, and use **Frame selected / Go to root** when you want to move the view.
-**Open comparison tab** provides a separate read-only workspace with synchronized
+Open **Window → Composition** to show the hierarchy and inspector beside
+Environment. **Show preview** overlays the supported result on the
+source map using its camera and deck. Selecting a marker or hierarchy row only
+inspects it; **Locate** moves the view. Overlapping contributions offer an
+occurrence chooser. The inspector names the **Displayed source** while an
+alternative is pending or has failed. **Retry**, **Dismiss**, and error
+details explain how to recover without mistaking the old preview for a new one.
+Under **More…**, **Open comparison tab** provides a read-only workspace with synchronized
 split, single-view, and comparison modes. Its **View…** menu includes fit actions.
 
 For an accepted root in the open source map, choose **Move anchor**, then drag its
 marker. The provisional preview leaves the source unchanged until release;
 Escape or leaving the map cancels it. An accepted move is one undoable source
-edit. Derived contributions are locked: use **Open source in context** to edit
+edit. Derived contributions are locked: use **Edit source in context** to edit
 the actual template against masked parent surroundings. This reuses an existing
 source tab, and editing a shared template affects its other occurrences. Nested
 roots offer **Edit containing source**. Candidate choices and exclusions are
 editor scenarios, not runtime configuration changes.
 
-Composition work continues when the sidebar is hidden. Advanced references and
-authoring controls include fixed-template configuration and an action to restore
-the Composition dock beside Environment without resetting the other panels.
+The source canvas keeps its editing filename, unsaved status, **Back** and
+**Back to map** controls even when the sidebar is closed. Context surroundings
+can be Normal, Dim or Hidden. Back does not save or discard the independent
+source document. Accepted edits, undo and redo refresh visible dependent previews
+before Save; hidden previews refresh when needed. During refresh, the previous
+result is labelled stale/updating, and unfinished decks show a preparing state.
+
+**More… → References and authoring** retains fixed-template configuration and
+advanced tools. Closing the Composition dock returns to Environment; reopening
+it preserves the scenario. Environment loading shows named preparation phases
+through installation and current-view readiness. Cancellation discards unpublished
+work after the current native preparation step finishes. Once the environment is
+installed, **Cancel remaining load** stops pending opens and leaves valid documents
+available.
 
 ## Build from source
 

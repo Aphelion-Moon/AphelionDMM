@@ -211,6 +211,18 @@ func (w *WsArea) MapWorkspaces() []*workspace.Workspace {
 	return w.findMapWorkspaces()
 }
 
+// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+func (w *WsArea) ResourceDiscoveryReady() bool {
+	for _, ws := range w.workspaces {
+		if browser, ok := ws.Content().(interface{ DiscoveryReady() bool }); ok && !browser.DiscoveryReady() {
+			return false
+		}
+	}
+	return true
+}
+
+// APHELION EDIT ADDITION END
+
 func (w *WsArea) addWorkspace(ws *workspace.Workspace) {
 	w.addWorkspaceV(ws, len(w.workspaces))
 }

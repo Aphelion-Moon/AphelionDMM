@@ -3,6 +3,9 @@ package chunk
 import (
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/dmapi/dmmap"
+	// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
+	"sdmm/internal/dmapi/dmmap/dmminstance"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/util"
 
 	"github.com/rs/zerolog/log"
@@ -55,7 +58,8 @@ func New(x1, y1, x2, y2, iconSize float32) *Chunk {
 
 // Update will update internal data of the current chunk.
 // Basically, we will create units for every tile in the chunk.
-func (c *Chunk) Update(dmm *dmmap.Dmm, level int) {
+// APHELION EDIT CHANGE - OCCURRENCE GEOMETRY - ORIGINAL: func (c *Chunk) Update(dmm *dmmap.Dmm, level int) {
+func (c *Chunk) Update(dmm *dmmap.Dmm, level int, filters ...func(*dmminstance.Instance) bool) {
 	// Create a storage for our units by Layers with initial capacity.
 	// Inner slices are created with initial capacity as well.
 	unitsByLayers := make(map[float32][]unit.Unit, len(c.UnitsByLayers))
@@ -70,6 +74,11 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int) {
 		for y := c.MapBounds.Y1; y <= c.MapBounds.Y2; y++ {
 			x, y := int(x), int(y)
 			for _, i := range dmm.GetTile(util.Point{X: x, Y: y, Z: level}).Instances() {
+				// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
+				if len(filters) > 0 && filters[0] != nil && !filters[0](i) {
+					continue
+				}
+				// APHELION EDIT ADDITION END
 				u := unit.Make(x, y, i, dmmap.WorldIconSize)
 				unitsByLayers[u.Layer()] = append(unitsByLayers[u.Layer()], u)
 				// APHELION EDIT ADDITION START - RENDER CULLING

@@ -13,6 +13,7 @@ import (
 	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/app/render"
 	"sdmm/internal/app/ui/cpwsarea/wsmap"
+	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/app/ui/layout/lnode"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/util"
@@ -88,7 +89,7 @@ func (a *app) MappingRevisionKey(paths []string) string {
 				continue
 			}
 			generation, revision := ws.Map().Editor().SaveVersion()
-			parts = append(parts, fmt.Sprintf("%s:%d:%d", ws.Map().Dmm().Path.Absolute, generation, revision))
+			parts = append(parts, fmt.Sprintf("%s:%s:%d:%d", ws.Map().Dmm().Path.Absolute, ws.Id(), generation, revision))
 		}
 	}
 	sort.Strings(parts)
@@ -150,11 +151,24 @@ func (a *app) FrameMappingSource(path string, point util.Point) {
 		}
 	}
 	if ws := a.mappingWorkspace(path); ws != nil {
-		ws.Root().SetTriggerFocus(true)
 		ws.Map().SetActiveLevel(point.Z)
 		camera := ws.Map().Canvas().Render().Camera
 		size := ws.Map().Size()
 		mapview.Center(camera, size, point)
+	}
+}
+
+func (a *app) MappingNavigationFrame(path string) (string, render.Camera) {
+	if ws := a.mappingWorkspace(path); ws != nil {
+		camera := *ws.Map().Canvas().Render().Camera
+		camera.Level = ws.Map().ActiveLevel()
+		return ws.Id(), camera
+	}
+	return "", render.Camera{}
+}
+func (a *app) RestoreMappingFrame(path, lifetime string, camera render.Camera) {
+	if ws := a.mappingWorkspace(path); ws != nil && ws.Id() == lifetime {
+		a.layout.Composition.RestoreContextCamera(path, camera)
 	}
 }
 func (a *app) MoveMappingRoot(root mapping.Root, to util.Point, check bool) error {
@@ -179,6 +193,84 @@ func (a *app) OpenMappingContext(parent, path string, transform mapping.Transfor
 		a.layout.Composition.SetContextCamera(parent, path, camera)
 	}
 	a.DoLoadResource(path)
+}
+
+// OpenMappingSource binds a navigation intent to the original host workspace,
+// environment and foreground workspace. A late load cannot steal focus.
+func (a *app) OpenMappingSource(parent, path string, transform mapping.Transform, valid func() bool, done func(error)) {
+	host, environment := a.mappingWorkspace(parent), a.loadedEnvironment
+	foreground := a.layout.WsArea.ActiveWorkspace()
+	current := func() bool {
+		return valid() && host != nil && a.mappingWorkspace(parent) == host && a.loadedEnvironment == environment && a.layout.WsArea.ActiveWorkspace() == foreground
+	}
+	activate := func() {
+		camera := *host.Map().Canvas().Render().Camera
+		camera.Level = host.Map().ActiveLevel()
+		camera.ShiftX += float32(transform.Offset.X * dmmap.WorldIconSize)
+		camera.ShiftY += float32(transform.Offset.Y * dmmap.WorldIconSize)
+		camera.Level = max(1, camera.Level-transform.Offset.Z)
+		a.layout.Composition.SetContextCamera(parent, path, camera)
+		done(nil)
+	}
+	if !current() {
+		done(fmt.Errorf("navigation no longer belongs to the active host"))
+		return
+	}
+	if ws := a.mappingWorkspace(path); ws != nil {
+		ws.Root().SetTriggerFocus(true)
+		activate()
+		return
+	}
+	if a.mapOpenActive != nil && strings.EqualFold(a.mapOpenActive.path, path) {
+		done(fmt.Errorf("source is already opening; retry when it is ready"))
+		return
+	}
+	for _, request := range a.mapOpenQueue {
+		if strings.EqualFold(request.path, path) {
+			done(fmt.Errorf("source is already queued for opening"))
+			return
+		}
+	}
+	a.enqueueMapOpen(path, nil)
+	request := a.mapOpenActive
+	for _, queued := range a.mapOpenQueue {
+		if queued.path == path {
+			request = queued
+			break
+		}
+	}
+	if request == nil || request.path != path {
+		done(fmt.Errorf("source could not be queued"))
+		return
+	}
+	request.navigationCurrent = current
+	request.navigationDone = func(err error) {
+		if err != nil {
+			done(err)
+		} else {
+			activate()
+		}
+	}
+}
+
+func (a *app) MappingRefreshReady(paths []string) bool {
+	for _, path := range paths {
+		if ws := a.mappingWorkspace(path); ws != nil && tools.OwnsGesture(ws.Map().Editor()) {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *app) CompositionHeader(path string, dirty bool) bool {
+	return a.layout.Composition.ContextHeader(path, dirty)
+}
+func (a *app) CompositionContextAlpha(path string) float32 {
+	return a.layout.Composition.ContextAlpha(path)
+}
+func (a *app) ShowMappingEnvironment() {
+	a.layout.ShowNode(lnode.NameEnvironment)
+	a.layout.FocusNode(lnode.NameEnvironment)
 }
 func (a *app) ReturnMappingContext(parent, path string, transform mapping.Transform) {
 	if source, target := a.mappingWorkspace(path), a.mappingWorkspace(parent); source != nil && target != nil {

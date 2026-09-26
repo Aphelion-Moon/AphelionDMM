@@ -71,6 +71,33 @@ func NewReuseCache() *ReuseCache {
 	}
 }
 
+// EvictUnused releases optional cache ownership only. Catalogues holding a
+// source lease keep their source and accepted rendering alive.
+func (cache *ReuseCache) EvictUnused() uint64 {
+	if cache == nil {
+		return 0
+	}
+	cache.mu.Lock()
+	var sources []*Source
+	var freed uint64
+	for key, entry := range cache.sources {
+		if entry.refs == 0 {
+			delete(cache.sources, key)
+			entry.retained = false
+			cache.sourceBytes -= entry.bytes
+			freed += entry.bytes
+			sources = append(sources, entry.source)
+		}
+	}
+	clear(cache.configs)
+	cache.configBytes = 0
+	cache.mu.Unlock()
+	for _, source := range sources {
+		source.Close()
+	}
+	return freed
+}
+
 // Close releases cache-owned reservations without waiting for in-flight
 // parsing or catalogues that still borrow a source.
 func (cache *ReuseCache) Close() {

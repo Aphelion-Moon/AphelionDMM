@@ -126,6 +126,9 @@ type app struct {
 	mapOpenQueue           []*mapOpenRequest
 	mapOpenActive          *mapOpenRequest
 	environmentLoadRequest uint64
+	environmentLoadCancel  context.CancelFunc
+	environmentLoadDialog  dialog.Type
+	environmentLoadFinish  func()
 	// APHELION EDIT ADDITION END
 	pathsFilter *dm.PathsFilter
 
@@ -199,6 +202,11 @@ func (a *app) Process() {
 
 	a.menu.Process()
 	a.layout.Process()
+	// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
+	if a.environmentLoadFinish != nil {
+		a.environmentLoadFinish()
+	}
+	// APHELION EDIT ADDITION END
 
 	dialog.Process()
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN

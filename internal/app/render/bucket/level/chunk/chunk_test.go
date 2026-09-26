@@ -69,6 +69,18 @@ func TestChunkRevisionAdvancesAfterGeometryRebuild(t *testing.T) {
 	}
 }
 
+func TestOccurrenceMaskFiltersBeforeUnitConstruction(t *testing.T) {
+	dmm := newChunkTestMap(1, 1, 1)
+	tile := dmm.GetTile(util.Point{X: 1, Y: 1, Z: 1})
+	tile.InstancesAdd(dmmprefab.New(0, "/obj/not_materialized", (&dmvars.MutableVariables{}).ToImmutable()))
+	c := New(1, 1, 1, 1, 32)
+	seen := 0
+	c.Update(dmm, 1, func(*dmminstance.Instance) bool { seen++; return false })
+	if seen != 1 || len(c.UnitsByLayers) != 0 {
+		t.Fatal("masked instance allocated render units", seen, c.UnitsByLayers)
+	}
+}
+
 // APHELION EDIT ADDITION END
 
 func TestUpdateIncludesSpriteOverhangAndRebuildsBoundsPerLevel(t *testing.T) {

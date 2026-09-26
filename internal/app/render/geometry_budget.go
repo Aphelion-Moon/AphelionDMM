@@ -64,7 +64,11 @@ func (r *Render) admitGeometry(dmm *dmmap.Dmm, z int, points []util.Point, metad
 		for cx := x; cx <= min(x+chunk.Size, dmm.MaxX); cx++ {
 			for cy := y; cy <= min(y+chunk.Size, dmm.MaxY); cy++ {
 				// Covers units, layer indexes and old/new arrays during replacement.
-				bytes += uint64(len(dmm.GetTile(util.Point{X: cx, Y: cy, Z: z}).Instances())) * 256
+				for _, instance := range dmm.GetTile(util.Point{X: cx, Y: cy, Z: z}).Instances() {
+					if r.bucket.InstanceFilter == nil || r.bucket.InstanceFilter(instance) {
+						bytes += 256
+					}
+				}
 			}
 		}
 		updates[key] = bytes

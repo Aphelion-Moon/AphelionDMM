@@ -31,3 +31,22 @@ func TestBudgetReservesReleasesAndReportsAdmission(t *testing.T) {
 		t.Fatalf("released reservations retained %d bytes", got)
 	}
 }
+
+func TestAdmissionReportsIncrementalRequestAndLiveOwners(t *testing.T) {
+	b := NewFixedBudget(100)
+	r, err := b.Reserve(60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Label("document/request", "preview")
+	err = r.Resize(110)
+	var denial *AdmissionError
+	if !errors.As(err, &denial) || !denial.Incremental || denial.Needed != 50 || denial.Reservations["document/request: preview"] != 60 {
+		t.Fatal("denial lost incremental or owner accounting", err)
+	}
+	r.Release()
+	_, err = b.Reserve(110)
+	if !errors.As(err, &denial) || denial.Incremental || len(denial.Reservations) != 0 {
+		t.Fatal("released owner survived", err)
+	}
+}

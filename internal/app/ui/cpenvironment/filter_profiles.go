@@ -18,6 +18,9 @@ func (e *Environment) BindFilterEnvironment(environment *dmenv.Dme) {
 	e.bindFilterEnvironment(environment)
 }
 
+// VisibilityReady includes UI publication, not only worker completion.
+func (e *Environment) VisibilityReady() bool { return !e.filterCompilePending && !e.filterWorkerActive }
+
 func (e *Environment) invalidateFilterProfiles() {
 	if e.filterProfileDialog != nil {
 		e.filterProfileDialog.closing = true
