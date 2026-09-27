@@ -27,6 +27,7 @@ type Browser struct {
 	selected   string
 	cursor     string
 	err        string
+	joinErr    string
 	busy       bool
 	closed     bool
 	generation uint64
@@ -62,6 +63,7 @@ func (b *Browser) refresh(cursor string) {
 	b.cursor = cursor
 	b.busy = true
 	b.err = ""
+	b.joinErr = ""
 	if b.scope == "" {
 		b.scope = "community"
 	}
@@ -153,6 +155,7 @@ func (b *Browser) Process() {
 		}
 		if imgui.SelectableV(label+"##"+row.SessionID, row.SessionID == b.selected, imgui.SelectableFlagsNone, imgui.Vec2{}) {
 			b.selected = row.SessionID
+			b.joinErr = ""
 			b.title = row.Title
 			b.community = row.Visibility == "community"
 		}
@@ -175,7 +178,7 @@ func (b *Browser) Process() {
 	if selected != nil {
 		imgui.TextWrapped("Map: " + selected.MapLabel + "   Environment: " + selected.EnvironmentLabel)
 		imgui.TextWrapped("Compatibility is checked when opening. Load a compatible local environment and map first.")
-		reason = b.CanJoin()
+		reason = ""
 		if !selected.Available {
 			reason = "The session document is unavailable."
 		}
@@ -183,30 +186,12 @@ func (b *Browser) Process() {
 	if b.err != "" {
 		reason = "Refresh successfully before joining."
 	}
-	w.Disabled(b.busy || reason != "", w.Button("Open session", func() {
-		if b.cancel != nil {
-			b.cancel()
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		b.cancel = cancel
-		b.busy = true
-		b.generation++
-		generation := b.generation
-		b.Join(ctx, b.selected, func(err error) {
-			cancel()
-			if b.closed || b.generation != generation {
-				return
-			}
-			b.busy = false
-			if err != nil {
-				b.err = err.Error()
-			} else {
-				b.Refresh()
-			}
-		})
-	})).Build()
+	w.Disabled(b.busy || reason != "", w.Button("Open session", b.joinSelected)).Build()
 	if reason != "" {
 		imgui.TextWrapped(reason)
+	}
+	if b.joinErr != "" {
+		imgui.TextWrapped("Unable to open session: " + b.joinErr)
 	}
 	status := b.Client.Status()
 	if selected != nil && account.Attached && status.SessionID == selected.SessionID && status.Role == "owner" {
@@ -246,4 +231,37 @@ func (b *Browser) Process() {
 			}()
 		})).Build()
 	}
+}
+
+func (b *Browser) joinSelected() {
+	// Validation may capture and hash an entire map. It belongs to this user
+	// action, never the immediate-mode render loop. A failed local preflight
+	// must not invalidate a successfully loaded session list.
+	b.joinErr = ""
+	if b.CanJoin != nil {
+		if reason := b.CanJoin(); reason != "" {
+			b.joinErr = reason
+			return
+		}
+	}
+	if b.cancel != nil {
+		b.cancel()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	b.cancel = cancel
+	b.busy = true
+	b.generation++
+	generation := b.generation
+	b.Join(ctx, b.selected, func(err error) {
+		cancel()
+		if b.closed || b.generation != generation {
+			return
+		}
+		b.busy = false
+		if err != nil {
+			b.joinErr = err.Error()
+		} else {
+			b.Refresh()
+		}
+	})
 }
