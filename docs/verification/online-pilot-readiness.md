@@ -1,5 +1,9 @@
 # Online pilot readiness
 
+September 27 update: the reference service, Discord configuration and isolated
+backup/rollback rehearsal are now established. See [current evidence and remaining
+gates](2026-09-27-hosted-and-ci-followup.md). The August checklist below is historical.
+
 Status date: 2026-08-31
 
 Decision: not ready to start a private Internet pilot. The portable single-replica image is locally qualified, but no reference endpoint, external identity provider, production telemetry destination, or named-user exercise was configured.
