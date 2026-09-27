@@ -8,6 +8,9 @@ import (
 	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
 	"sdmm/internal/aphelion/editing"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - SCREENSHOT WORK OWNERSHIP
+	"sdmm/internal/app/window"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/canvas"
@@ -118,6 +121,7 @@ func (p *Panel) createScreenshot() {
 
 	var pixels = c.ReadPixels()
 
+	/* APHELION EDIT REMOVAL START - SCREENSHOT WORK OWNERSHIP
 	go func() {
 		if err := p.saveScreenshot(pixels, width, height); err != nil {
 			appdialog.Open(appdialog.TypeInformation{
@@ -127,6 +131,11 @@ func (p *Panel) createScreenshot() {
 		}
 		p.sessionScreenshot.saving = false
 	}()
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - SCREENSHOT WORK OWNERSHIP
+	work, session := p.prepareScreenshotSave(pixels, width, height), p.sessionScreenshot
+	go func() { completeScreenshotSave(window.RunLater, session, work()) }()
+	// APHELION EDIT ADDITION END
 }
 
 func (p *Panel) selectScreenshotDir() {
@@ -144,7 +153,8 @@ func (p *Panel) ProcessUnit(u unit.Unit) bool {
 	return p.app.PathsFilter().IsVisiblePath(u.Instance().Prefab().Path())
 }
 
-func (p *Panel) saveScreenshot(pixels []byte, w, h int) error {
+// APHELION EDIT CHANGE - SCREENSHOT WORK OWNERSHIP - ORIGINAL: func (p *Panel) saveScreenshot(pixels []byte, w, h int) error {
+func (p *Panel) saveScreenshot(pixels []byte, w, h int, cfg psettingsConfig) error {
 	if !cfg.ToClipboardMode {
 		if err := os.MkdirAll(cfg.ScreenshotDir, os.ModeDir); err != nil {
 			log.Print("unable to create screenshot directory:", err)
@@ -176,6 +186,23 @@ func (p *Panel) saveScreenshot(pixels []byte, w, h int) error {
 
 	return nil
 }
+
+// APHELION EDIT ADDITION START - SCREENSHOT WORK OWNERSHIP
+func (p *Panel) prepareScreenshotSave(pixels []byte, width, height int) func() error {
+	options := *cfg
+	return func() error { return p.saveScreenshot(pixels, width, height, options) }
+}
+
+func completeScreenshotSave(runLater func(func()), session *sessionScreenshot, err error) {
+	runLater(func() {
+		session.saving = false
+		if err != nil {
+			appdialog.Open(appdialog.TypeInformation{Title: "Error: Screenshot Creation", Information: fmt.Sprint("Unable to create screenshot:", err)})
+		}
+	})
+}
+
+// APHELION EDIT ADDITION END
 
 func saveScreenshotToFile(dstFilePath string, pixels []byte, w, h int) error {
 	out, err := os.Create(dstFilePath)
