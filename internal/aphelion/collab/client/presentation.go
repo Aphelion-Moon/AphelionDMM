@@ -30,6 +30,7 @@ type publishedProjection struct {
 	projection Projection
 	mapHash    string
 	hasPending bool
+	conflicts  []Conflict
 }
 
 const (
@@ -152,10 +153,22 @@ func coordLess(left, right model.Coord) bool {
 func (network *NetworkExecutor) publishCaptureLocked() {
 	projection := network.projection
 	mapHash := projection.acknowledgedHash
+	var conflicts []Conflict
+	if prior := network.published.Load(); prior != nil {
+		conflicts = prior.conflicts
+	}
+	if network.conflictsDirty {
+		conflicts = make([]Conflict, len(network.conflicts))
+		for index, conflict := range network.conflicts {
+			conflicts[index] = cloneConflict(conflict)
+		}
+		network.conflictsDirty = false
+	}
 	network.published.Store(&publishedProjection{
 		projection: projection,
 		mapHash:    mapHash,
 		hasPending: len(projection.Pending) != 0 || network.publication.localAdmissions != 0 || len(network.publication.pendingAdmission) != 0,
+		conflicts:  conflicts,
 	})
 }
 

@@ -123,6 +123,7 @@ type NetworkExecutor struct {
 	accepted       map[model.OperationID]model.AcceptedOperation
 	acceptedHashes map[model.OperationID]string
 	conflicts      []Conflict
+	conflictsDirty bool
 	updates        chan Projection
 	legacyUpdates  bool
 	terminal       error
@@ -367,10 +368,12 @@ func (network *NetworkExecutor) HasUnacknowledgedOperations() bool {
 }
 
 func (network *NetworkExecutor) Conflicts() []Conflict {
-	network.mutex.Lock()
-	defer network.mutex.Unlock()
-	conflicts := make([]Conflict, len(network.conflicts))
-	for index, conflict := range network.conflicts {
+	published := network.published.Load()
+	if published == nil || len(published.conflicts) == 0 {
+		return nil
+	}
+	conflicts := make([]Conflict, len(published.conflicts))
+	for index, conflict := range published.conflicts {
 		conflicts[index] = cloneConflict(conflict)
 	}
 	return conflicts
@@ -502,6 +505,8 @@ func (network *NetworkExecutor) DiscardConflict(ctx context.Context, operationID
 		return model.Snapshot{}, fmt.Errorf("conflict for operation %q is not retained", operationID)
 	}
 	network.conflicts = append(network.conflicts[:index], network.conflicts[index+1:]...)
+	network.conflictsDirty = true
+	network.beginMetadataPublicationLocked()
 	return model.CloneSnapshot(network.projection.Acknowledged), nil
 }
 
@@ -567,6 +572,8 @@ func (network *NetworkExecutor) DismissConflict(operationID model.OperationID) b
 		return false
 	}
 	network.conflicts = append(network.conflicts[:index], network.conflicts[index+1:]...)
+	network.conflictsDirty = true
+	network.beginMetadataPublicationLocked()
 	return true
 }
 
@@ -612,6 +619,7 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 			conflict := network.conflicts[index]
 			if conflict.Code == conflictDeliveryUnconfirmed && model.SameOperation(conflict.Draft, payload.Operation.Operation) {
 				network.conflicts = append(network.conflicts[:index], network.conflicts[index+1:]...)
+				network.conflictsDirty = true
 			}
 		}
 		if waiter, exists := network.pending[payload.Operation.OperationID]; exists {
@@ -687,6 +695,7 @@ func (network *NetworkExecutor) retainConflictLocked(conflict Conflict) {
 		return
 	}
 	network.conflicts = append(network.conflicts, cloneConflict(conflict))
+	network.conflictsDirty = true
 	if len(network.conflicts) > maxRetainedConflicts {
 		network.conflicts = network.conflicts[len(network.conflicts)-maxRetainedConflicts:]
 	}

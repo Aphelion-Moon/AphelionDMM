@@ -147,6 +147,7 @@ func TestCaptureProjectionAndPendingMetadataAvoidExecutorMutex(t *testing.T) {
 			// The initial immutable publication has no pending operation, so this
 			// is only a sanity check that the read completed without blocking.
 		}
+		_ = network.Conflicts()
 		finished <- captureErr
 	}()
 	select {
