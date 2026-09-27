@@ -162,6 +162,9 @@ func (transport *WebSocketTransport) Connect(ctx context.Context, request protoc
 }
 
 func (transport *WebSocketTransport) Send(ctx context.Context, message protocol.ClientEnvelope) error {
+	if err := transport.sendFailure(ctx); err != nil {
+		return err
+	}
 	transport.mutex.RLock()
 	message.BulkSession = transport.bulkEnabled
 	transport.mutex.RUnlock()
@@ -180,6 +183,9 @@ func (transport *WebSocketTransport) Send(ctx context.Context, message protocol.
 	if message.Type == protocol.ClientPresenceUpdate {
 		transport.presenceMu.Lock()
 		defer transport.presenceMu.Unlock()
+		if err := transport.sendFailure(ctx); err != nil {
+			return err
+		}
 		select {
 		case presence <- message:
 			return nil
@@ -197,6 +203,9 @@ func (transport *WebSocketTransport) Send(ctx context.Context, message protocol.
 				return ctx.Err()
 			}
 		}
+	}
+	if err := transport.sendFailure(ctx); err != nil {
+		return err
 	}
 	select {
 	case durable <- message:
@@ -348,7 +357,7 @@ func (transport *WebSocketTransport) write(ctx context.Context, connection *webs
 // SendOperation preserves the legacy wire contract unless the joined session
 // explicitly requires bulk-edit-v2. Queue ownership is detached from the caller.
 func (transport *WebSocketTransport) SendOperation(ctx context.Context, sessionID string, operation model.Operation) error {
-	if err := ctx.Err(); err != nil {
+	if err := transport.sendFailure(ctx); err != nil {
 		return err
 	}
 	transport.mutex.RLock()
@@ -378,6 +387,10 @@ func (transport *WebSocketTransport) SendOperation(ctx context.Context, sessionI
 	if err != nil {
 		return err
 	}
+	if err := transport.sendFailure(ctx); err != nil {
+		_ = body.Close()
+		return err
+	}
 	request := bulkWrite{context: ctx, body: body, result: make(chan error, 1)}
 	select {
 	case writes <- request: // Writer now owns body cleanup, including cancellation.
@@ -395,6 +408,30 @@ func (transport *WebSocketTransport) SendOperation(ctx context.Context, sessionI
 		return ctx.Err()
 	case <-done:
 		return transport.result()
+	}
+}
+
+// A ready queue must not win a select against an already-known failure. finish
+// records the cause before all workers have exited and closed done. Concurrent
+// failure after admission still follows normal uncertain-delivery recovery.
+func (transport *WebSocketTransport) sendFailure(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	transport.mutex.RLock()
+	err, done := transport.terminalErr, transport.done
+	transport.mutex.RUnlock()
+	if err != nil {
+		return err
+	}
+	select {
+	case <-done:
+		if err := transport.result(); err != nil {
+			return err
+		}
+		return ErrTransportNotConnected
+	default:
+		return nil
 	}
 }
 
