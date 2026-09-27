@@ -592,25 +592,25 @@ func (client *SessionClient) CreateInvitation(ctx context.Context, role Invitati
 	return invitation, nil
 }
 
-func (client *SessionClient) RefreshConflict(ctx context.Context, operationID model.OperationID) (model.Snapshot, error) {
+func (client *SessionClient) RefreshConflict(ctx context.Context, operationID model.OperationID) (collabclient.ProjectionCapture, error) {
 	network, _, err := client.conflictExecutor()
 	if err != nil {
-		return model.Snapshot{}, err
+		return collabclient.ProjectionCapture{}, err
 	}
 	return network.RefreshConflict(ctx, operationID)
 }
 
-func (client *SessionClient) DiscardConflict(ctx context.Context, operationID model.OperationID) (model.Snapshot, error) {
+func (client *SessionClient) DiscardConflict(ctx context.Context, operationID model.OperationID) (collabclient.ProjectionCapture, error) {
 	network, machine, err := client.conflictExecutor()
 	if err != nil {
-		return model.Snapshot{}, err
+		return collabclient.ProjectionCapture{}, err
 	}
-	snapshot, err := network.DiscardConflict(ctx, operationID)
+	capture, err := network.DiscardConflict(ctx, operationID)
 	if err != nil {
-		return model.Snapshot{}, err
+		return collabclient.ProjectionCapture{}, err
 	}
-	client.recordConflictResolution(machine, network, snapshot)
-	return snapshot, nil
+	client.recordConflictResolution(machine, network, capture.BaseRevision())
+	return capture, nil
 }
 
 func (client *SessionClient) RebuildConflict(ctx context.Context, operationID model.OperationID, complete func(model.AcceptedOperation, error)) error {
@@ -628,10 +628,10 @@ func (client *SessionClient) RebuildConflict(ctx context.Context, operationID mo
 	return network.ExecuteAsync(ctx, operation, func(accepted model.AcceptedOperation, executeErr error) {
 		if executeErr == nil {
 			network.DismissConflict(operationID)
-			if snapshot, snapshotErr := network.Snapshot(context.Background()); snapshotErr != nil {
-				executeErr = snapshotErr
+			if capture, captureErr := network.CaptureProjection(context.Background()); captureErr != nil {
+				executeErr = captureErr
 			} else {
-				client.recordConflictResolution(machine, network, snapshot)
+				client.recordConflictResolution(machine, network, capture.BaseRevision())
 			}
 		}
 		complete(accepted, executeErr)
@@ -647,13 +647,14 @@ func (client *SessionClient) conflictExecutor() (*collabclient.NetworkExecutor, 
 	return client.network, client.machine, nil
 }
 
-func (client *SessionClient) recordConflictResolution(machine *collabclient.StateMachine, network *collabclient.NetworkExecutor, snapshot model.Snapshot) {
+func (client *SessionClient) recordConflictResolution(machine *collabclient.StateMachine, network *collabclient.NetworkExecutor, revision model.Revision) {
 	client.mutex.Lock()
 	if client.machine != machine || client.network != network {
 		client.mutex.Unlock()
 		return
 	}
-	client.revision = snapshot.Revision
+	// A receive callback may have recorded a newer revision since this capture.
+	client.revision = max(client.revision, revision)
 	client.mutex.Unlock()
 	if network.ConflictCount() == 0 && machine.State() == collabclient.StateConflict {
 		_ = machine.Apply(collabclient.EventResolved)

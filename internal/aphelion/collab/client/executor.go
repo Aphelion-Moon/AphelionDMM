@@ -597,32 +597,39 @@ func (network *NetworkExecutor) ReplaceAcknowledgedSnapshot(ctx context.Context,
 	return nil
 }
 
-func (network *NetworkExecutor) RefreshConflict(ctx context.Context, operationID model.OperationID) (model.Snapshot, error) {
+// RefreshConflict pins authority for recovery inspection without copying the map.
+// Call AcceptedSnapshot on the capture only when detached map data is needed.
+func (network *NetworkExecutor) RefreshConflict(ctx context.Context, operationID model.OperationID) (ProjectionCapture, error) {
 	if err := ctx.Err(); err != nil {
-		return model.Snapshot{}, err
+		return ProjectionCapture{}, err
 	}
 	network.mutex.Lock()
 	defer network.mutex.Unlock()
 	if _, exists := network.conflictLocked(operationID); !exists {
-		return model.Snapshot{}, fmt.Errorf("conflict for operation %q is not retained", operationID)
+		return ProjectionCapture{}, fmt.Errorf("conflict for operation %q is not retained", operationID)
 	}
-	return model.CloneSnapshot(network.projection.Acknowledged), nil
+	return network.CaptureProjection(ctx)
 }
 
-func (network *NetworkExecutor) DiscardConflict(ctx context.Context, operationID model.OperationID) (model.Snapshot, error) {
+// DiscardConflict removes only the retained draft and returns its pinned authority.
+func (network *NetworkExecutor) DiscardConflict(ctx context.Context, operationID model.OperationID) (ProjectionCapture, error) {
 	if err := ctx.Err(); err != nil {
-		return model.Snapshot{}, err
+		return ProjectionCapture{}, err
 	}
 	network.mutex.Lock()
 	defer network.mutex.Unlock()
 	index, exists := network.conflictLocked(operationID)
 	if !exists {
-		return model.Snapshot{}, fmt.Errorf("conflict for operation %q is not retained", operationID)
+		return ProjectionCapture{}, fmt.Errorf("conflict for operation %q is not retained", operationID)
+	}
+	capture, err := network.CaptureProjection(ctx)
+	if err != nil {
+		return ProjectionCapture{}, err
 	}
 	network.conflicts = slices.Delete(network.conflicts, index, index+1)
 	network.conflictsDirty = true
 	network.beginMetadataPublicationLocked()
-	return model.CloneSnapshot(network.projection.Acknowledged), nil
+	return capture, nil
 }
 
 func (network *NetworkExecutor) BuildConflictRebuild(ctx context.Context, operationID model.OperationID) (model.Operation, error) {

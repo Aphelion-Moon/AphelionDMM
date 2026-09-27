@@ -322,6 +322,15 @@ func TestEditorNetworkAcceptanceRetainsVisibleInstances(t *testing.T) {
 	if mapState.Tiles[0].Instances()[2] != visible {
 		t.Fatal("speculative publication reconstructed an unchanged visible tile")
 	}
+	// Recovery-panel refresh must not replace another unacknowledged edit
+	// with the older acknowledged snapshot, even with no queued publication.
+	if err := editor.RefreshCollaborationSnapshot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertEditorDirection(t, mapState, "4")
+	if mapState.Tiles[0].Instances()[2] != visible {
+		t.Fatal("recovery refresh replaced pending visible instances")
+	}
 	beforeAck := editor.CollaborationPublicationStats()
 	accepted, err := document.Apply(operation, time.Now().UTC())
 	if err != nil {
@@ -473,7 +482,9 @@ func TestEditorRecoveryReplacementCoalescesFollowingAcceptance(t *testing.T) {
 	if err := network.Receive(protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "accepted-after-recovery", SessionID: "recovery", Type: protocol.ServerOperationAccepted, Payload: mustEditorJSON(t, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: hash})}); err != nil {
 		t.Fatal(err)
 	}
-	e.ProcessCollaborationUpdates()
+	if err := e.RefreshCollaborationSnapshot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	actual, err := e.authoritative.Hash()
 	if err != nil || actual != hash || e.authoritative.Revision != 8 {
 		t.Fatalf("recovery publication lost following acceptance: %v", err)
@@ -509,7 +520,9 @@ func TestEditorFailedPublicationPreservesMapAndPendingUpdate(t *testing.T) {
 	update := &client.PresentationUpdate{Sequence: 1, DocumentID: editor.documentID, EnvironmentHash: editor.authoritative.EnvironmentHash, Revision: 1, Display: []model.Tile{{Coord: model.Coord{X: 1, Y: 1, Z: 1}, State: after}, {Coord: model.Coord{X: 2, Y: 1, Z: 1}, State: after}}}
 	execution := &retainedPresentationExecutor{Executor: editor.executor, update: update}
 	editor.executor = execution
-	editor.ProcessCollaborationUpdates()
+	if err := editor.RefreshCollaborationSnapshot(context.Background()); err == nil {
+		t.Fatal("recovery refresh hid an installation failure")
+	}
 	if editor.collaborationErr == nil || editor.presentationUpdate != update || editor.presentationSequence != 0 {
 		t.Fatal("failed publication discarded its update or advanced the display cursor")
 	}

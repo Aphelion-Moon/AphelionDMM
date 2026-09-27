@@ -279,8 +279,8 @@ func TestNetworkExecutorConflictRefreshDiscardAndRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refreshed.Revision != snapshot.Revision || len(network.Conflicts()) != 1 {
-		t.Fatalf("refresh = revision %d, conflicts %d; want revision %d, conflicts 1", refreshed.Revision, len(network.Conflicts()), snapshot.Revision)
+	if refreshed.BaseRevision() != snapshot.Revision || len(network.Conflicts()) != 1 {
+		t.Fatalf("refresh = revision %d, conflicts %d; want revision %d, conflicts 1", refreshed.BaseRevision(), len(network.Conflicts()), snapshot.Revision)
 	}
 	rebuilt, err := network.BuildConflictRebuild(context.Background(), submission.OperationID)
 	if err != nil {

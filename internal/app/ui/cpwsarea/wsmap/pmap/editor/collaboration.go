@@ -205,7 +205,8 @@ func (e *Editor) ProcessCollaborationUpdates() {
 	}
 }
 
-// RefreshCollaborationSnapshot applies the executor's authoritative snapshot on the UI thread.
+// RefreshCollaborationSnapshot consumes network publications, preserving pending
+// display edits, or applies a snapshot for executors without incremental updates.
 func (e *Editor) RefreshCollaborationSnapshot(ctx context.Context) error {
 	if e.collaborationErr != nil {
 		return fmt.Errorf("inspect and explicitly discard the retained local edit before refreshing")
@@ -215,6 +216,13 @@ func (e *Editor) RefreshCollaborationSnapshot(ctx context.Context) error {
 	}
 	if e.executor == nil {
 		return fmt.Errorf("refresh collaboration snapshot: executor is unavailable")
+	}
+	if _, ok := e.executor.(presentationExecutor); ok {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		e.ProcessCollaborationUpdates()
+		return e.collaborationErr
 	}
 	snapshot, err := e.executor.Snapshot(ctx)
 	if err != nil {
