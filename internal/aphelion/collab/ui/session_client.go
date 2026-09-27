@@ -740,21 +740,30 @@ func (client *SessionClient) UpdateDisplayName(ctx context.Context, displayName 
 	if displayName == "" || len(displayName) > protocol.MaxDisplayNameBytes {
 		return fmt.Errorf("collaboration display name is invalid")
 	}
-	client.mutex.Lock()
-	defer client.mutex.Unlock()
-	if client.transport == nil || client.sessionID == "" {
-		return collabclient.ErrTransportNotConnected
-	}
-	sequence := client.profileSequence + 1
 	payload, err := json.Marshal(protocol.ProfileUpdatePayload{DisplayName: displayName})
 	if err != nil {
 		return err
 	}
-	envelope := protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: fmt.Sprintf("profile-%d", sequence), SessionID: client.sessionID, Type: protocol.ClientProfileUpdate, Payload: payload}
-	if err := client.transport.Send(ctx, envelope); err != nil {
+	client.mutex.Lock()
+	if client.transport == nil || client.sessionID == "" {
+		client.mutex.Unlock()
+		return collabclient.ErrTransportNotConnected
+	}
+	transport, machine, sessionID := client.transport, client.machine, client.sessionID
+	// Reserve IDs even on send failure; concurrent sends must not reuse them.
+	client.profileSequence++
+	envelope := protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: fmt.Sprintf("profile-%d", client.profileSequence), SessionID: sessionID, Type: protocol.ClientProfileUpdate, Payload: payload}
+	client.mutex.Unlock()
+	// A full durable queue can wait for the network. Status, receive callbacks
+	// and Leave must remain able to acquire the session lock during that wait.
+	if err := transport.Send(ctx, envelope); err != nil {
 		return err
 	}
-	client.profileSequence = sequence
+	client.mutex.Lock()
+	defer client.mutex.Unlock()
+	if client.transport != transport || client.machine != machine || client.sessionID != sessionID {
+		return ErrSessionChanged
+	}
 	return nil
 }
 
