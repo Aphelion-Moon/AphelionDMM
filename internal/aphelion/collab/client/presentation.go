@@ -55,6 +55,9 @@ type publicationState struct {
 
 	localAdmissions       int
 	localAdmissionBytes   uint64
+	queuedAdmission       map[uint64]model.Operation
+	admissionErr          error
+	interruptedBefore     uint64
 	pendingAdmission      map[model.OperationID]uint64
 	pendingAdmissionBytes uint64
 	nextDispatch          uint64
@@ -76,6 +79,7 @@ func newPublicationState() publicationState {
 		authoritative:    make(map[model.Coord]model.Tile),
 		display:          make(map[model.Coord]model.Tile),
 		pendingAdmission: make(map[model.OperationID]uint64),
+		queuedAdmission:  make(map[uint64]model.Operation),
 		dispatchWake:     make(chan struct{}),
 		completion:       make(map[uint64]completionEntry),
 	}
@@ -485,9 +489,7 @@ func (network *NetworkExecutor) refuseAdmission(operation model.Operation, cause
 		coords = append(coords, change.Coord)
 	}
 	network.mutex.Lock()
-	if network.terminal == nil && network.suspended == nil {
-		network.retainUnsentLocked(operation, cause)
-	}
+	network.retainUnsentLocked(operation, cause)
 	previous := network.projection
 	network.beginPublicationLocked(previous, previous, nil, coords, true)
 	network.mutex.Unlock()
@@ -499,7 +501,12 @@ func (network *NetworkExecutor) refuseAdmitted(operation model.Operation, cause 
 		coords = append(coords, change.Coord)
 	}
 	network.mutex.Lock()
-	if network.terminal == nil && network.suspended == nil {
+	network.publication.mu.Lock()
+	alreadyRecovered := ticket < network.publication.interruptedBefore
+	network.publication.mu.Unlock()
+	// Interruption already retained this ticket. A late callback must not
+	// resurrect a draft the user discarded or accepted replay resolved.
+	if !alreadyRecovered {
 		network.retainUnsentLocked(operation, cause)
 	}
 	previous := network.projection
@@ -515,6 +522,9 @@ func (network *NetworkExecutor) reserveAdmission(operation model.Operation) (uin
 	}
 	network.publication.mu.Lock()
 	defer network.publication.mu.Unlock()
+	if network.publication.admissionErr != nil {
+		return 0, 0, network.publication.admissionErr
+	}
 	usedCount := network.publication.localAdmissions + len(network.publication.pendingAdmission)
 	usedBytes := network.publication.localAdmissionBytes + network.publication.pendingAdmissionBytes
 	if usedCount >= maxLocalAdmissionCount || bytes > maxLocalAdmissionBytes-usedBytes {
@@ -524,6 +534,9 @@ func (network *NetworkExecutor) reserveAdmission(operation model.Operation) (uin
 	network.publication.nextDispatch++
 	network.publication.localAdmissions++
 	network.publication.localAdmissionBytes += bytes
+	// prepareOperation detached the payload before admission. Own it until
+	// handoff or interruption recovers edits still queued locally.
+	network.publication.queuedAdmission[ticket] = operation
 	// Publish the pending/admission bit without touching network.projection or
 	// waiting for its reconciliation mutex. The projection pointer remains the
 	// prior immutable view until the ordered owner installs this operation.
@@ -561,6 +574,7 @@ func (network *NetworkExecutor) finishAdmission(operationID model.OperationID, t
 		sent = sentPending
 	}
 	network.publication.mu.Lock()
+	delete(network.publication.queuedAdmission, ticket)
 	if network.publication.localAdmissions > 0 {
 		network.publication.localAdmissions--
 	}

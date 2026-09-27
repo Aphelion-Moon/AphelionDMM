@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -276,6 +277,18 @@ func (network *NetworkExecutor) executeAdmitted(ctx context.Context, operation m
 		}
 		return model.AcceptedOperation{}, err
 	}
+	network.publication.mu.Lock()
+	interrupted := ticket < network.publication.interruptedBefore
+	network.publication.mu.Unlock()
+	if interrupted {
+		err := fmt.Errorf("connection interrupted before queued edit was submitted; the edit is retained for recovery")
+		network.mutex.Unlock()
+		network.refuseAdmitted(operation, err, ticket, bytes)
+		if !async {
+			network.recordCompletion(ticket, model.AcceptedOperation{}, err, nil)
+		}
+		return model.AcceptedOperation{}, err
+	}
 	previous := network.projection
 	verifiedHash, hashErr := network.projection.verifiedMapHash()
 	var projection Projection
@@ -469,6 +482,25 @@ func (network *NetworkExecutor) suspendLocked(cause error) {
 // Preserve uncertain delivery on both recoverable and terminal failures. The
 // acknowledged snapshot remains available for inspection and local export.
 func (network *NetworkExecutor) clearPendingLocked(cause error) {
+	// Admission runs separately from reconciliation. Close it and pin every
+	// pre-interruption ticket before collecting drafts; Resume must not send
+	// queued gestures automatically through a new connection.
+	network.publication.mu.Lock()
+	network.publication.admissionErr = cause
+	network.publication.interruptedBefore = network.publication.nextDispatch
+	tickets := make([]uint64, 0, len(network.publication.queuedAdmission))
+	for ticket := range network.publication.queuedAdmission {
+		tickets = append(tickets, ticket)
+	}
+	sort.Slice(tickets, func(i, j int) bool { return tickets[i] < tickets[j] })
+	queued := make([]model.Operation, 0, len(tickets))
+	for _, ticket := range tickets {
+		queued = append(queued, network.publication.queuedAdmission[ticket])
+	}
+	// Recovery consumes this ownership once. A second interruption (including
+	// terminal cleanup after suspension) must not recreate discarded drafts.
+	clear(network.publication.queuedAdmission)
+	network.publication.mu.Unlock()
 	snapshot := network.projection.Acknowledged
 	if hash, err := network.projection.verifiedMapHash(); err == nil {
 		for _, operation := range network.projection.Pending {
@@ -479,6 +511,12 @@ func (network *NetworkExecutor) clearPendingLocked(cause error) {
 				Revision: snapshot.Revision, MapHash: hash,
 			})
 		}
+	}
+	for _, operation := range queued {
+		// Pending operations were retained above with uncertain-delivery status.
+		// Already acknowledged operations must not become recovery drafts if
+		// acceptance beat the sending worker's admission cleanup.
+		network.retainUnsentLocked(operation, cause)
 	}
 	waiters := make([]chan operationResult, 0, len(network.pending))
 	for operationID, waiter := range network.pending {
@@ -510,6 +548,9 @@ func (network *NetworkExecutor) Resume(transport Transport) error {
 	}
 	network.transport = transport
 	network.suspended = nil
+	network.publication.mu.Lock()
+	network.publication.admissionErr = nil
+	network.publication.mu.Unlock()
 	return nil
 }
 
@@ -782,6 +823,12 @@ func (network *NetworkExecutor) conflictLocked(operationID model.OperationID) (i
 // Keep their intent in the same explicit refresh/discard/rebuild flow instead of
 // losing it when the editor restores acknowledged state.
 func (network *NetworkExecutor) retainUnsentLocked(operation model.Operation, cause error) {
+	if _, accepted := network.accepted[operation.OperationID]; accepted {
+		return
+	}
+	if _, accepted := network.acceptedReceipts[operation.OperationID]; accepted {
+		return
+	}
 	snapshot := network.projection.Acknowledged
 	if operation.ProtocolVersion != snapshot.ProtocolVersion || operation.DocumentID != snapshot.DocumentID || operation.EnvironmentHash != snapshot.EnvironmentHash || operation.OperationID.Validate() != nil {
 		return // A foreign document must never become rebuildable in this one.
