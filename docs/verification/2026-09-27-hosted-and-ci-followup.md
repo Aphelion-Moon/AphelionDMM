@@ -1,5 +1,9 @@
 # Hosted deployment and CI follow-up
 
+Later update: [transaction storage and Discord status](2026-09-27-hosted-storage-and-discord-status.md)
+records the subsequent live revision, storage-v4 cutover and channel configuration.
+The cutover and measurements below remain historical evidence.
+
 Status date: September 27, 2026. This record supersedes the August readiness
 documents for the Windows reference installation. Historical measurements remain
 historical; unchecked implementation-plan items are not a current backlog.
