@@ -226,6 +226,15 @@ func (client *SessionClient) joinSession(ctx context.Context, invitation connect
 	client.cancelReconnect = cancelReconnect
 	machine := client.machine
 	client.mutex.Unlock()
+	// Leave owns the session lifetime even before a transport is installed.
+	// Cancel initial HTTP/dial/replay work without tying the established socket
+	// to the short-lived Join call (WebSocketTransport detaches its context).
+	ctx, cancelJoin := context.WithCancel(ctx)
+	stopJoinCancellation := context.AfterFunc(reconnectContext, cancelJoin)
+	defer func() {
+		stopJoinCancellation()
+		cancelJoin()
+	}()
 	joined := false
 	defer func() {
 		if !joined {
@@ -263,6 +272,10 @@ func (client *SessionClient) joinSession(ctx context.Context, invitation connect
 	snapshotFallbacks := 0
 	refreshSnapshot := func() error {
 		client.mutex.Lock()
+		if client.machine != machine || machine.State() == collabclient.StateClosed || ctx.Err() != nil {
+			client.mutex.Unlock()
+			return ErrSessionChanged
+		}
 		retryToken := client.resumptionToken
 		retryExpiry := client.resumptionExpiresAt
 		client.mutex.Unlock()
@@ -289,6 +302,9 @@ joinAttempts:
 		errorsFound := make(chan error, 1)
 		snapshotRequired := make(chan struct{}, 1)
 		receive := func(envelope protocol.ServerEnvelope) {
+			if reconnectContext.Err() != nil {
+				return
+			}
 			decoded, decodeErr := decodeServerEnvelope(envelope)
 			if decodeErr != nil {
 				nonBlockingError(errorsFound, decodeErr)
@@ -336,9 +352,9 @@ joinAttempts:
 				default:
 				}
 			case protocol.ServerPresenceSnapshot:
-				client.recordPresenceSnapshot(decoded.Payload.(*protocol.PresenceSnapshotPayload))
+				client.recordPresenceSnapshot(machine, decoded.Payload.(*protocol.PresenceSnapshotPayload))
 			case protocol.ServerPresenceUpdate:
-				client.recordPresenceUpdate(decoded.Payload.(*protocol.ServerPresenceUpdatePayload))
+				client.recordPresenceUpdate(machine, decoded.Payload.(*protocol.ServerPresenceUpdatePayload))
 			case protocol.ServerSessionNotice:
 				payload := decoded.Payload.(*protocol.SessionNoticePayload)
 				if payload.Code == protocol.NoticeSnapshotRequired {
@@ -350,6 +366,7 @@ joinAttempts:
 			}
 		}
 		if err := attemptTransport.Connect(ctx, protocol.JoinRequest{BaseURL: invitation.BaseURL, Origin: invitation.Origin, Token: joinToken, SessionID: invitation.SessionID, AcknowledgedRevision: attemptSnapshot.Revision}, receive); err != nil {
+			_ = attemptTransport.Close(websocket.StatusGoingAway, "join failed")
 			client.recordConnectionFailure(machine, err)
 			return err
 		}
@@ -410,9 +427,14 @@ joinAttempts:
 		break joinAttempts
 	}
 	client.mutex.Lock()
-	if invitation.fenceHosted && (invitation.hostedGeneration != client.hostedGeneration || ctx.Err() != nil) {
+	if client.machine != machine || !client.joining || machine.State() == collabclient.StateClosed || ctx.Err() != nil || (invitation.fenceHosted && invitation.hostedGeneration != client.hostedGeneration) {
 		client.mutex.Unlock()
-		_ = transport.Close(websocket.StatusGoingAway, "hosted account changed")
+		cancelJoinedTransportWait()
+		_ = transport.Close(websocket.StatusGoingAway, "session changed")
+		joinedNetwork.Terminate(context.Canceled)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		return ErrSessionChanged
 	}
 	client.transport = transport
@@ -490,10 +512,10 @@ func (client *SessionClient) Leave(context.Context) error {
 		client.cancelReconnect = nil
 	}
 	client.reconnectContext = nil
-	client.mutex.Unlock()
 	if machine != nil && machine.State() != collabclient.StateClosed {
 		_ = machine.Apply(collabclient.EventClose)
 	}
+	client.mutex.Unlock()
 	if network != nil {
 		network.Terminate(collabclient.ErrExecutorTerminated)
 	}
@@ -839,7 +861,7 @@ func (client *SessionClient) recordJoined(machine *collabclient.StateMachine, pa
 		_ = machine.Apply(collabclient.EventConnected)
 	}
 	client.mutex.Lock()
-	if client.machine == machine {
+	if client.machine == machine && machine.State() != collabclient.StateClosed {
 		client.role = payload.Role
 		client.revision = payload.Revision
 		client.presenceInterval = time.Duration(payload.PresenceIntervalMS) * time.Millisecond
@@ -859,7 +881,7 @@ func (client *SessionClient) recordSynchronized(machine *collabclient.StateMachi
 		_ = machine.Apply(collabclient.EventSynchronized)
 	}
 	client.mutex.Lock()
-	if client.machine == machine {
+	if client.machine == machine && machine.State() != collabclient.StateClosed {
 		client.revision = revision
 	}
 	client.mutex.Unlock()
@@ -879,7 +901,7 @@ func verifiedNetworkBase(network *collabclient.NetworkExecutor) (model.Revision,
 func (client *SessionClient) recordOperation(machine *collabclient.StateMachine, network *collabclient.NetworkExecutor, messageType protocol.ServerType) {
 	revision, _, err := verifiedNetworkBase(network)
 	client.mutex.Lock()
-	if client.machine == machine {
+	if client.machine == machine && machine.State() != collabclient.StateClosed {
 		if err != nil {
 			client.lastErr = err
 		} else {
@@ -892,18 +914,24 @@ func (client *SessionClient) recordOperation(machine *collabclient.StateMachine,
 	}
 }
 
-func (client *SessionClient) recordPresenceSnapshot(payload *protocol.PresenceSnapshotPayload) {
+func (client *SessionClient) recordPresenceSnapshot(machine *collabclient.StateMachine, payload *protocol.PresenceSnapshotPayload) {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
+	if client.machine != machine || machine.State() == collabclient.StateClosed {
+		return
+	}
 	client.participants = make(map[model.ActorID]ObservedPresence, len(payload.Participants))
 	for _, participant := range payload.Participants {
 		client.participants[participant.ActorID] = ObservedPresence{Presence: cloneParticipantPresence(participant), ObservedAt: client.config.Now()}
 	}
 }
 
-func (client *SessionClient) recordPresenceUpdate(payload *protocol.ServerPresenceUpdatePayload) {
+func (client *SessionClient) recordPresenceUpdate(machine *collabclient.StateMachine, payload *protocol.ServerPresenceUpdatePayload) {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
+	if client.machine != machine || machine.State() == collabclient.StateClosed {
+		return
+	}
 	participant := protocol.ParticipantPresence{ActorID: payload.ActorID, DisplayName: payload.DisplayName, Sequence: payload.Sequence, Cursor: payload.Cursor, Selection: payload.Selection, Status: payload.Status}
 	client.participants[payload.ActorID] = ObservedPresence{Presence: cloneParticipantPresence(participant), ObservedAt: client.config.Now()}
 }
@@ -917,7 +945,7 @@ func (client *SessionClient) recordConnectionFailure(machine *collabclient.State
 		_ = machine.Apply(collabclient.EventConnectionLost)
 	}
 	client.mutex.Lock()
-	if client.machine == machine {
+	if client.machine == machine && machine.State() != collabclient.StateClosed {
 		client.lastErr = err
 		client.participants = make(map[model.ActorID]ObservedPresence)
 		client.stopPresencePublicationLocked()
@@ -994,7 +1022,7 @@ func (client *SessionClient) runReconnect(ctx context.Context, machine *collabcl
 		return client.reconnectAttempt(attemptContext, machine, network, current.Revision)
 	})
 	client.mutex.Lock()
-	if client.machine == machine {
+	if client.machine == machine && machine.State() != collabclient.StateClosed {
 		client.reconnecting = false
 		if err != nil && (errors.Is(err, collabclient.ErrAuthenticationDenied) || errors.Is(err, collabclient.ErrIncompatibleProtocol)) {
 			client.resumptionToken = ""
@@ -1060,9 +1088,9 @@ func (client *SessionClient) reconnectAttempt(ctx context.Context, machine *coll
 			default:
 			}
 		case protocol.ServerPresenceSnapshot:
-			client.recordPresenceSnapshot(decoded.Payload.(*protocol.PresenceSnapshotPayload))
+			client.recordPresenceSnapshot(machine, decoded.Payload.(*protocol.PresenceSnapshotPayload))
 		case protocol.ServerPresenceUpdate:
-			client.recordPresenceUpdate(decoded.Payload.(*protocol.ServerPresenceUpdatePayload))
+			client.recordPresenceUpdate(machine, decoded.Payload.(*protocol.ServerPresenceUpdatePayload))
 		case protocol.ServerSessionNotice:
 			payload := decoded.Payload.(*protocol.SessionNoticePayload)
 			if payload.Code != protocol.NoticeSnapshotRequired {

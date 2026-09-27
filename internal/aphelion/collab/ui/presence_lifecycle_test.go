@@ -22,14 +22,14 @@ func TestSessionClientExpiresPresenceForBothViews(t *testing.T) {
 					Cursor:  coord(1, 1, 1), Status: "active",
 				}
 			}
-			client.recordPresenceSnapshot(&protocol.PresenceSnapshotPayload{Participants: participants})
+			client.recordPresenceSnapshot(client.machine, &protocol.PresenceSnapshotPayload{Participants: participants})
 			now = now.Add(30 * time.Second)
 			if got := len(client.Status().Participants); got != oldActors {
 				t.Fatalf("presence expired before the overlay boundary: %d", got)
 			}
 			// A fresh update keeps this actor visible while all other actors age out.
 			actor := participants[0].ActorID
-			client.recordPresenceUpdate(&protocol.ServerPresenceUpdatePayload{ActorID: actor, Sequence: 2, Cursor: coord(2, 1, 1), Status: "active"})
+			client.recordPresenceUpdate(client.machine, &protocol.ServerPresenceUpdatePayload{ActorID: actor, Sequence: 2, Cursor: coord(2, 1, 1), Status: "active"})
 			now = now.Add(time.Nanosecond)
 			if readStatusFirst {
 				if got := client.Status().Participants; len(got) != 1 || got[0].ActorID != actor {
@@ -49,7 +49,7 @@ func TestSessionClientExpiresPresenceForBothViews(t *testing.T) {
 			// Expiry is ephemeral: even an equal sequence can restore presence
 			// after a lossy interval or reconnect; no durable state is involved.
 			restored := participants[1].ActorID
-			client.recordPresenceUpdate(&protocol.ServerPresenceUpdatePayload{ActorID: restored, Cursor: coord(3, 1, 1), Status: "active"})
+			client.recordPresenceUpdate(client.machine, &protocol.ServerPresenceUpdatePayload{ActorID: restored, Cursor: coord(3, 1, 1), Status: "active"})
 			if got := len(client.Status().Participants); got != 2 {
 				t.Fatalf("fresh presence did not restore the actor: %d", got)
 			}
@@ -64,7 +64,7 @@ func TestSessionClientExpiresPresenceForBothViews(t *testing.T) {
 func TestSessionClientStatusDetachesPresence(t *testing.T) {
 	client := NewSessionClient(SessionClientConfig{})
 	actor := model.ActorID("01890f3e-7b5c-7abc-8def-0123456789ad")
-	client.recordPresenceUpdate(&protocol.ServerPresenceUpdatePayload{ActorID: actor, Cursor: coord(1, 2, 1),
+	client.recordPresenceUpdate(client.machine, &protocol.ServerPresenceUpdatePayload{ActorID: actor, Cursor: coord(1, 2, 1),
 		Selection: &protocol.PresenceSelection{Min: model.Coord{X: 1, Y: 1, Z: 1}, Max: model.Coord{X: 2, Y: 2, Z: 1}}, Status: "active"})
 	status := client.Status()
 	status.Participants[0].Cursor.X = 99
