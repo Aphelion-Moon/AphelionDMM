@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"sync/atomic"
 
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
@@ -32,10 +33,12 @@ type operationResult struct {
 // materialized by a worker after the executor advances.
 type ProjectionCapture struct {
 	projection Projection
+	mapHash    string
+	hasPending bool
 }
 
 func (capture ProjectionCapture) HasPending() bool {
-	return len(capture.projection.Pending) != 0
+	return capture.hasPending || len(capture.projection.Pending) != 0
 }
 
 func (capture ProjectionCapture) BaseRevision() model.Revision {
@@ -103,11 +106,10 @@ func (capture ProjectionCapture) VisibleSnapshot() (model.Snapshot, error) {
 // captured acknowledged revision without exposing executor-owned tile data.
 func (capture ProjectionCapture) OperationBase() (model.DocumentID, model.Revision, string, string, error) {
 	snapshot := capture.projection.Acknowledged
-	hash, err := snapshot.Hash()
-	if err != nil {
-		return "", 0, "", "", err
+	if capture.mapHash == "" {
+		return "", 0, "", "", errors.New("locally verified acknowledged map hash is unavailable")
 	}
-	return snapshot.DocumentID, snapshot.Revision, snapshot.EnvironmentHash, hash, nil
+	return snapshot.DocumentID, snapshot.Revision, snapshot.EnvironmentHash, capture.mapHash, nil
 }
 
 type NetworkExecutor struct {
@@ -122,15 +124,25 @@ type NetworkExecutor struct {
 	acceptedHashes map[model.OperationID]string
 	conflicts      []Conflict
 	updates        chan Projection
+	legacyUpdates  bool
 	terminal       error
 	suspended      error
+
+	// mutex protects state transitions and legacy compatibility reads. The
+	// publication/capture paths use the immutable pointer below instead of
+	// waiting behind reconciliation or canonical hashing.
+	publication     publicationState
+	published       atomic.Pointer[publishedProjection]
+	authorityTiles  map[model.Coord]model.TileState
+	authorityOwners map[model.StableID]model.Coord
 }
 
 func NewNetworkExecutor(transport Transport, snapshot model.Snapshot, actor model.ActorID, sessionID string) (*NetworkExecutor, error) {
 	if transport == nil {
 		return nil, fmt.Errorf("network executor transport is nil")
 	}
-	if _, err := snapshot.Hash(); err != nil {
+	snapshotHash, err := snapshot.Hash()
+	if err != nil {
 		return nil, err
 	}
 	if err := actor.Validate(); err != nil {
@@ -139,53 +151,91 @@ func NewNetworkExecutor(transport Transport, snapshot model.Snapshot, actor mode
 	if sessionID == "" {
 		return nil, fmt.Errorf("network executor session id is empty")
 	}
-	return &NetworkExecutor{
+	projection := newProjection(snapshot, snapshotHash)
+	network := &NetworkExecutor{
 		transport:      transport,
 		actor:          actor,
 		sessionID:      sessionID,
-		projection:     NewProjection(snapshot),
+		projection:     projection,
 		pending:        make(map[model.OperationID]chan operationResult),
 		accepted:       make(map[model.OperationID]model.AcceptedOperation),
 		acceptedHashes: make(map[model.OperationID]string),
 		updates:        make(chan Projection, 1),
-	}, nil
+		publication:    newPublicationState(),
+	}
+	network.authorityTiles, network.authorityOwners = buildAuthorityIndex(snapshot)
+	network.publication.mu.Lock()
+	network.publishCaptureLocked()
+	network.publication.mu.Unlock()
+	return network, nil
 }
 
 func (network *NetworkExecutor) Execute(ctx context.Context, operation model.Operation) (model.AcceptedOperation, error) {
 	if err := ctx.Err(); err != nil {
 		return model.AcceptedOperation{}, err
 	}
+	operation, err := network.prepareOperation(operation)
+	if err != nil {
+		return model.AcceptedOperation{}, err
+	}
+	ticket, bytes, err := network.reserveAdmission(operation)
+	if err != nil {
+		network.refuseAdmission(operation, err)
+		return model.AcceptedOperation{}, err
+	}
+	network.waitDispatchTurn(ticket)
+	accepted, err := network.executeAdmitted(ctx, operation, ticket, bytes)
+	if err != nil {
+		return model.AcceptedOperation{}, err
+	}
+	return accepted, nil
+}
+
+func (network *NetworkExecutor) prepareOperation(operation model.Operation) (model.Operation, error) {
 	operation.ActorID = network.actor
 	if operation.OperationID == "" {
 		operationID, err := model.NewOperationID()
 		if err != nil {
-			return model.AcceptedOperation{}, err
+			return model.Operation{}, err
 		}
 		operation.OperationID = operationID
+	}
+	return operation, nil
+}
+
+func (network *NetworkExecutor) executeAdmitted(ctx context.Context, operation model.Operation, ticket, bytes uint64) (model.AcceptedOperation, error) {
+	if err := ctx.Err(); err != nil {
+		network.refuseAdmitted(operation, err, ticket, bytes)
+		return model.AcceptedOperation{}, err
 	}
 
 	network.mutex.Lock()
 	if network.terminal != nil {
 		err := network.terminal
 		network.mutex.Unlock()
+		network.refuseAdmitted(operation, err, ticket, bytes)
 		return model.AcceptedOperation{}, err
 	}
 	if network.suspended != nil {
 		err := network.suspended
 		network.mutex.Unlock()
+		network.refuseAdmitted(operation, err, ticket, bytes)
 		return model.AcceptedOperation{}, err
 	}
-	projection, err := network.projection.Submit(operation)
+	previous := network.projection
+	verifiedHash, hashErr := network.projection.verifiedMapHash()
+	projection, err := network.projection.submitWithHash(operation, verifiedHash, hashErr)
 	if err != nil {
 		network.retainUnsentLocked(operation, err)
 		network.mutex.Unlock()
+		network.refuseAdmitted(operation, err, ticket, bytes)
 		return model.AcceptedOperation{}, err
 	}
 	result := make(chan operationResult, 1)
 	network.projection = projection
 	network.pending[operation.OperationID] = result
 	transport := network.transport
-	network.publishLocked()
+	network.beginPublicationLocked(previous, projection, nil, nil, false)
 	network.mutex.Unlock()
 
 	if sender, ok := transport.(interface {
@@ -201,8 +251,13 @@ func (network *NetworkExecutor) Execute(ctx context.Context, operation model.Ope
 	}
 	if err != nil {
 		network.failPending(operation.OperationID, err)
+		network.finishAdmission(operation.OperationID, ticket, bytes, false)
 		return model.AcceptedOperation{}, err
 	}
+	// The pending projection now contains every admitted edit through this
+	// dispatch turn. Release admission before waiting for acknowledgement so a
+	// later gesture can be submitted without serializing on the server RTT.
+	network.finishAdmission(operation.OperationID, ticket, bytes, true)
 	select {
 	case resolved := <-result:
 		return resolved.accepted, resolved.err
@@ -218,9 +273,19 @@ func (network *NetworkExecutor) ExecuteAsync(ctx context.Context, operation mode
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	operation, err := network.prepareOperation(operation)
+	if err != nil {
+		return err
+	}
+	ticket, bytes, err := network.reserveAdmission(operation)
+	if err != nil {
+		network.refuseAdmission(operation, err)
+		return err
+	}
 	go func() {
-		accepted, err := network.Execute(ctx, operation)
-		complete(accepted, err)
+		network.waitDispatchTurn(ticket)
+		accepted, executeErr := network.executeAdmitted(ctx, operation, ticket, bytes)
+		complete(accepted, executeErr)
 	}()
 	return nil
 }
@@ -245,7 +310,7 @@ func (network *NetworkExecutor) BuildInverse(ctx context.Context, targetID model
 	if err != nil {
 		return model.Operation{}, err
 	}
-	baseHash, err := network.projection.Acknowledged.Hash()
+	baseHash, err := network.projection.verifiedMapHash()
 	if err != nil {
 		return model.Operation{}, err
 	}
@@ -282,19 +347,23 @@ func (network *NetworkExecutor) CaptureProjection(ctx context.Context) (Projecti
 	if err := ctx.Err(); err != nil {
 		return ProjectionCapture{}, err
 	}
-	network.mutex.Lock()
-	defer network.mutex.Unlock()
-	return ProjectionCapture{projection: network.projection}, nil
+	published := network.published.Load()
+	if published == nil {
+		return ProjectionCapture{}, ErrExecutorTerminated
+	}
+	return ProjectionCapture{projection: published.projection, mapHash: published.mapHash, hasPending: published.hasPending}, nil
 }
 
 func (network *NetworkExecutor) ProjectionUpdates() <-chan Projection {
+	network.mutex.Lock()
+	network.legacyUpdates = true
+	network.mutex.Unlock()
 	return network.updates
 }
 
 func (network *NetworkExecutor) HasUnacknowledgedOperations() bool {
-	network.mutex.Lock()
-	defer network.mutex.Unlock()
-	return len(network.projection.Pending) != 0
+	published := network.published.Load()
+	return published != nil && published.hasPending
 }
 
 func (network *NetworkExecutor) Conflicts() []Conflict {
@@ -330,7 +399,7 @@ func (network *NetworkExecutor) suspendLocked(cause error) {
 // acknowledged snapshot remains available for inspection and local export.
 func (network *NetworkExecutor) clearPendingLocked(cause error) {
 	snapshot := network.projection.Acknowledged
-	if hash, err := snapshot.Hash(); err == nil {
+	if hash, err := network.projection.verifiedMapHash(); err == nil {
 		for _, operation := range network.projection.Pending {
 			network.retainConflictLocked(Conflict{
 				OperationID: operation.OperationID, Draft: operation,
@@ -342,10 +411,12 @@ func (network *NetworkExecutor) clearPendingLocked(cause error) {
 	}
 	for operationID, waiter := range network.pending {
 		delete(network.pending, operationID)
+		network.releasePendingAdmission(operationID)
 		waiter <- operationResult{err: cause}
 	}
-	network.projection.Pending = nil
-	network.publishLocked()
+	previous := network.projection
+	network.projection = Projection{Acknowledged: model.CloneSnapshot(previous.Acknowledged), acknowledgedHash: previous.acknowledgedHash}
+	network.beginPublicationLocked(previous, network.projection, nil, nil, false)
 }
 
 // Resume binds a fresh transport while preserving acknowledged state and accepted history.
@@ -371,7 +442,8 @@ func (network *NetworkExecutor) ReplaceAcknowledgedSnapshot(ctx context.Context,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if _, err := snapshot.Hash(); err != nil {
+	replacementHash, err := snapshot.Hash()
+	if err != nil {
 		return err
 	}
 	network.mutex.Lock()
@@ -390,11 +462,7 @@ func (network *NetworkExecutor) ReplaceAcknowledgedSnapshot(ctx context.Context,
 		return fmt.Errorf("replacement snapshot revision %d precedes acknowledged revision %d", snapshot.Revision, current.Revision)
 	}
 	if snapshot.Revision == current.Revision {
-		currentHash, err := current.Hash()
-		if err != nil {
-			return err
-		}
-		replacementHash, err := snapshot.Hash()
+		currentHash, err := network.projection.verifiedMapHash()
 		if err != nil {
 			return err
 		}
@@ -403,10 +471,11 @@ func (network *NetworkExecutor) ReplaceAcknowledgedSnapshot(ctx context.Context,
 		}
 		return nil
 	}
-	network.projection = NewProjection(snapshot)
+	network.projection = newProjection(snapshot, replacementHash)
+	network.replaceAuthorityIndex(snapshot)
 	// Snapshot fallback carries no operation IDs. Keep unresolved drafts; their
 	// rebuild path compares intended values with this fresh authority instead.
-	network.publishLocked()
+	network.beginReplacementPublicationLocked(snapshot)
 	return nil
 }
 
@@ -454,7 +523,7 @@ func (network *NetworkExecutor) BuildConflictRebuild(ctx context.Context, operat
 	if err != nil {
 		return model.Operation{}, err
 	}
-	baseHash, err := network.projection.Acknowledged.Hash()
+	baseHash, err := network.projection.verifiedMapHash()
 	if err != nil {
 		return model.Operation{}, err
 	}
@@ -529,11 +598,13 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 				return nil
 			}
 		}
+		previous := network.projection
 		projection, applyErr := network.projection.Accept(payload.Operation, payload.MapHash)
 		if applyErr != nil {
 			network.suspendLocked(applyErr)
 			return applyErr
 		}
+		network.applyAuthorityChanges(payload.Operation.Changes)
 		network.projection = projection
 		network.accepted[payload.Operation.OperationID] = model.CloneAcceptedOperation(payload.Operation)
 		network.acceptedHashes[payload.Operation.OperationID] = payload.MapHash
@@ -545,12 +616,15 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 		}
 		if waiter, exists := network.pending[payload.Operation.OperationID]; exists {
 			delete(network.pending, payload.Operation.OperationID)
+			network.releasePendingAdmission(payload.Operation.OperationID)
 			waiter <- operationResult{accepted: model.CloneAcceptedOperation(payload.Operation)}
 		}
-		network.publishLocked()
+		network.beginPublicationLocked(previous, projection, payload.Operation.Changes, nil, false)
 	case protocol.ServerOperationRejected:
 		payload := decoded.Payload.(*protocol.OperationRejectedPayload)
-		projection, conflict, rejectErr := network.projection.Reject(*payload)
+		previous := network.projection
+		verifiedHash, hashErr := network.projection.verifiedMapHash()
+		projection, conflict, rejectErr := network.projection.rejectWithHash(*payload, verifiedHash, hashErr)
 		if rejectErr != nil {
 			network.suspendLocked(rejectErr)
 			return rejectErr
@@ -559,9 +633,14 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 		network.retainConflictLocked(conflict)
 		if waiter, exists := network.pending[payload.OperationID]; exists {
 			delete(network.pending, payload.OperationID)
+			network.releasePendingAdmission(payload.OperationID)
 			waiter <- operationResult{err: fmt.Errorf("%w: %s: %s", ErrOperationRejected, conflict.Code, conflict.Message)}
 		}
-		network.publishLocked()
+		displayCoords := make([]model.Coord, 0, len(conflict.Draft.Changes))
+		for _, change := range conflict.Draft.Changes {
+			displayCoords = append(displayCoords, change.Coord)
+		}
+		network.beginPublicationLocked(previous, projection, nil, displayCoords, false)
 	}
 	return nil
 }
@@ -589,7 +668,7 @@ func (network *NetworkExecutor) retainUnsentLocked(operation model.Operation, ca
 	if operation.ProtocolVersion != snapshot.ProtocolVersion || operation.DocumentID != snapshot.DocumentID || operation.EnvironmentHash != snapshot.EnvironmentHash || operation.OperationID.Validate() != nil {
 		return // A foreign document must never become rebuildable in this one.
 	}
-	hash, err := snapshot.Hash()
+	hash, err := network.projection.verifiedMapHash()
 	if err != nil {
 		return
 	}
@@ -618,6 +697,8 @@ func (network *NetworkExecutor) failPending(operationID model.OperationID, cause
 	defer network.mutex.Unlock()
 	if waiter, exists := network.pending[operationID]; exists {
 		delete(network.pending, operationID)
+		network.releasePendingAdmission(operationID)
+		previous := network.projection
 		remaining := make([]model.Operation, 0, len(network.projection.Pending)-1)
 		for _, operation := range network.projection.Pending {
 			if operation.OperationID != operationID {
@@ -632,9 +713,9 @@ func (network *NetworkExecutor) failPending(operationID model.OperationID, cause
 			network.failAllLocked(fmt.Errorf("reapply pending operations after send failure: %w", err))
 			return
 		}
-		network.projection.Pending = rebased
+		network.projection = Projection{Acknowledged: model.CloneSnapshot(previous.Acknowledged), Pending: rebased, acknowledgedHash: previous.acknowledgedHash}
 		waiter <- operationResult{err: cause}
-		network.publishLocked()
+		network.beginPublicationLocked(previous, network.projection, nil, nil, false)
 	}
 }
 
@@ -652,7 +733,10 @@ func (network *NetworkExecutor) failAllLocked(cause error) {
 	network.clearPendingLocked(cause)
 }
 
-func (network *NetworkExecutor) publishLocked() {
+func (network *NetworkExecutor) publishLegacyLocked() {
+	if !network.legacyUpdates {
+		return
+	}
 	update := cloneProjection(network.projection)
 	select {
 	case network.updates <- update:

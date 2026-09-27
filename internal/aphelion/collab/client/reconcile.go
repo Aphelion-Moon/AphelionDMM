@@ -11,6 +11,12 @@ import (
 type Projection struct {
 	Acknowledged model.Snapshot
 	Pending      []model.Operation
+
+	// acknowledgedHash is the canonical digest verified for Acknowledged. It
+	// is intentionally private so public projection values cannot advertise an
+	// unverified digest; values constructed by legacy callers fall back to one
+	// validation at the operation boundary.
+	acknowledgedHash string
 }
 
 type Conflict struct {
@@ -24,11 +30,40 @@ type Conflict struct {
 }
 
 func NewProjection(snapshot model.Snapshot) Projection {
-	return Projection{Acknowledged: model.CloneSnapshot(snapshot)}
+	clone := model.CloneSnapshot(snapshot)
+	hash, _ := clone.Hash()
+	return Projection{Acknowledged: clone, acknowledgedHash: hash}
+}
+
+func newProjection(snapshot model.Snapshot, verifiedHash string) Projection {
+	clone := model.CloneSnapshot(snapshot)
+	if verifiedHash == "" {
+		verifiedHash, _ = clone.Hash()
+	}
+	return Projection{Acknowledged: clone, acknowledgedHash: verifiedHash}
+}
+
+func (projection Projection) acknowledgedMapHash() (string, error) {
+	// Projection is a public value with an exported mutable snapshot. Always
+	// validate it at this compatibility boundary; NetworkExecutor uses the
+	// private verified helpers below for its immutable owned state.
+	return projection.Acknowledged.Hash()
+}
+
+func (projection Projection) verifiedMapHash() (string, error) {
+	if projection.acknowledgedHash == "" {
+		return projection.Acknowledged.Hash()
+	}
+	return projection.acknowledgedHash, nil
 }
 
 func (projection Projection) Submit(operation model.Operation) (Projection, error) {
-	acknowledgedHash, err := projection.Acknowledged.Hash()
+	acknowledgedHash, err := projection.acknowledgedMapHash()
+	return projection.submitWithHash(operation, acknowledgedHash, err)
+}
+
+func (projection Projection) submitWithHash(operation model.Operation, acknowledgedHash string, hashErr error) (Projection, error) {
+	err := hashErr
 	if err != nil {
 		return Projection{}, err
 	}
@@ -57,11 +92,7 @@ func (projection Projection) Accept(accepted model.AcceptedOperation, authoritat
 	if err := model.ValidateSHA256("authoritative map hash", authoritativeHash); err != nil {
 		return Projection{}, err
 	}
-	next, err := applyAcceptedSnapshot(projection.Acknowledged, accepted)
-	if err != nil {
-		return Projection{}, err
-	}
-	actualHash, err := next.Hash()
+	next, actualHash, err := applyAcceptedSnapshotVerified(projection.Acknowledged, accepted)
 	if err != nil {
 		return Projection{}, err
 	}
@@ -78,11 +109,16 @@ func (projection Projection) Accept(accepted model.AcceptedOperation, authoritat
 	if err != nil {
 		return Projection{}, fmt.Errorf("reapply pending operations: %w", err)
 	}
-	return Projection{Acknowledged: next, Pending: rebased}, nil
+	return Projection{Acknowledged: next, Pending: rebased, acknowledgedHash: actualHash}, nil
 }
 
 func (projection Projection) Reject(rejected protocol.OperationRejectedPayload) (Projection, Conflict, error) {
-	acknowledgedHash, err := projection.Acknowledged.Hash()
+	acknowledgedHash, err := projection.acknowledgedMapHash()
+	return projection.rejectWithHash(rejected, acknowledgedHash, err)
+}
+
+func (projection Projection) rejectWithHash(rejected protocol.OperationRejectedPayload, acknowledgedHash string, hashErr error) (Projection, Conflict, error) {
+	err := hashErr
 	if err != nil {
 		return Projection{}, Conflict{}, err
 	}
@@ -107,7 +143,7 @@ func (projection Projection) Reject(rejected protocol.OperationRejectedPayload) 
 	if err != nil {
 		return Projection{}, Conflict{}, fmt.Errorf("reapply pending operations after rejection: %w", err)
 	}
-	return Projection{Acknowledged: model.CloneSnapshot(projection.Acknowledged), Pending: rebased}, Conflict{
+	return Projection{Acknowledged: model.CloneSnapshot(projection.Acknowledged), Pending: rebased, acknowledgedHash: acknowledgedHash}, Conflict{
 		OperationID:         rejected.OperationID,
 		Draft:               draft,
 		Code:                rejected.Code,
@@ -136,18 +172,38 @@ func (projection Projection) Visible() (model.Snapshot, error) {
 }
 
 func applyAcceptedSnapshot(snapshot model.Snapshot, accepted model.AcceptedOperation) (model.Snapshot, error) {
+	next, _, err := applyAcceptedSnapshotVerified(snapshot, accepted)
+	return next, err
+}
+
+func applyAcceptedSnapshotVerified(snapshot model.Snapshot, accepted model.AcceptedOperation) (model.Snapshot, string, error) {
 	if accepted.DocumentID != snapshot.DocumentID || accepted.EnvironmentHash != snapshot.EnvironmentHash {
-		return model.Snapshot{}, fmt.Errorf("accepted operation is incompatible with acknowledged document")
+		return model.Snapshot{}, "", fmt.Errorf("accepted operation is incompatible with acknowledged document")
 	}
-	next, err := applyOperation(snapshot, accepted.Operation)
+	next, err := applyOperationUnchecked(snapshot, accepted.Operation)
 	if err != nil {
-		return model.Snapshot{}, fmt.Errorf("apply accepted operation: %w", err)
+		return model.Snapshot{}, "", fmt.Errorf("apply accepted operation: %w", err)
 	}
 	next.Revision = accepted.Revision
-	return next, nil
+	hash, err := next.Hash()
+	if err != nil {
+		return model.Snapshot{}, "", err
+	}
+	return next, hash, nil
 }
 
 func applyOperation(snapshot model.Snapshot, operation model.Operation) (model.Snapshot, error) {
+	result, err := applyOperationUnchecked(snapshot, operation)
+	if err != nil {
+		return model.Snapshot{}, err
+	}
+	if _, err := result.Hash(); err != nil {
+		return model.Snapshot{}, err
+	}
+	return result, nil
+}
+
+func applyOperationUnchecked(snapshot model.Snapshot, operation model.Operation) (model.Snapshot, error) {
 	result := model.CloneSnapshot(snapshot)
 	indexes := make(map[model.Coord]int, len(result.Tiles))
 	for index, tile := range result.Tiles {
@@ -177,17 +233,10 @@ func applyOperation(snapshot model.Snapshot, operation model.Operation) (model.S
 			result.Tiles = append(result.Tiles, model.Tile{Coord: change.Coord, State: model.CloneTileState(change.After)})
 		}
 	}
-	if _, err := result.Hash(); err != nil {
-		return model.Snapshot{}, err
-	}
 	return result, nil
 }
 
 func rebasePending(acknowledged model.Snapshot, pending []model.Operation) ([]model.Operation, error) {
-	_, err := acknowledged.Hash()
-	if err != nil {
-		return nil, err
-	}
 	rebased := make([]model.Operation, 0, len(pending))
 	for _, operation := range pending {
 		// These operations have already crossed the transport boundary. Their
@@ -198,7 +247,7 @@ func rebasePending(acknowledged model.Snapshot, pending []model.Operation) ([]mo
 }
 
 func cloneProjection(projection Projection) Projection {
-	clone := Projection{Acknowledged: model.CloneSnapshot(projection.Acknowledged), Pending: make([]model.Operation, len(projection.Pending))}
+	clone := Projection{Acknowledged: model.CloneSnapshot(projection.Acknowledged), Pending: make([]model.Operation, len(projection.Pending)), acknowledgedHash: projection.acknowledgedHash}
 	for index, operation := range projection.Pending {
 		clone.Pending[index] = model.CloneOperation(operation)
 	}
