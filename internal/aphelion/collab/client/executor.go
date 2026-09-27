@@ -347,12 +347,11 @@ func (network *NetworkExecutor) BuildInverse(ctx context.Context, targetID model
 		return model.Operation{}, err
 	}
 	changes := make([]model.TileChange, len(target.Changes))
-	states := indexTileStates(network.projection.Acknowledged)
 	for index, targetChange := range target.Changes {
 		if err := ctx.Err(); err != nil {
 			return model.Operation{}, err
 		}
-		current := states[targetChange.Coord]
+		current := network.authorityTiles[targetChange.Coord]
 		if !current.Equal(targetChange.After) {
 			return model.Operation{}, fmt.Errorf("accepted operation is no longer safely reversible at (%d,%d,%d)", targetChange.Coord.X, targetChange.Coord.Y, targetChange.Coord.Z)
 		}
@@ -569,12 +568,11 @@ func (network *NetworkExecutor) BuildConflictRebuild(ctx context.Context, operat
 		return model.Operation{}, err
 	}
 	changes := make([]model.TileChange, 0, len(conflict.Draft.Changes))
-	states := indexTileStates(network.projection.Acknowledged)
 	for _, draftChange := range conflict.Draft.Changes {
 		if err := ctx.Err(); err != nil {
 			return model.Operation{}, err
 		}
-		current := states[draftChange.Coord]
+		current := network.authorityTiles[draftChange.Coord]
 		if current.Equal(draftChange.After) {
 			continue
 		}
@@ -813,13 +811,4 @@ func (network *NetworkExecutor) publishLegacyLocked() {
 		default:
 		}
 	}
-}
-
-// Borrowed under the executor mutex; results are cloned before escaping.
-func indexTileStates(snapshot model.Snapshot) map[model.Coord]model.TileState {
-	states := make(map[model.Coord]model.TileState, len(snapshot.Tiles))
-	for _, tile := range snapshot.Tiles {
-		states[tile.Coord] = tile.State
-	}
-	return states
 }
