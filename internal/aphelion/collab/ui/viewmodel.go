@@ -14,16 +14,17 @@ import (
 const maxVisibleConflicts = 20
 
 type SessionStatus struct {
-	SessionID       string
-	Role            string
-	State           client.State
-	Revision        model.Revision
-	Participants    []protocol.ParticipantPresence
-	Conflicts       []client.Conflict
-	InviteReady     bool
-	ReconnectReady  bool
-	Err             error
-	SensitiveValues []string
+	SessionID        string
+	Role             string
+	State            client.State
+	Revision         model.Revision
+	Participants     []protocol.ParticipantPresence
+	ConflictPreviews []client.ConflictPreview
+	ConflictCount    int
+	InviteReady      bool
+	ReconnectReady   bool
+	Err              error
+	SensitiveValues  []string
 }
 
 type ParticipantView struct {
@@ -70,16 +71,18 @@ func BuildViewModel(status SessionStatus) ViewModel {
 		}
 		return participants[left].ActorID < participants[right].ActorID
 	})
-	visibleConflicts := len(status.Conflicts)
+	previews := status.ConflictPreviews
+	totalConflicts := max(status.ConflictCount, len(previews))
+	visibleConflicts := len(previews)
 	if visibleConflicts > maxVisibleConflicts {
 		visibleConflicts = maxVisibleConflicts
 	}
 	conflicts := make([]string, visibleConflicts)
 	actionableConflicts := make([]ConflictView, visibleConflicts)
 	for index := 0; index < visibleConflicts; index++ {
-		conflict := status.Conflicts[index]
+		conflict := previews[index]
 		conflicts[index] = redactSensitive(fmt.Sprintf("%s: %s", conflict.Code, conflict.Message), status.SensitiveValues)
-		actionableConflicts[index] = BuildConflictView(conflict)
+		actionableConflicts[index] = buildConflictPreviewView(conflict)
 		actionableConflicts[index].Code = redactSensitive(actionableConflicts[index].Code, status.SensitiveValues)
 		actionableConflicts[index].Message = redactSensitive(actionableConflicts[index].Message, status.SensitiveValues)
 		for _, values := range [][]AuthoritativeTileView{actionableConflicts[index].Values, actionableConflicts[index].DraftBefore, actionableConflicts[index].DraftAfter} {
@@ -105,13 +108,13 @@ func BuildViewModel(status SessionStatus) ViewModel {
 		Participants:        participants,
 		ConflictSummaries:   conflicts,
 		Conflicts:           actionableConflicts,
-		HiddenConflictCount: len(status.Conflicts) - visibleConflicts,
+		HiddenConflictCount: totalConflicts - visibleConflicts,
 		CanEdit:             role == "owner" || role == "editor",
 		CanAdminister:       role == "owner",
 		CanCopyInvite:       role == "owner" && status.InviteReady,
 		ShowReconnect:       status.State == client.StateReconnecting,
 		CanReconnect:        status.ReconnectReady && (status.State == client.StateDisconnected || status.State == client.StateReconnecting),
-		CanLeave:            (active || status.SessionID != "") && status.State != client.StateClosed && len(status.Conflicts) == 0,
+		CanLeave:            (active || status.SessionID != "") && status.State != client.StateClosed && totalConflicts == 0,
 	}
 	if status.Err != nil {
 		view.ErrorText = redactSensitive(status.Err.Error(), status.SensitiveValues)

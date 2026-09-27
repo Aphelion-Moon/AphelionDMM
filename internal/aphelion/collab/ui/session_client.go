@@ -655,7 +655,7 @@ func (client *SessionClient) recordConflictResolution(machine *collabclient.Stat
 	}
 	client.revision = snapshot.Revision
 	client.mutex.Unlock()
-	if len(network.Conflicts()) == 0 && machine.State() == collabclient.StateConflict {
+	if network.ConflictCount() == 0 && machine.State() == collabclient.StateConflict {
 		_ = machine.Apply(collabclient.EventResolved)
 	}
 }
@@ -684,7 +684,7 @@ func (client *SessionClient) Status() SessionStatus {
 		status.State = machine.State()
 	}
 	if network != nil {
-		status.Conflicts = network.Conflicts()
+		status.ConflictPreviews, status.ConflictCount = network.ConflictPreviews(maxVisibleConflicts, conflictPreviewLimits())
 	}
 	return status
 }

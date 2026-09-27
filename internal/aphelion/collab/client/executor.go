@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -577,7 +578,7 @@ func (network *NetworkExecutor) DiscardConflict(ctx context.Context, operationID
 	if !exists {
 		return model.Snapshot{}, fmt.Errorf("conflict for operation %q is not retained", operationID)
 	}
-	network.conflicts = append(network.conflicts[:index], network.conflicts[index+1:]...)
+	network.conflicts = slices.Delete(network.conflicts, index, index+1)
 	network.conflictsDirty = true
 	network.beginMetadataPublicationLocked()
 	return model.CloneSnapshot(network.projection.Acknowledged), nil
@@ -643,7 +644,7 @@ func (network *NetworkExecutor) DismissConflict(operationID model.OperationID) b
 	if !exists {
 		return false
 	}
-	network.conflicts = append(network.conflicts[:index], network.conflicts[index+1:]...)
+	network.conflicts = slices.Delete(network.conflicts, index, index+1)
 	network.conflictsDirty = true
 	network.beginMetadataPublicationLocked()
 	return true
@@ -719,7 +720,7 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 		if index, found := network.conflictLocked(payload.Operation.OperationID); found {
 			conflict := network.conflicts[index]
 			if conflict.Code == conflictDeliveryUnconfirmed && model.SameOperation(conflict.Draft, payload.Operation.Operation) {
-				network.conflicts = append(network.conflicts[:index], network.conflicts[index+1:]...)
+				network.conflicts = slices.Delete(network.conflicts, index, index+1)
 				network.conflictsDirty = true
 			}
 		}

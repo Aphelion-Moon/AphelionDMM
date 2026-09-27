@@ -13,7 +13,7 @@ import (
 
 func (client *SessionClient) HasRetainedDrafts() bool {
 	network := client.NetworkExecutor()
-	return network != nil && len(network.Conflicts()) != 0
+	return network != nil && network.ConflictCount() != 0
 }
 
 // ExportConflict saves a recovery reference, not a wire message or an operation
@@ -24,10 +24,7 @@ func (client *SessionClient) ExportConflict(operationID model.OperationID, path 
 	if err != nil {
 		return err
 	}
-	for _, conflict := range network.Conflicts() {
-		if conflict.OperationID != operationID {
-			continue
-		}
+	if conflict, exists := network.Conflict(operationID); exists {
 		export := struct {
 			FormatVersion    int             `json:"format_version"`
 			Operation        model.Operation `json:"operation"`

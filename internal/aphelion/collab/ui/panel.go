@@ -129,13 +129,13 @@ func (panel *Panel) Process(int32) {
 }
 
 func (panel *Panel) renderConflictValues(conflict ConflictView, conflictIndex int) {
-	panel.renderTileValues("Draft before", conflict.DraftBefore, conflictIndex)
-	panel.renderTileValues("Draft intended values", conflict.DraftAfter, conflictIndex)
-	panel.renderTileValues("Authoritative values", conflict.Values, conflictIndex)
+	panel.renderTileValues("Draft before", conflict.DraftBefore, conflict.DraftTileCount, conflictIndex)
+	panel.renderTileValues("Draft intended values", conflict.DraftAfter, conflict.DraftTileCount, conflictIndex)
+	panel.renderTileValues("Authoritative values", conflict.Values, conflict.AuthoritativeTileCount, conflictIndex)
 }
 
-func (panel *Panel) renderTileValues(title string, values []AuthoritativeTileView, conflictIndex int) {
-	label := fmt.Sprintf("%s (%d tiles)##conflict-values-%d-%s", title, len(values), conflictIndex, title)
+func (panel *Panel) renderTileValues(title string, values []AuthoritativeTileView, totalTiles, conflictIndex int) {
+	label := fmt.Sprintf("%s (%d tiles)##conflict-values-%d-%s", title, totalTiles, conflictIndex, title)
 	if !imgui.CollapsingHeader(label) {
 		return
 	}
@@ -164,15 +164,15 @@ func (panel *Panel) renderTileValues(title string, values []AuthoritativeTileVie
 				variable := prefab.Variables[variableIndex]
 				imgui.TextWrapped(fmt.Sprintf("    %s = %s", conflictPreviewText(variable.Name), conflictPreviewText(variable.Value)))
 			}
-			if hidden := len(prefab.Variables) - visibleVariables; hidden != 0 {
+			if hidden := prefab.VariableCount - visibleVariables; hidden != 0 {
 				imgui.TextDisabled(fmt.Sprintf("    %d additional variables hidden", hidden))
 			}
 		}
-		if hidden := len(tile.Prefabs) - visiblePrefabs; hidden != 0 {
+		if hidden := tile.PrefabCount - visiblePrefabs; hidden != 0 {
 			imgui.TextDisabled(fmt.Sprintf("  %d additional prefabs hidden", hidden))
 		}
 	}
-	if hidden := len(values) - visibleTiles; hidden != 0 {
+	if hidden := totalTiles - visibleTiles; hidden != 0 {
 		imgui.TextDisabled(fmt.Sprintf("%d additional tiles hidden; export the draft for complete before and intended values", hidden))
 	}
 }

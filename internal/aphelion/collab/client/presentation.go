@@ -204,10 +204,9 @@ func (network *NetworkExecutor) publishCaptureLocked() {
 		conflicts = prior.conflicts
 	}
 	if network.conflictsDirty {
-		conflicts = make([]Conflict, len(network.conflicts))
-		for index, conflict := range network.conflicts {
-			conflicts[index] = cloneConflict(conflict)
-		}
+		// Entries are detached on retention and never mutated. Only membership
+		// changes, so publish a new slice without copying all retained drafts.
+		conflicts = append([]Conflict(nil), network.conflicts...)
 		network.conflictsDirty = false
 	}
 	network.published.Store(&publishedProjection{
