@@ -443,14 +443,18 @@ func (network *NetworkExecutor) clearPendingLocked(cause error) {
 			})
 		}
 	}
+	waiters := make([]chan operationResult, 0, len(network.pending))
 	for operationID, waiter := range network.pending {
 		delete(network.pending, operationID)
 		network.releasePendingAdmission(operationID)
-		waiter <- operationResult{err: cause}
+		waiters = append(waiters, waiter)
 	}
 	previous := network.projection
 	network.projection = Projection{Acknowledged: model.CloneSnapshot(previous.Acknowledged), acknowledgedHash: previous.acknowledgedHash}
 	network.beginPublicationLocked(previous, network.projection, nil, nil, false)
+	for _, waiter := range waiters {
+		waiter <- operationResult{err: cause}
+	}
 }
 
 // Resume binds a fresh transport while preserving acknowledged state and accepted history.
@@ -664,12 +668,16 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 				network.conflictsDirty = true
 			}
 		}
-		if waiter, exists := network.pending[payload.Operation.OperationID]; exists {
+		var waiter chan operationResult
+		if pendingWaiter, exists := network.pending[payload.Operation.OperationID]; exists {
 			delete(network.pending, payload.Operation.OperationID)
 			network.releasePendingAdmission(payload.Operation.OperationID)
-			waiter <- operationResult{accepted: model.CloneAcceptedOperation(payload.Operation)}
+			waiter = pendingWaiter
 		}
 		network.beginPublicationLocked(previous, projection, payload.Operation.Changes, nil, false)
+		if waiter != nil {
+			waiter <- operationResult{accepted: model.CloneAcceptedOperation(payload.Operation)}
+		}
 	case protocol.ServerOperationRejected:
 		payload := decoded.Payload.(*protocol.OperationRejectedPayload)
 		previous := network.projection
@@ -681,16 +689,20 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 		}
 		network.projection = projection
 		network.retainConflictLocked(conflict)
-		if waiter, exists := network.pending[payload.OperationID]; exists {
+		var waiter chan operationResult
+		if pendingWaiter, exists := network.pending[payload.OperationID]; exists {
 			delete(network.pending, payload.OperationID)
 			network.releasePendingAdmission(payload.OperationID)
-			waiter <- operationResult{err: fmt.Errorf("%w: %s: %s", ErrOperationRejected, conflict.Code, conflict.Message)}
+			waiter = pendingWaiter
 		}
 		displayCoords := make([]model.Coord, 0, len(conflict.Draft.Changes))
 		for _, change := range conflict.Draft.Changes {
 			displayCoords = append(displayCoords, change.Coord)
 		}
 		network.beginPublicationLocked(previous, projection, nil, displayCoords, false)
+		if waiter != nil {
+			waiter <- operationResult{err: fmt.Errorf("%w: %s: %s", ErrOperationRejected, conflict.Code, conflict.Message)}
+		}
 	}
 	return nil
 }
@@ -760,13 +772,13 @@ func (network *NetworkExecutor) failPending(operationID model.OperationID, cause
 		}
 		rebased, err := rebasePending(network.projection.Acknowledged, remaining)
 		if err != nil {
-			waiter <- operationResult{err: cause}
 			network.failAllLocked(fmt.Errorf("reapply pending operations after send failure: %w", err))
+			waiter <- operationResult{err: cause}
 			return
 		}
 		network.projection = Projection{Acknowledged: model.CloneSnapshot(previous.Acknowledged), Pending: rebased, acknowledgedHash: previous.acknowledgedHash}
-		waiter <- operationResult{err: cause}
 		network.beginPublicationLocked(previous, network.projection, nil, nil, false)
+		waiter <- operationResult{err: cause}
 	}
 }
 
