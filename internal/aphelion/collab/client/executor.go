@@ -19,10 +19,7 @@ var (
 	ErrExecutorTerminated = errors.New("collaboration network executor was terminated")
 )
 
-const (
-	maxRetainedConflicts        = 100
-	conflictDeliveryUnconfirmed = "delivery_unconfirmed"
-)
+const conflictDeliveryUnconfirmed = "delivery_unconfirmed"
 
 type operationResult struct {
 	accepted model.AcceptedOperation
@@ -808,9 +805,9 @@ func (network *NetworkExecutor) retainConflictLocked(conflict Conflict) {
 	}
 	network.conflicts = append(network.conflicts, cloneConflict(conflict))
 	network.conflictsDirty = true
-	if len(network.conflicts) > maxRetainedConflicts {
-		network.conflicts = network.conflicts[len(network.conflicts)-maxRetainedConflicts:]
-	}
+	// These drafts may be the only remaining copy of user intent. Keep them
+	// until explicitly resolved; UI preview limits must never evict recovery
+	// data, including a burst of pending operations cleared on disconnect.
 }
 
 func (network *NetworkExecutor) failPending(operationID model.OperationID, cause error) {
@@ -828,13 +825,7 @@ func (network *NetworkExecutor) failPending(operationID model.OperationID, cause
 				network.retainUnsentLocked(operation, cause)
 			}
 		}
-		rebased, err := rebasePending(network.projection.Acknowledged, remaining)
-		if err != nil {
-			network.failAllLocked(fmt.Errorf("reapply pending operations after send failure: %w", err))
-			waiter <- operationResult{err: cause}
-			return
-		}
-		network.projection = Projection{Acknowledged: previous.Acknowledged, Pending: rebased, acknowledgedHash: previous.acknowledgedHash}
+		network.projection = Projection{Acknowledged: previous.Acknowledged, Pending: remaining, acknowledgedHash: previous.acknowledgedHash}
 		network.beginPublicationLocked(previous, network.projection, nil, nil, false)
 		waiter <- operationResult{err: cause}
 	}

@@ -172,7 +172,12 @@ func (projection Projection) Accept(accepted model.AcceptedOperation, authoritat
 	// snapshot. Validate that snapshot before applying an accepted operation so
 	// callers cannot use a stale private digest after mutating it.
 	_, currentHashErr := projection.acknowledgedMapHash()
-	return projection.acceptWithVerifiedCurrent(accepted, authoritativeHash, currentHashErr)
+	if currentHashErr != nil {
+		return Projection{}, currentHashErr
+	}
+	// Public projections are caller-mutable. Detach them before entering the
+	// executor's immutable acceptance path.
+	return cloneProjection(projection).acceptWithVerifiedCurrent(accepted, authoritativeHash, nil)
 }
 
 // acceptWithVerifiedCurrent is used by NetworkExecutor for its immutable
@@ -189,7 +194,12 @@ func (projection Projection) acceptWithVerifiedCurrent(accepted model.AcceptedOp
 	if err := model.ValidateSHA256("authoritative map hash", authoritativeHash); err != nil {
 		return Projection{}, err
 	}
-	next, actualHash, err := applyAcceptedSnapshotVerified(projection.Acknowledged, accepted)
+	// Only the tile table and changed states need new ownership. Unchanged
+	// nested values belong to immutable executor projections and may be shared
+	// with older captures; public callers detach before entering this path.
+	working := projection.Acknowledged
+	working.Tiles = append([]model.Tile(nil), working.Tiles...)
+	next, actualHash, err := applyAcceptedSnapshotCopy(working, accepted)
 	if err != nil {
 		return Projection{}, err
 	}
@@ -199,14 +209,12 @@ func (projection Projection) acceptWithVerifiedCurrent(accepted model.AcceptedOp
 	remaining := make([]model.Operation, 0, len(projection.Pending))
 	for _, pending := range projection.Pending {
 		if pending.OperationID != accepted.OperationID {
-			remaining = append(remaining, model.CloneOperation(pending))
+			remaining = append(remaining, pending)
 		}
 	}
-	rebased, err := rebasePending(next, remaining)
-	if err != nil {
-		return Projection{}, fmt.Errorf("reapply pending operations: %w", err)
-	}
-	return Projection{Acknowledged: next, Pending: rebased, acknowledgedHash: actualHash}, nil
+	// Already submitted operations retain their exact base and preconditions.
+	// Their immutable payloads need not be copied on every remote acceptance.
+	return Projection{Acknowledged: next, Pending: remaining, acknowledgedHash: actualHash}, nil
 }
 
 func (projection Projection) Reject(rejected protocol.OperationRejectedPayload) (Projection, Conflict, error) {
@@ -240,15 +248,11 @@ func (projection Projection) rejectWithHashMode(rejected protocol.OperationRejec
 	if !found {
 		return Projection{}, Conflict{}, fmt.Errorf("rejected operation %q is not pending", rejected.OperationID)
 	}
-	rebased, err := rebasePending(projection.Acknowledged, remaining)
-	if err != nil {
-		return Projection{}, Conflict{}, fmt.Errorf("reapply pending operations after rejection: %w", err)
-	}
 	acknowledged := projection.Acknowledged
 	if cloneAcknowledged {
 		acknowledged = model.CloneSnapshot(acknowledged)
 	}
-	return Projection{Acknowledged: acknowledged, Pending: rebased, acknowledgedHash: acknowledgedHash}, Conflict{
+	return Projection{Acknowledged: acknowledged, Pending: remaining, acknowledgedHash: acknowledgedHash}, Conflict{
 		OperationID:         rejected.OperationID,
 		Draft:               draft,
 		Code:                rejected.Code,
@@ -282,10 +286,16 @@ func applyAcceptedSnapshot(snapshot model.Snapshot, accepted model.AcceptedOpera
 }
 
 func applyAcceptedSnapshotVerified(snapshot model.Snapshot, accepted model.AcceptedOperation) (model.Snapshot, string, error) {
+	return applyAcceptedSnapshotCopy(model.CloneSnapshot(snapshot), accepted)
+}
+
+// applyAcceptedSnapshotCopy owns the tile table and replaces changed states;
+// it never mutates nested values of unchanged tiles.
+func applyAcceptedSnapshotCopy(snapshot model.Snapshot, accepted model.AcceptedOperation) (model.Snapshot, string, error) {
 	if accepted.DocumentID != snapshot.DocumentID || accepted.EnvironmentHash != snapshot.EnvironmentHash {
 		return model.Snapshot{}, "", fmt.Errorf("accepted operation is incompatible with acknowledged document")
 	}
-	next, err := applyOperationUnchecked(snapshot, accepted.Operation)
+	next, err := applyOperationToCopy(snapshot, accepted.Operation)
 	if err != nil {
 		return model.Snapshot{}, "", fmt.Errorf("apply accepted operation: %w", err)
 	}
@@ -309,7 +319,10 @@ func applyOperation(snapshot model.Snapshot, operation model.Operation) (model.S
 }
 
 func applyOperationUnchecked(snapshot model.Snapshot, operation model.Operation) (model.Snapshot, error) {
-	result := model.CloneSnapshot(snapshot)
+	return applyOperationToCopy(model.CloneSnapshot(snapshot), operation)
+}
+
+func applyOperationToCopy(result model.Snapshot, operation model.Operation) (model.Snapshot, error) {
 	indexes := make(map[model.Coord]int, len(result.Tiles))
 	for index, tile := range result.Tiles {
 		indexes[tile.Coord] = index
@@ -339,16 +352,6 @@ func applyOperationUnchecked(snapshot model.Snapshot, operation model.Operation)
 		}
 	}
 	return result, nil
-}
-
-func rebasePending(acknowledged model.Snapshot, pending []model.Operation) ([]model.Operation, error) {
-	rebased := make([]model.Operation, 0, len(pending))
-	for _, operation := range pending {
-		// These operations have already crossed the transport boundary. Their
-		// base and preconditions must stay identical to the original submission.
-		rebased = append(rebased, model.CloneOperation(operation))
-	}
-	return rebased, nil
 }
 
 func cloneProjection(projection Projection) Projection {
