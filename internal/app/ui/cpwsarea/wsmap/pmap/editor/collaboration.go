@@ -416,6 +416,47 @@ func (e *Editor) submitOperation(execution executor.Executor, operation model.Op
 	accepted(result)
 }
 
+type conflictRebuilder interface {
+	CollaborationExecutor() executor.Executor
+	RebuildConflict(context.Context, model.OperationID, func(model.AcceptedOperation, error)) error
+}
+
+// RebuildCollaborationConflict binds recovered intent to this editor's history
+// just like an ordinary edit. The session still owns draft resolution and send.
+func (e *Editor) RebuildCollaborationConflict(ctx context.Context, source conflictRebuilder, operationID model.OperationID) error {
+	execution := source.CollaborationExecutor()
+	if execution == nil || execution != e.executor || !e.history.Valid() {
+		return fmt.Errorf("conflict recovery belongs to another editor attachment")
+	}
+	if _, pending := e.unresolvedSubmissions[operationID]; pending {
+		return fmt.Errorf("this draft is already being rebuilt")
+	}
+	generation, activeLevel := e.attachmentGeneration, e.pMap.ActiveLevel()
+	e.unresolvedSubmissions[operationID] = struct{}{}
+	err := source.RebuildConflict(ctx, operationID, func(accepted model.AcceptedOperation, rebuildErr error) {
+		accepted.Operation = model.CloneOperation(accepted.Operation)
+		e.app.RunLater(func() {
+			if generation != e.attachmentGeneration || execution != e.executor {
+				return
+			}
+			if _, pending := e.unresolvedSubmissions[operationID]; !pending {
+				return
+			}
+			delete(e.unresolvedSubmissions, operationID)
+			if rebuildErr != nil {
+				e.reportCollaborationError("Unable to rebuild conflict", rebuildErr)
+				return
+			}
+			e.ProcessCollaborationUpdates()
+			e.pushAcceptedCommand(execution, "Recover Collaboration Draft", accepted, accepted.Changes, activeLevel, nil, nil)
+		})
+	})
+	if err != nil {
+		delete(e.unresolvedSubmissions, operationID)
+	}
+	return err
+}
+
 func (e *Editor) pushAcceptedCommand(execution executor.Executor, commitMessage string, accepted model.AcceptedOperation, acceptedChanges []model.TileChange, activeLevel int, coords []model.Coord, selectionOutcome func(bool)) {
 	forwardID := accepted.OperationID
 	generation := e.historyGeneration

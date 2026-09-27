@@ -660,7 +660,7 @@ func TestEditorReconnectsToRealServiceAfterPendingEditAndUndoesFreshEdit(t *test
 		runLater:    make(chan func(), 8),
 	}
 	application.commands.SetStack("test")
-	editor := New(application, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
+	editor := New(&publicationFailureApp{application}, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
 	if editor.collaborationErr != nil {
 		t.Fatalf("initialize collaboration: %v", editor.collaborationErr)
 	}
@@ -715,7 +715,7 @@ func TestEditorReconnectsToRealServiceAfterPendingEditAndUndoesFreshEdit(t *test
 		t.Fatal(err)
 	}
 	close(blocked.release)
-	application.discardScheduled(t)
+	application.runScheduled(t)
 	select {
 	case <-reconnectTransportCreated:
 	case <-time.After(time.Second):
@@ -748,6 +748,95 @@ func TestEditorReconnectsToRealServiceAfterPendingEditAndUndoesFreshEdit(t *test
 	application.runScheduled(t)
 	editor.ProcessCollaborationUpdates()
 	assertEditorDirection(t, mapState, "2")
+
+	drafts := session.NetworkExecutor().Conflicts()
+	if len(drafts) != 1 {
+		t.Fatalf("retained interrupted drafts = %d, want 1", len(drafts))
+	}
+	if err := editor.RebuildCollaborationConflict(context.Background(), session, drafts[0].OperationID); err != nil {
+		t.Fatal(err)
+	}
+	application.runScheduled(t)
+	editor.ProcessCollaborationUpdates()
+	assertEditorDirection(t, mapState, "4")
+	if len(session.NetworkExecutor().Conflicts()) != 0 {
+		t.Fatal("successful rebuild retained the original draft")
+	}
+	if !application.commands.UndoAsyncV("test", nil) {
+		t.Fatal("rebuilt draft did not enter undo history")
+	}
+	application.runScheduled(t)
+	application.runScheduled(t)
+	editor.ProcessCollaborationUpdates()
+	assertEditorDirection(t, mapState, "2")
+	if !application.commands.RedoAsyncV("test", nil) {
+		t.Fatal("rebuilt draft could not be redone")
+	}
+	application.runScheduled(t)
+	editor.ProcessCollaborationUpdates()
+	assertEditorDirection(t, mapState, "4")
+}
+
+type heldConflictRebuilder struct {
+	execution executor.Executor
+	complete  func(model.AcceptedOperation, error)
+	err       error
+}
+
+func (source *heldConflictRebuilder) CollaborationExecutor() executor.Executor {
+	return source.execution
+}
+func (source *heldConflictRebuilder) RebuildConflict(_ context.Context, _ model.OperationID, complete func(model.AcceptedOperation, error)) error {
+	source.complete = complete
+	return source.err
+}
+
+func TestRecoveryHistoryCompletionKeepsItsEditorOwner(t *testing.T) {
+	for _, outcome := range []string{"submission error", "rejected", "reattached", "closed"} {
+		t.Run(outcome, func(t *testing.T) {
+			dmmap.PrefabStorage.Free()
+			t.Cleanup(dmmap.PrefabStorage.Free)
+			environment := editorTestEnvironment()
+			mapState := editorTestMap(environment)
+			app := &editorTestApp{commands: command.NewStorage(), environment: environment, paths: dm.NewPathsFilterEmpty(), runLater: make(chan func(), 8)}
+			app.commands.SetStack("test")
+			editor := New(&publicationFailureApp{app}, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
+			source := &heldConflictRebuilder{execution: editor.executor}
+			cause := errors.New("rebuild failed")
+			if outcome == "submission error" {
+				source.err = cause
+			}
+			err := editor.RebuildCollaborationConflict(context.Background(), source, "draft")
+			if outcome == "submission error" {
+				if !errors.Is(err, cause) || len(editor.unresolvedSubmissions) != 0 {
+					t.Fatal("submission failure retained a pending recovery", err)
+				}
+				return
+			}
+			if err != nil || len(editor.unresolvedSubmissions) != 1 {
+				t.Fatal("recovery did not retain pending completion ownership", err)
+			}
+			if err := editor.RebuildCollaborationConflict(context.Background(), source, "draft"); err == nil {
+				t.Fatal("duplicate rebuild click submitted the draft twice")
+			}
+			switch outcome {
+			case "rejected":
+				source.complete(model.AcceptedOperation{}, cause)
+			case "reattached":
+				if err := editor.AttachCollaborationExecutor(source.execution); err != nil {
+					t.Fatal(err)
+				}
+				source.complete(model.AcceptedOperation{}, nil)
+			case "closed":
+				editor.Close()
+				source.complete(model.AcceptedOperation{}, nil)
+			}
+			app.runScheduled(t)
+			if len(editor.unresolvedSubmissions) != 0 || app.commands.HasUndoV("test") {
+				t.Fatal("failed or stale recovery changed editor history")
+			}
+		})
+	}
 }
 
 func TestEditorAttachesRemoteExecutorAndAppliesSnapshot(t *testing.T) {

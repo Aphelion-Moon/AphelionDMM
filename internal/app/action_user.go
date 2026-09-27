@@ -602,16 +602,7 @@ func (a *app) DoResolveCollaborationConflict(operationID model.OperationID, acti
 		refresh()
 	case collabui.ConflictActionRebuild:
 		cancel()
-		err := client.RebuildConflict(context.Background(), operationID, func(_ model.AcceptedOperation, rebuildErr error) {
-			window.RunLater(func() {
-				if rebuildErr != nil {
-					log.Error().Err(rebuildErr).Msg("Unable to rebuild conflict")
-					util.ShowErrorDialog("Unable to rebuild conflict: " + rebuildErr.Error())
-					return
-				}
-				refresh()
-			})
-		})
+		err := editor.RebuildCollaborationConflict(context.Background(), client, operationID)
 		if err != nil {
 			util.ShowErrorDialog("Unable to rebuild conflict: " + err.Error())
 		}
