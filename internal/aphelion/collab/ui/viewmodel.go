@@ -21,6 +21,7 @@ type SessionStatus struct {
 	Participants     []protocol.ParticipantPresence
 	ConflictPreviews []client.ConflictPreview
 	ConflictCount    int
+	ConflictPage     int
 	InviteReady      bool
 	ReconnectReady   bool
 	Err              error
@@ -42,6 +43,9 @@ type ViewModel struct {
 	ConflictSummaries   []string
 	Conflicts           []ConflictView
 	HiddenConflictCount int
+	ConflictCount       int
+	ConflictPage        int
+	ConflictPageCount   int
 	CanEdit             bool
 	CanAdminister       bool
 	CanCopyInvite       bool
@@ -73,6 +77,10 @@ func BuildViewModel(status SessionStatus) ViewModel {
 	})
 	previews := status.ConflictPreviews
 	totalConflicts := max(status.ConflictCount, len(previews))
+	pageCount := 0
+	if totalConflicts != 0 {
+		pageCount = (totalConflicts-1)/maxVisibleConflicts + 1
+	}
 	visibleConflicts := len(previews)
 	if visibleConflicts > maxVisibleConflicts {
 		visibleConflicts = maxVisibleConflicts
@@ -109,6 +117,9 @@ func BuildViewModel(status SessionStatus) ViewModel {
 		ConflictSummaries:   conflicts,
 		Conflicts:           actionableConflicts,
 		HiddenConflictCount: totalConflicts - visibleConflicts,
+		ConflictCount:       totalConflicts,
+		ConflictPage:        status.ConflictPage,
+		ConflictPageCount:   pageCount,
 		CanEdit:             role == "owner" || role == "editor",
 		CanAdminister:       role == "owner",
 		CanCopyInvite:       role == "owner" && status.InviteReady,

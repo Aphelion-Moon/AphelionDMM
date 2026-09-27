@@ -59,16 +59,28 @@ func (network *NetworkExecutor) Conflict(id model.OperationID) (Conflict, bool) 
 }
 
 func (network *NetworkExecutor) ConflictPreviews(limit int, detail ConflictPreviewLimits) ([]ConflictPreview, int) {
+	previews, count, _ := network.ConflictPreviewPage(0, limit, detail)
+	return previews, count
+}
+
+// ConflictPreviewPage clamps navigation against the same immutable list used
+// to build the page, including when resolution removes the requested last page.
+func (network *NetworkExecutor) ConflictPreviewPage(page, size int, detail ConflictPreviewLimits) ([]ConflictPreview, int, int) {
 	published := network.published.Load()
 	if published == nil {
-		return nil, 0
+		return nil, 0, 0
 	}
 	count := len(published.conflicts)
-	previews := make([]ConflictPreview, min(max(limit, 0), count))
-	for i := range previews {
-		previews[i] = PreviewConflict(published.conflicts[i], detail)
+	if count == 0 || size <= 0 {
+		return nil, count, 0
 	}
-	return previews, count
+	page = min(max(page, 0), (count-1)/size)
+	start := page * size
+	previews := make([]ConflictPreview, min(size, count-start))
+	for i := range previews {
+		previews[i] = PreviewConflict(published.conflicts[start+i], detail)
+	}
+	return previews, count, page
 }
 
 func PreviewConflict(conflict Conflict, limits ConflictPreviewLimits) ConflictPreview {

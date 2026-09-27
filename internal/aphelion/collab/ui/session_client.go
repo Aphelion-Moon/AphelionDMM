@@ -661,6 +661,10 @@ func (client *SessionClient) recordConflictResolution(machine *collabclient.Stat
 }
 
 func (client *SessionClient) Status() SessionStatus {
+	return client.StatusForConflictPage(0)
+}
+
+func (client *SessionClient) StatusForConflictPage(page int) SessionStatus {
 	client.mutex.Lock()
 	machine := client.machine
 	status := SessionStatus{SessionID: client.sessionID, Role: client.role, Revision: client.revision, Err: client.lastErr}
@@ -684,7 +688,7 @@ func (client *SessionClient) Status() SessionStatus {
 		status.State = machine.State()
 	}
 	if network != nil {
-		status.ConflictPreviews, status.ConflictCount = network.ConflictPreviews(maxVisibleConflicts, conflictPreviewLimits())
+		status.ConflictPreviews, status.ConflictCount, status.ConflictPage = network.ConflictPreviewPage(page, maxVisibleConflicts, conflictPreviewLimits())
 	}
 	return status
 }
