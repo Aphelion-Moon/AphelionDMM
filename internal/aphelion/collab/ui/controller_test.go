@@ -198,6 +198,68 @@ func TestControllerLeaveSupersedesInFlightCreate(t *testing.T) {
 	if controller.Active() || service.shutdownCalls != 1 {
 		t.Fatalf("active = %t, service shutdown calls = %d", controller.Active(), service.shutdownCalls)
 	}
+	if client.createToken != "" || client.joined.SessionID != "" {
+		t.Fatal("canceled startup continued creating or joining a session")
+	}
+}
+
+func TestControllerLeaveCancelsSetup(t *testing.T) {
+	for _, stage := range []string{"startup", "join", "hosted"} {
+		t.Run(stage, func(t *testing.T) {
+			entered := make(chan context.Context, 1)
+			block := func(ctx context.Context) error {
+				entered <- ctx
+				<-ctx.Done()
+				return context.Cause(ctx)
+			}
+			client := &cancelSetupClient{block: block}
+			controller := NewController(func(ctx context.Context, _ model.Snapshot) (EmbeddedService, error) {
+				return nil, block(ctx)
+			}, client)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			result := make(chan error, 1)
+			snapshot := controllerSnapshot(t)
+			go func() {
+				switch stage {
+				case "startup":
+					result <- controller.CreateLocal(ctx, snapshot)
+				case "join":
+					result <- controller.Join(ctx, Invitation{BaseURL: "http://localhost", Origin: "http://localhost", SessionID: "session", Token: "secret"})
+				case "hosted":
+					result <- controller.JoinHosted(ctx, HostedConnection{})
+				}
+			}()
+			setupContext := <-entered
+			if err := controller.Leave(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case <-setupContext.Done():
+			case <-time.After(time.Second):
+				t.Fatal("leaving did not cancel setup work")
+			}
+			if err := <-result; !errors.Is(err, ErrSessionChanged) {
+				t.Fatalf("setup error = %v, want session changed", err)
+			}
+			if controller.Active() {
+				t.Fatal("canceled setup prevented retry")
+			}
+		})
+	}
+}
+
+type cancelSetupClient struct {
+	fakeCollaborationClient
+	block func(context.Context) error
+}
+
+func (client *cancelSetupClient) Join(ctx context.Context, _ Invitation) error {
+	return client.block(ctx)
+}
+
+func (client *cancelSetupClient) JoinHosted(ctx context.Context, _ HostedConnection) error {
+	return client.block(ctx)
 }
 
 func TestControllerReservesSessionUntilLeaveCompletes(t *testing.T) {

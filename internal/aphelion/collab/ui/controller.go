@@ -90,15 +90,16 @@ type NamedCollaborationClient interface {
 }
 
 type Controller struct {
-	mutex      sync.Mutex
-	start      EmbeddedStarter
-	client     CollaborationClient
-	service    EmbeddedService
-	invitation Invitation
-	active     bool
-	inflight   bool
-	leaving    bool
-	generation uint64
+	mutex       sync.Mutex
+	start       EmbeddedStarter
+	client      CollaborationClient
+	service     EmbeddedService
+	invitation  Invitation
+	active      bool
+	inflight    bool
+	leaving     bool
+	generation  uint64
+	setupCancel context.CancelCauseFunc
 }
 
 func NewController(start EmbeddedStarter, client CollaborationClient) *Controller {
@@ -114,7 +115,9 @@ func (controller *Controller) CreateLocalNamed(ctx context.Context, snapshot mod
 }
 
 func (controller *Controller) createLocal(ctx context.Context, snapshot model.Snapshot, displayName string) error {
-	reservation, err := controller.reserve()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	reservation, err := controller.reserve(cancel)
 	if err != nil {
 		return err
 	}
@@ -124,6 +127,11 @@ func (controller *Controller) createLocal(ctx context.Context, snapshot model.Sn
 	}
 	service, err := controller.start(ctx, snapshot)
 	if err != nil {
+		controller.releaseReservation(reservation)
+		return err
+	}
+	if err := context.Cause(ctx); err != nil {
+		_ = service.Shutdown(context.Background())
 		controller.releaseReservation(reservation)
 		return err
 	}
@@ -140,6 +148,11 @@ func (controller *Controller) createLocal(ctx context.Context, snapshot model.Sn
 		invitation, err = controller.client.Create(ctx, service.Endpoint(), launchToken, snapshot)
 	}
 	if err != nil {
+		_ = service.Shutdown(context.Background())
+		controller.releaseReservation(reservation)
+		return err
+	}
+	if err := context.Cause(ctx); err != nil {
 		_ = service.Shutdown(context.Background())
 		controller.releaseReservation(reservation)
 		return err
@@ -167,7 +180,9 @@ func (controller *Controller) Join(ctx context.Context, invitation Invitation) e
 	if err := invitation.validate(); err != nil {
 		return err
 	}
-	reservation, err := controller.reserve()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	reservation, err := controller.reserve(cancel)
 	if err != nil {
 		return err
 	}
@@ -194,7 +209,9 @@ func (controller *Controller) JoinHosted(ctx context.Context, target HostedConne
 	if !ok {
 		return fmt.Errorf("hosted session connection is unavailable")
 	}
-	reservation, err := controller.reserve()
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	reservation, err := controller.reserve(cancel)
 	if err != nil {
 		return err
 	}
@@ -257,6 +274,8 @@ func (controller *Controller) leave(ctx context.Context, generation uint64, reva
 		return ErrRetainedDrafts
 	}
 	service := controller.service
+	cancel := controller.setupCancel
+	controller.setupCancel = nil
 	controller.active = false
 	controller.leaving = true
 	controller.service = nil
@@ -271,6 +290,9 @@ func (controller *Controller) leave(ctx context.Context, generation uint64, reva
 		controller.leaving = false
 		controller.mutex.Unlock()
 	}()
+	if cancel != nil {
+		cancel(ErrSessionChanged)
+	}
 	clientErr := controller.client.Leave(ctx)
 	var serviceErr error
 	if service != nil {
@@ -293,12 +315,13 @@ func (controller *Controller) Invitation() Invitation {
 	return invitation
 }
 
-func (controller *Controller) reserve() (uint64, error) {
+func (controller *Controller) reserve(cancel context.CancelCauseFunc) (uint64, error) {
 	controller.mutex.Lock()
 	defer controller.mutex.Unlock()
 	if controller.active || controller.inflight || controller.leaving {
 		return 0, ErrSessionActive
 	}
+	controller.setupCancel = cancel
 	controller.active = true
 	controller.inflight = true
 	controller.generation++
@@ -312,6 +335,7 @@ func (controller *Controller) releaseReservation(reservation uint64) {
 		controller.generation++
 	}
 	controller.inflight = false
+	controller.setupCancel = nil
 	controller.mutex.Unlock()
 }
 
@@ -325,5 +349,6 @@ func (controller *Controller) activate(reservation uint64, invitation Invitation
 	controller.invitation = invitation
 	controller.service = service
 	controller.inflight = false
+	controller.setupCancel = nil
 	return true
 }
