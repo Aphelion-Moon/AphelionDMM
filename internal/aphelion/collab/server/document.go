@@ -62,6 +62,12 @@ func StartDocument(ctx context.Context, snapshot model.Snapshot, store SessionSt
 }
 
 func StartDocumentWithConfig(ctx context.Context, snapshot model.Snapshot, store SessionStore, config DocumentConfig) (*DocumentOwner, error) {
+	return startDocumentWithLifetime(ctx, ctx, snapshot, store, config)
+}
+
+// Creation can have a bounded commit context without making the document's
+// lifetime depend on that request or its eventual cancellation.
+func startDocumentWithLifetime(ctx, lifetime context.Context, snapshot model.Snapshot, store SessionStore, config DocumentConfig) (*DocumentOwner, error) {
 	if store == nil {
 		return nil, fmt.Errorf("start document: store is nil")
 	}
@@ -83,7 +89,7 @@ func StartDocumentWithConfig(ctx context.Context, snapshot model.Snapshot, store
 	if err != nil {
 		return nil, err
 	}
-	return startDocument(ctx, document, store, config), nil
+	return startDocument(lifetime, document, store, config), nil
 }
 
 func startDocument(ctx context.Context, document *engine.Document, store SessionStore, config DocumentConfig) *DocumentOwner {

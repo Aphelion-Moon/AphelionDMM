@@ -20,6 +20,10 @@ func TestHostedSnapshotTransferUsesNegotiatedCompressionAndSeparateDeadline(t *t
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/v1/hosted/capabilities":
+					if !compression {
+						http.NotFound(w, r)
+						return
+					}
 					if compression {
 						w.Header().Set("Accept-Encoding", "gzip")
 					}
@@ -57,6 +61,7 @@ func TestHostedSnapshotTransferUsesNegotiatedCompressionAndSeparateDeadline(t *t
 			client := NewSessionClient(SessionClientConfig{HTTPTimeout: 30 * time.Millisecond, SnapshotTimeout: 2 * time.Second})
 			client.hostedBaseURL, client.hostedCredential = server.URL, "credential"
 			client.hostedCredentialExpires = time.Now().Add(time.Hour)
+			client.hostedSnapshotGzip = true // A service may have rolled back since the previous probe.
 			if _, err := client.CreateHostedWithMetadata(context.Background(), client.HostedAccount(), snapshot, protocol.HostedSessionMetadata{}); err != nil {
 				t.Fatal(err)
 			}

@@ -65,6 +65,11 @@ func (client *SessionClient) discardHostedLogin(origin, token string) {
 
 func (client *SessionClient) HostedCapabilities(ctx context.Context) (protocol.HostedCapabilities, error) {
 	account := client.HostedAccount()
+	client.mutex.Lock()
+	if account.Generation == client.hostedGeneration && account.Origin == client.hostedBaseURL {
+		client.hostedSnapshotGzip = false
+	}
+	client.mutex.Unlock()
 	if account.Origin == "" {
 		return protocol.HostedCapabilities{}, fmt.Errorf("sign in to a hosted service first")
 	}

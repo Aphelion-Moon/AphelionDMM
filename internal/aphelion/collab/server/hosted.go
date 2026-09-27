@@ -210,9 +210,16 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 	}
 	documentConfig := service.documentConfig
 	documentConfig.BulkEdits = body.BulkEdits || documentConfig.BulkEdits
+	if request.Context().Err() != nil {
+		return
+	}
+	// Once storage starts, finish registration even if the client loses the
+	// response. Otherwise a canceled request can leave an unjoinable document.
+	commitContext, cancelCommit := context.WithTimeout(service.context, snapshotTransferTimeout)
+	defer cancelCommit()
 	// A supplied baseline is not authority to adopt retained history. Existing
 	// hosted documents are recovered only through their persisted membership.
-	owner, err := StartDocumentWithConfig(service.context, body.Snapshot, service.store, documentConfig)
+	owner, err := startDocumentWithLifetime(commitContext, service.context, body.Snapshot, service.store, documentConfig)
 	if err != nil {
 		if errors.Is(err, ErrSessionExists) {
 			writeError(writer, http.StatusConflict, "session_exists", "document identity is already stored")
@@ -224,21 +231,21 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		writeError(writer, http.StatusBadRequest, "invalid_snapshot", "snapshot is not valid")
 		return
 	}
-	current, err := owner.Snapshot(request.Context())
+	current, err := owner.Snapshot(commitContext)
 	if err != nil {
-		_ = owner.Close(request.Context())
+		_ = owner.Close(commitContext)
 		writeError(writer, http.StatusInternalServerError, "internal", "session recovery failed")
 		return
 	}
 	mapHash, err := current.Hash()
 	if err != nil {
-		_ = owner.Close(request.Context())
+		_ = owner.Close(commitContext)
 		writeError(writer, http.StatusInternalServerError, "internal", "session recovery hash failed")
 		return
 	}
 	created := collabstore.HostedSession{SessionID: sessionID, DocumentID: current.DocumentID, CreatedAt: service.config.Now(), Visibility: body.Visibility, Title: body.Title, MapLabel: body.MapLabel, EnvironmentLabel: body.EnvironmentLabel}
-	if err := service.config.HostedRegistry.CreateHostedSession(request.Context(), created, ownerMember); err != nil {
-		_ = owner.Close(request.Context())
+	if err := service.config.HostedRegistry.CreateHostedSession(commitContext, created, ownerMember); err != nil {
+		_ = owner.Close(commitContext)
 		if errors.Is(err, collabstore.ErrHostedSessionExists) {
 			writeError(writer, http.StatusConflict, "session_exists", "hosted session already exists")
 			return
@@ -247,7 +254,7 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		return
 	}
 	if err := service.hub.Create(sessionID, owner, principal); err != nil {
-		_ = owner.Close(request.Context())
+		_ = owner.Close(commitContext)
 		writeError(writer, http.StatusInternalServerError, "internal", "session registration failed")
 		return
 	}

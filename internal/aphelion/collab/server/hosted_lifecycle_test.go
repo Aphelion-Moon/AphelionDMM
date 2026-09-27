@@ -189,3 +189,37 @@ func TestHostedCreationCannotAdoptRetainedDocument(t *testing.T) {
 		t.Fatal("retained document assigned to a new owner")
 	}
 }
+
+type cancelAfterDocumentCreate struct {
+	*MemoryStore
+	cancel context.CancelFunc
+}
+
+func (store *cancelAfterDocumentCreate) Create(ctx context.Context, snapshot model.Snapshot) error {
+	err := store.MemoryStore.Create(ctx, snapshot)
+	store.cancel()
+	return err
+}
+
+func TestHostedCanceledResponseDoesNotOrphanStoredDocument(t *testing.T) {
+	actor, _ := model.NewActorID()
+	backend := newFakeHostedBackend(map[string]auth.Session{"owner": {Token: "owner", ActorID: actor, Issuer: "issuer", Subject: "owner", DisplayName: "Owner", ExpiresAt: time.Now().Add(time.Hour)}})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := &cancelAfterDocumentCreate{MemoryStore: NewMemoryStore(), cancel: cancel}
+	service := NewService(ServiceConfig{Store: store, HostedAuth: backend, HostedRegistry: backend})
+	defer func() { _ = service.Shutdown(context.Background()) }()
+	snapshot := testSnapshot(t, 1)
+	body, _ := json.Marshal(map[string]any{"snapshot": snapshot})
+	request := httptest.NewRequest("POST", "/v1/hosted/sessions", bytes.NewReader(body)).WithContext(ctx)
+	request.Header.Set("Authorization", "Bearer owner")
+	response := httptest.NewRecorder()
+	service.Handler().ServeHTTP(response, request)
+	sessions, err := backend.ListHostedSessions(context.Background())
+	if err != nil || len(sessions) != 1 {
+		t.Fatalf("request cancellation orphaned a stored map: %v %v", sessions, err)
+	}
+	if !service.hostedDocumentAvailable(string(snapshot.DocumentID)) {
+		t.Fatal("request cancellation stopped the registered owner")
+	}
+}
