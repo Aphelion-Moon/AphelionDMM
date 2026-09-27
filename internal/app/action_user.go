@@ -42,7 +42,7 @@ import (
 
 const (
 	collaborationActionTimeout         = 15 * time.Second
-	hostedCollaborationActionTimeout   = 2 * time.Minute
+	hostedCollaborationActionTimeout   = 5 * time.Minute
 	hostedCollaborationSignInTimeout   = 5 * time.Minute
 	hostedCollaborationSignInPollDelay = time.Second
 )

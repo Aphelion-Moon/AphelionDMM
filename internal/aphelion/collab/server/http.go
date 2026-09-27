@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -92,7 +93,11 @@ type tokenRecord struct {
 }
 
 type sessionRecord struct {
-	owner *DocumentOwner
+	owner             *DocumentOwner
+	hosted            bool
+	emptyDeadline     time.Time
+	closing           bool
+	snapshotTransfers int
 }
 
 type desktopAuthHandoff struct {
@@ -125,6 +130,7 @@ type Service struct {
 	activeConnections    int
 	hostedConnections    map[uint64]hostedConnection
 	nextHostedConnection uint64
+	housekeepingDone     chan struct{}
 	joinLimiter          *rateLimiter
 	durableLimiter       *rateLimiter
 	presenceLimiter      *rateLimiter
@@ -192,6 +198,7 @@ func NewService(config ServiceConfig) *Service {
 		tokens:            make(map[string]tokenRecord),
 		sessions:          make(map[string]sessionRecord),
 		hostedConnections: make(map[uint64]hostedConnection),
+		housekeepingDone:  make(chan struct{}),
 		recoveryErrors:    make(map[model.DocumentID]error),
 		desktopHandoffs:   make(map[[sha256.Size]byte]desktopAuthHandoff),
 		desktopAuthStates: make(map[[sha256.Size]byte][sha256.Size]byte),
@@ -203,6 +210,7 @@ func NewService(config ServiceConfig) *Service {
 }
 
 func (service *Service) expirePresence(interval time.Duration) {
+	defer close(service.housekeepingDone)
 	if interval <= 0 {
 		interval = time.Millisecond
 	}
@@ -214,6 +222,9 @@ func (service *Service) expirePresence(interval time.Duration) {
 			return
 		case now := <-ticker.C:
 			service.hub.ExpirePresence(now)
+			if err := service.expireHostedSessions(service.config.Now()); err != nil && service.context.Err() == nil {
+				log.Print("hosted session cleanup failed; will retry")
+			}
 		}
 	}
 }
@@ -224,6 +235,11 @@ func (service *Service) Handler() http.Handler {
 
 func (service *Service) Shutdown(ctx context.Context) error {
 	service.cancel()
+	select {
+	case <-service.housekeepingDone:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	service.mutex.RLock()
 	owners := make([]*DocumentOwner, 0, len(service.sessions))
 	for _, session := range service.sessions {
@@ -480,12 +496,19 @@ func (service *Service) handleGetSession(writer http.ResponseWriter, request *ht
 }
 
 func (service *Service) handleGetSnapshot(writer http.ResponseWriter, request *http.Request) {
+	snapshotTransferDeadlines(writer)
 	sessionID := request.PathValue("session_id")
 	_, record, ok := service.authorize(request, sessionID)
 	if !ok {
 		writeError(writer, http.StatusUnauthorized, "unauthorized", "session token is invalid")
 		return
 	}
+	release, available := service.holdHostedSnapshot(sessionID)
+	if !available {
+		writeError(writer, http.StatusGone, "session_ended", "session has ended")
+		return
+	}
+	defer release()
 	snapshot, err := record.owner.Snapshot(request.Context())
 	if err != nil {
 		writeError(writer, http.StatusServiceUnavailable, "unavailable", "session is unavailable")
@@ -493,7 +516,7 @@ func (service *Service) handleGetSnapshot(writer http.ResponseWriter, request *h
 	}
 	hash, _ := snapshot.Hash()
 	writer.Header().Set("ETag", `"`+hash+`"`)
-	writeJSON(writer, http.StatusOK, snapshot)
+	writeSnapshotJSON(writer, request, snapshot)
 }
 
 func (service *Service) handleCreateJoinToken(writer http.ResponseWriter, request *http.Request) {
@@ -629,6 +652,9 @@ func (service *Service) authorizeRecord(request *http.Request, sessionID string)
 	token, tokenExists := service.tokens[tokenValue]
 	session, sessionExists := service.sessions[sessionID]
 	service.mutex.RUnlock()
+	if session.closing {
+		return tokenRecord{}, sessionRecord{}, false
+	}
 	if tokenExists && !token.launch && token.sessionID == sessionID && sessionExists && service.config.Now().Before(token.expiresAt) {
 		return token, session, true
 	}

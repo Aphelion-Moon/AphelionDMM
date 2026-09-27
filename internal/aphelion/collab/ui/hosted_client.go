@@ -192,6 +192,7 @@ func (client *SessionClient) acceptHostedSignIn(ctx context.Context, signIn Host
 	client.hostedCredentialExpires = authenticated.ExpiresAt
 	client.hostedDisplayName = authenticated.DisplayName
 	client.hostedBaseURL = signIn.baseURL
+	client.hostedSnapshotGzip = false
 	client.hostedActorID = authenticated.ActorID
 	client.hostedGeneration++
 	if client.hostedSession {
@@ -257,7 +258,7 @@ func (client *SessionClient) CreateHosted(ctx context.Context, snapshot model.Sn
 		return Invitation{}, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := client.http.Do(request)
+	response, err := client.doSnapshotRequest(request)
 	if err != nil {
 		return Invitation{}, fmt.Errorf("create hosted collaboration session: %w", err)
 	}

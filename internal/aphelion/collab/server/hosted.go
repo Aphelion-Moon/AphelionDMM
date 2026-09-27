@@ -1,6 +1,7 @@
 package server
 
 import (
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -8,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -149,6 +151,7 @@ func (service *Service) handleHostedAuthLogout(writer http.ResponseWriter, reque
 }
 
 func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, request *http.Request) {
+	snapshotTransferDeadlines(writer)
 	identity, ok := service.authorizeHostedIdentity(writer, request)
 	if !ok {
 		return
@@ -158,6 +161,21 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		return
 	}
 	request.Body = http.MaxBytesReader(writer, request.Body, service.limits.MaxSnapshotBodyBytes)
+	switch request.Header.Get("Content-Encoding") {
+	case "", "identity":
+	case "gzip":
+		compressed, err := gzip.NewReader(request.Body)
+		if err != nil {
+			writeHostedDecodeError(writer, err, "invalid compressed snapshot")
+			return
+		}
+		defer func() { _ = compressed.Close() }()
+		// Enforce the same limit on expanded data, including compression bombs.
+		request.Body = http.MaxBytesReader(writer, compressed, service.limits.MaxSnapshotBodyBytes)
+	default:
+		writeError(writer, http.StatusUnsupportedMediaType, "unsupported_encoding", "snapshot content encoding is unsupported")
+		return
+	}
 	var body struct {
 		Snapshot  model.Snapshot `json:"snapshot"`
 		BulkEdits bool           `json:"bulk_edits,omitempty"`
@@ -167,6 +185,10 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&body); err != nil {
 		writeHostedDecodeError(writer, err, "invalid hosted session request")
+		return
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeHostedDecodeError(writer, err, "invalid trailing snapshot data")
 		return
 	}
 	if body.Snapshot.DocumentID == "" {
@@ -188,14 +210,16 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 	}
 	documentConfig := service.documentConfig
 	documentConfig.BulkEdits = body.BulkEdits || documentConfig.BulkEdits
-	owner, err := startOrRecoverDocument(service.context, body.Snapshot, service.store, documentConfig)
+	// A supplied baseline is not authority to adopt retained history. Existing
+	// hosted documents are recovered only through their persisted membership.
+	owner, err := StartDocumentWithConfig(service.context, body.Snapshot, service.store, documentConfig)
 	if err != nil {
-		if writeTransactionUpgradeError(writer, err) {
+		if errors.Is(err, ErrSessionExists) {
+			writeError(writer, http.StatusConflict, "session_exists", "document identity is already stored")
 			return
 		}
-		var recoveryError *RecoveryError
-		if errors.As(err, &recoveryError) {
-			service.setDocumentRecoveryError(recoveryError.DocumentID, recoveryError)
+		if writeTransactionUpgradeError(writer, err) {
+			return
 		}
 		writeError(writer, http.StatusBadRequest, "invalid_snapshot", "snapshot is not valid")
 		return
@@ -228,7 +252,7 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		return
 	}
 	service.mutex.Lock()
-	service.sessions[sessionID] = sessionRecord{owner: owner}
+	service.sessions[sessionID] = sessionRecord{owner: owner, hosted: true, emptyDeadline: service.config.Now().Add(hostedInitialJoinGrace)}
 	service.mutex.Unlock()
 	service.setDocumentRecoveryError(body.Snapshot.DocumentID, nil)
 	writeJSON(writer, http.StatusCreated, HostedSessionResponse{SessionID: sessionID, DocumentID: current.DocumentID, Revision: current.Revision, MapHash: mapHash})
@@ -408,7 +432,7 @@ func (service *Service) recoverHostedSession(ctx context.Context, hostedSession 
 		}
 	}
 	service.mutex.Lock()
-	service.sessions[hostedSession.SessionID] = sessionRecord{owner: owner}
+	service.sessions[hostedSession.SessionID] = sessionRecord{owner: owner, hosted: true, emptyDeadline: service.config.Now().Add(hostedInitialJoinGrace)}
 	service.mutex.Unlock()
 	service.setDocumentRecoveryError(hostedSession.DocumentID, nil)
 	return nil

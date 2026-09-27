@@ -46,7 +46,12 @@ Before authorizing production cutover:
 Application credentials are memory-only, expire after 12 hours by default (maximum
 24 hours), and are lost on restart. Membership persists. Reauthentication uses the
 same service and actor; uncertain drafts remain recoverable and are not replayed
-automatically. My sessions provides access to enabled Private/idle memberships.
+automatically. My sessions provides access to enabled Private/idle memberships
+until the session ends. Empty sessions expire after a one-minute reconnect grace
+period, or five minutes after creation/recovery without a connection. Cleanup
+retains the stored document and edit history, but removes session membership and
+invitations. Snapshot transfers use bounded three-minute HTTP deadlines and
+negotiated gzip; ordinary control-request deadlines remain short.
 
 Rollback requires a coordinated decision: the previous binary rejects schema 5
 even though its changes are additive, and cannot authenticate Discord identities.

@@ -120,6 +120,12 @@ type HostedRegistry interface {
 	RedeemHostedInvitation(context.Context, string, [sha256.Size]byte, HostedIdentity, time.Time) (HostedMember, error)
 }
 
+// HostedSessionLifecycleStore ends discovery and admission while retaining the
+// document and its acknowledged operation history for recovery.
+type HostedSessionLifecycleStore interface {
+	EndHostedSession(context.Context, string) error
+}
+
 // HostedSessionBrowserStore contains the bounded, hosted-only operations used by
 // session browsing and Community admission. Keeping it separate preserves the
 // smaller HostedRegistry contract used by existing server fakes.

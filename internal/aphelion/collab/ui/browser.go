@@ -187,7 +187,7 @@ func (b *Browser) Process() {
 		if b.cancel != nil {
 			b.cancel()
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		b.cancel = cancel
 		b.busy = true
 		b.generation++

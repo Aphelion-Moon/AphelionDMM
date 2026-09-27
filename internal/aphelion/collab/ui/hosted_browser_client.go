@@ -92,6 +92,11 @@ func (client *SessionClient) HostedCapabilities(ctx context.Context) (protocol.H
 	if !client.HostedAccountCurrent(account) {
 		return result, ErrSessionChanged
 	}
+	client.mutex.Lock()
+	if account.Generation == client.hostedGeneration && account.Origin == client.hostedBaseURL {
+		client.hostedSnapshotGzip = err == nil && response.Header.Get("Accept-Encoding") == "gzip"
+	}
+	client.mutex.Unlock()
 	if err == nil && !result.SessionBrowser {
 		err = ErrHostedBrowserUnsupported
 	}
@@ -105,6 +110,7 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 		return ErrSessionChanged
 	}
 	origin, credential := client.hostedBaseURL, client.hostedCredential
+	compressSnapshot := client.hostedSnapshotGzip && method == "POST" && path == "/v1/hosted/sessions"
 	valid := credential != "" && client.config.Now().Before(client.hostedCredentialExpires)
 	client.mutex.Unlock()
 	if !valid {
@@ -118,13 +124,27 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 			return err
 		}
 	}
+	if compressSnapshot {
+		encoded, err = compressSnapshotRequest(encoded)
+		if err != nil {
+			return err
+		}
+	}
 	request, err := client.request(ctx, method, origin+path, credential, bytes.NewReader(encoded))
 	if err != nil {
 		return err
 	}
 	request.URL.RawQuery = query.Encode()
 	request.Header.Set("Content-Type", "application/json")
-	response, err := client.http.Do(request)
+	if compressSnapshot {
+		request.Header.Set("Content-Encoding", "gzip")
+	}
+	var response *http.Response
+	if method == "POST" && path == "/v1/hosted/sessions" {
+		response, err = client.doSnapshotRequest(request)
+	} else {
+		response, err = client.http.Do(request)
+	}
 	if err != nil {
 		return fmt.Errorf("hosted service request failed: %w", err)
 	}
@@ -150,7 +170,7 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 				case "transaction_upgrade_required":
 					return fmt.Errorf("the hosted service needs an operator to upgrade transaction storage before this editor can start a session")
 				case "session_exists":
-					return fmt.Errorf("this map already has a hosted session; open Browse Sessions and choose My sessions to rejoin it")
+					return fmt.Errorf("this map's session identity is already stored; choose My sessions to rejoin an active session, or reopen the saved map to start a new one")
 				}
 			}
 		}

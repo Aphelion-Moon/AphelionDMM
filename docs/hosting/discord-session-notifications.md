@@ -27,8 +27,12 @@ and filesystem paths are never included. Mentions and link previews are disabled
 At most ten Community sessions appear in a summary; the remainder are counted.
 
 This is best-effort status reporting, not an audit log: rapid changes may be
-coalesced, an idle session remains persisted, and service restart produces a fresh
-summary. Notification failures do not block authentication or map editing.
+coalesced, and service restart produces a fresh summary. Empty sessions end after
+a one-minute reconnect grace period (checked every 30 seconds). Newly created or
+recovered sessions have five minutes for their first connection; active snapshot
+downloads also hold the session open. Ending removes the session, memberships and
+invitations from the registry while retaining the document and acknowledged edit
+history. Notification failures do not block authentication or map editing.
 Requests have deadlines and bounded responses; rate-limit responses delay retry.
 HTTP 401/403 pauses retries for five minutes. Logs contain status codes rather
 than Discord response bodies or credentials. Changing a Community session to

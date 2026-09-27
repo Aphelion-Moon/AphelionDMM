@@ -61,6 +61,17 @@ func (store *Store) CreateHostedSession(ctx context.Context, session collabstore
 	return nil
 }
 
+func (store *Store) EndHostedSession(ctx context.Context, sessionID string) error {
+	store.mutex.RLock()
+	defer store.mutex.RUnlock()
+	if store.closed {
+		return collabstore.ErrStoreClosed
+	}
+	// Memberships and invitations cascade; the parent document is retained.
+	_, err := store.pool.Exec(ctx, `DELETE FROM collaboration_hosted_sessions WHERE session_id = $1`, sessionID)
+	return err
+}
+
 func (store *Store) ListHostedSessions(ctx context.Context) ([]collabstore.HostedSession, error) {
 	store.mutex.RLock()
 	defer store.mutex.RUnlock()

@@ -107,7 +107,8 @@ func (e *Editor) AttachCollaborationExecutor(execution executor.Executor) error 
 		return fmt.Errorf("attach collaboration executor: %w", err)
 	}
 	if snapshot.EnvironmentHash != environmentHash {
-		return fmt.Errorf("attach collaboration executor: environment hash does not match the loaded project")
+		log.Warn().Str("local_environment_hash", environmentHash).Str("session_environment_hash", snapshot.EnvironmentHash).Str("dme", e.app.LoadedEnvironment().RootFile).Msg("Collaboration environment mismatch")
+		return fmt.Errorf("the loaded DME does not match this session (local %.12s, session %.12s). Reopen the same DME after updating both checkouts and use the same AphelionDMM version", environmentHash, snapshot.EnvironmentHash)
 	}
 	if err := mapadapter.ApplyWithEnvironment(e.dmm, snapshot, e.app.LoadedEnvironment()); err != nil {
 		return fmt.Errorf("attach collaboration executor: %w", err)

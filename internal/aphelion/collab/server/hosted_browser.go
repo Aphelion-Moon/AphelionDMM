@@ -10,6 +10,8 @@ import (
 )
 
 func (service *Service) handleHostedCapabilities(w http.ResponseWriter, r *http.Request) {
+	// A header keeps older clients' strict JSON capability decoders compatible.
+	w.Header().Set("Accept-Encoding", "gzip")
 	w.Header().Set("Cache-Control", "no-store")
 	_, supported := service.config.HostedRegistry.(collabstore.HostedSessionBrowserStore)
 	provider := service.config.HostedProvider

@@ -127,7 +127,7 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 	service.mutex.RLock()
 	session, exists := service.sessions[auth.sessionID]
 	service.mutex.RUnlock()
-	if !exists {
+	if !exists || session.closing {
 		_ = connection.Close(websocket.StatusPolicyViolation, "session unavailable")
 		return fmt.Errorf("load joined session: unavailable")
 	}
@@ -139,6 +139,11 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		parent = context.WithValue(parent, bulkContextKey{}, bulkConnection{codec: service.bulk, canUpload: auth.principal.CanEdit()})
 	}
 	if auth.hosted {
+		unregister := service.trackHostedConnection(auth.sessionID, auth.principal.ActorID(), auth.expiresAt)
+		if unregister == nil {
+			return ErrSessionNotFound
+		}
+		defer unregister()
 		var cancelExpiry context.CancelFunc
 		parent, cancelExpiry = context.WithTimeout(parent, auth.expiresAt.Sub(service.config.Now()))
 		defer cancelExpiry()
@@ -276,10 +281,6 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		return fmt.Errorf("write presence snapshot: %w", err)
 	}
 
-	if auth.hosted {
-		unregister := service.trackHostedConnection(auth.sessionID, auth.principal.ActorID(), auth.expiresAt)
-		defer unregister()
-	}
 	incoming := make(chan incomingMessage)
 	readErrors := make(chan error, 1)
 	// Reauthorization replaces auth in the connection loop; the reader owns only

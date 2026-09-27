@@ -27,12 +27,13 @@ const maxSessionResponseBytes = 256 << 20
 var errSnapshotFallbackInstalled = errors.New("authoritative snapshot installed; reconnect again for replay")
 
 type SessionClientConfig struct {
-	HTTPTimeout  time.Duration
-	Transport    collabclient.TransportConfig
-	Reconnect    collabclient.ReconnectPolicy
-	Now          func() time.Time
-	Schedule     func(time.Duration, func()) func()
-	NewTransport func() SessionTransport
+	HTTPTimeout     time.Duration
+	SnapshotTimeout time.Duration
+	Transport       collabclient.TransportConfig
+	Reconnect       collabclient.ReconnectPolicy
+	Now             func() time.Time
+	Schedule        func(time.Duration, func()) func()
+	NewTransport    func() SessionTransport
 }
 
 type SessionClient struct {
@@ -65,6 +66,7 @@ type SessionClient struct {
 	hostedBaseURL           string
 	hostedSession           bool
 	hostedGeneration        uint64
+	hostedSnapshotGzip      bool
 	hostedActorID           model.ActorID
 	baseURL                 string
 	origin                  string
@@ -86,6 +88,9 @@ type SessionTransport interface {
 type sessionTransport = SessionTransport
 
 func NewSessionClient(config SessionClientConfig) *SessionClient {
+	if config.SnapshotTimeout <= 0 {
+		config.SnapshotTimeout = 3 * time.Minute
+	}
 	if config.HTTPTimeout <= 0 {
 		config.HTTPTimeout = 10 * time.Second
 	}
@@ -1143,7 +1148,7 @@ func (client *SessionClient) fetchConnectionSnapshot(ctx context.Context, invita
 	if err != nil {
 		return model.Snapshot{}, err
 	}
-	response, err := client.http.Do(request)
+	response, err := client.doSnapshotRequest(request)
 	if err != nil {
 		return model.Snapshot{}, fmt.Errorf("fetch collaboration snapshot: %w", err)
 	}
