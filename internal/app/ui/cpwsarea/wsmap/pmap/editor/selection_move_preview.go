@@ -131,17 +131,23 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 		pendingAtStart:   hasProjectionCapture && projectionCapture.HasPending(),
 		sourceProjection: projectionCapture,
 	}
+	if hasProjectionCapture {
+		session.revision = projectionCapture.BaseRevision()
+	}
 	e.selectionMovePreview = session
-	// Shared projections replace authoritativeTiles as a whole; local edits use
-	// an engine-owned immutable tile capture because they update that map in place.
+	// The UI authority index is mutable during remote publication. Network
+	// workers must use the pinned projection even when it has no pending edits.
 	base := e.authoritativeTiles
 	ctx, cancel := context.WithCancel(context.Background())
 	session.workerCancel = cancel
 	go func() {
 		projectionTiles := map[model.Coord]model.TileState(nil)
 		var projectionBytes uint64
-		if hasProjectionCapture && projectionCapture.HasPending() {
-			projectionBytes = projectionCapture.EstimatedBytes()
+		if hasProjectionCapture {
+			contains := func(coord model.Coord) bool {
+				return selection.Contains(util.Point{X: coord.X, Y: coord.Y, Z: coord.Z})
+			}
+			projectionBytes = projectionCapture.EstimatedVisibleTilesBytes(contains)
 			need := saturatingMoveBytes(editing.EstimateMovePreparationMemory(selection.Len()), projectionBytes)
 			if err := reservation.Resize(need); err != nil {
 				result := selectionMoveWorkResult{reservation: reservation, err: err}
@@ -154,7 +160,7 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 				session.results <- result
 				return
 			}
-			visibleSnapshot, snapshotErr := projectionCapture.VisibleSnapshot()
+			capturedTiles, snapshotErr := projectionCapture.VisibleTiles(contains)
 			if snapshotErr != nil {
 				result := selectionMoveWorkResult{reservation: reservation, err: snapshotErr}
 				session.resultMu.Lock()
@@ -166,8 +172,7 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 				session.results <- result
 				return
 			}
-			projectionTiles = makeSnapshotTileIndex(visibleSnapshot)
-			session.revision = projectionCapture.BaseRevision()
+			projectionTiles = capturedTiles
 		}
 		var sourceBytes uint64
 		var captureErr error
@@ -574,27 +579,31 @@ func (e *Editor) submitSelectionMovePreview(session *selectionMoveSession) error
 		if capturer, ok := execution.(projectionCapturer); ok {
 			var projection client.ProjectionCapture
 			projection, err = capturer.CaptureProjection(context.Background())
+			contains := func(coord model.Coord) bool {
+				point := util.Point{X: coord.X, Y: coord.Y, Z: coord.Z}
+				return session.selection.Contains(point) || session.selection.Contains(point.Minus(shift))
+			}
 			if err == nil {
-				need := saturatingMoveBytes(editing.EstimateMovePayloadMemory(payload), projection.EstimatedBytes())
+				need := saturatingMoveBytes(editing.EstimateMovePayloadMemory(payload), projection.EstimatedVisibleTilesBytes(contains))
 				err = session.reservation.Resize(need)
 			}
-			var visibleSnapshot model.Snapshot
+			var visibleTiles map[model.Coord]model.TileState
 			if err == nil {
-				visibleSnapshot, err = projection.VisibleSnapshot()
+				visibleTiles, err = projection.VisibleTiles(contains)
 			}
 			if err == nil {
-				lookup := snapshotTile(visibleSnapshot)
+				lookup := func(coord model.Coord) (model.TileState, bool) { state, ok := visibleTiles[coord]; return state, ok }
 				if session.pendingAtStart && projection.BaseRevision() == session.revision && payload.ValidateSource(visible, lookup) != nil {
 					// A rejected dependency invalidated the speculative source. Retain
 					// the exact original draft, including destinations changed by that
 					// dependency, so its before-states remain reconstructable in order.
-					need := saturatingMoveBytes(editing.EstimateMovePayloadMemory(payload), projection.EstimatedBytes())
-					err = session.reservation.Resize(saturatingMoveBytes(need, session.sourceProjection.EstimatedBytes()))
+					need := saturatingMoveBytes(editing.EstimateMovePayloadMemory(payload), projection.EstimatedVisibleTilesBytes(contains))
+					err = session.reservation.Resize(saturatingMoveBytes(need, session.sourceProjection.EstimatedVisibleTilesBytes(contains)))
 					if err == nil {
-						var original model.Snapshot
-						original, err = session.sourceProjection.VisibleSnapshot()
+						var original map[model.Coord]model.TileState
+						original, err = session.sourceProjection.VisibleTiles(contains)
 						if err == nil {
-							lookup = snapshotTile(original)
+							lookup = func(coord model.Coord) (model.TileState, bool) { state, ok := original[coord]; return state, ok }
 						}
 					}
 				}

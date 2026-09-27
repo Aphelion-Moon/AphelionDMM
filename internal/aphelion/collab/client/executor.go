@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -102,6 +103,42 @@ func (capture ProjectionCapture) VisibleSnapshot() (model.Snapshot, error) {
 	return capture.projection.Visible()
 }
 
+// VisibleTiles detaches only the requested footprint from this immutable
+// capture. Pending operations must still be reconciled as complete batches:
+// filtering them first could expose half of a conflicting move.
+func (capture ProjectionCapture) VisibleTiles(contains func(model.Coord) bool) (map[model.Coord]model.TileState, error) {
+	snapshot := capture.projection.Acknowledged
+	if len(capture.projection.Pending) != 0 {
+		var err error
+		snapshot, err = capture.VisibleSnapshot()
+		if err != nil {
+			return nil, err
+		}
+	}
+	tiles := make(map[model.Coord]model.TileState)
+	for _, tile := range snapshot.Tiles {
+		if contains(tile.Coord) {
+			tiles[tile.Coord] = model.CloneTileState(tile.State)
+		}
+	}
+	return tiles, nil
+}
+
+// EstimatedVisibleTilesBytes covers the detached footprint and lookup index.
+// Pending batches require the full projection scratch in addition to that copy.
+func (capture ProjectionCapture) EstimatedVisibleTilesBytes(contains func(model.Coord) bool) uint64 {
+	if len(capture.projection.Pending) != 0 {
+		return estimateCaptureMul(capture.EstimatedBytes(), 2)
+	}
+	bytes := uint64(1 << 20)
+	for _, tile := range capture.projection.Acknowledged.Tiles {
+		if contains(tile.Coord) {
+			bytes = estimateCaptureAdd(bytes, estimateCaptureState(tile.State)+128)
+		}
+	}
+	return estimateCaptureMul(bytes, 2)
+}
+
 // OperationBase returns the metadata needed to build an operation against the
 // captured acknowledged revision without exposing executor-owned tile data.
 func (capture ProjectionCapture) OperationBase() (model.DocumentID, model.Revision, string, string, error) {
@@ -117,18 +154,19 @@ type NetworkExecutor struct {
 	actor     model.ActorID
 	sessionID string
 
-	mutex           sync.Mutex
-	projection      Projection
-	pending         map[model.OperationID]chan operationResult
-	accepted        map[model.OperationID]model.AcceptedOperation
-	acceptedHashes  map[model.OperationID]string
-	verifiedHistory map[model.Revision]string
-	conflicts       []Conflict
-	conflictsDirty  bool
-	updates         chan Projection
-	legacyUpdates   bool
-	terminal        error
-	suspended       error
+	mutex            sync.Mutex
+	projection       Projection
+	pending          map[model.OperationID]chan operationResult
+	accepted         map[model.OperationID]model.AcceptedOperation
+	acceptedHashes   map[model.OperationID]string
+	acceptedReceipts map[model.OperationID][sha256.Size]byte
+	verifiedHistory  map[model.Revision]string
+	conflicts        []Conflict
+	conflictsDirty   bool
+	updates          chan Projection
+	legacyUpdates    bool
+	terminal         error
+	suspended        error
 
 	// mutex protects state transitions and legacy compatibility reads. The
 	// publication/capture paths use the immutable pointer below instead of
@@ -155,16 +193,17 @@ func NewNetworkExecutor(transport Transport, snapshot model.Snapshot, actor mode
 	}
 	projection := newProjection(snapshot, snapshotHash)
 	network := &NetworkExecutor{
-		transport:       transport,
-		actor:           actor,
-		sessionID:       sessionID,
-		projection:      projection,
-		pending:         make(map[model.OperationID]chan operationResult),
-		accepted:        make(map[model.OperationID]model.AcceptedOperation),
-		acceptedHashes:  make(map[model.OperationID]string),
-		verifiedHistory: map[model.Revision]string{snapshot.Revision: snapshotHash},
-		updates:         make(chan Projection, 1),
-		publication:     newPublicationState(),
+		transport:        transport,
+		actor:            actor,
+		sessionID:        sessionID,
+		projection:       projection,
+		pending:          make(map[model.OperationID]chan operationResult),
+		accepted:         make(map[model.OperationID]model.AcceptedOperation),
+		acceptedHashes:   make(map[model.OperationID]string),
+		acceptedReceipts: make(map[model.OperationID][sha256.Size]byte),
+		verifiedHistory:  map[model.Revision]string{snapshot.Revision: snapshotHash},
+		updates:          make(chan Projection, 1),
+		publication:      newPublicationState(),
 	}
 	network.authorityTiles, network.authorityOwners = buildAuthorityIndex(snapshot)
 	network.publication.mu.Lock()
@@ -353,7 +392,7 @@ func (network *NetworkExecutor) BuildInverse(ctx context.Context, targetID model
 		}
 		current := network.authorityTiles[targetChange.Coord]
 		if !current.Equal(targetChange.After) {
-			return model.Operation{}, fmt.Errorf("accepted operation is no longer safely reversible at (%d,%d,%d)", targetChange.Coord.X, targetChange.Coord.Y, targetChange.Coord.Z)
+			return model.Operation{}, fmt.Errorf("tile (%d,%d,%d) was changed by a later edit; undo would overwrite newer work. Undo the conflicting edit first, then retry. Your undo history is preserved", targetChange.Coord.X, targetChange.Coord.Y, targetChange.Coord.Z)
 		}
 		changes[index] = model.TileChange{Coord: targetChange.Coord, Before: model.CloneTileState(targetChange.After), After: model.CloneTileState(targetChange.Before)}
 	}
@@ -636,6 +675,21 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 	switch decoded.Envelope.Type {
 	case protocol.ServerOperationAccepted:
 		payload := decoded.Payload.(*protocol.OperationAcceptedPayload)
+		// Only this actor's forward operations can be undone. Keep compact
+		// verified receipts for remote edits and inverses, rather than
+		// retaining every whole-area before/after payload for the session.
+		retain := payload.Operation.ActorID == network.actor && payload.Operation.Kind != model.OperationKindInverse
+		var receipt [sha256.Size]byte
+		if !retain {
+			digest := sha256.New()
+			if err := json.NewEncoder(digest).Encode(payload); err != nil {
+				return fmt.Errorf("fingerprint accepted operation: %w", err)
+			}
+			copy(receipt[:], digest.Sum(nil))
+			if prior, exists := network.acceptedReceipts[payload.Operation.OperationID]; exists && prior == receipt {
+				return nil
+			}
+		}
 		if prior, exists := network.accepted[payload.Operation.OperationID]; exists && reflect.DeepEqual(prior, payload.Operation) {
 			if payload.MapHash == network.acceptedHashes[payload.Operation.OperationID] {
 				return nil
@@ -659,8 +713,12 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 			}
 			delete(network.verifiedHistory, oldest)
 		}
-		network.accepted[payload.Operation.OperationID] = model.CloneAcceptedOperation(payload.Operation)
-		network.acceptedHashes[payload.Operation.OperationID] = payload.MapHash
+		if retain {
+			network.accepted[payload.Operation.OperationID] = model.CloneAcceptedOperation(payload.Operation)
+			network.acceptedHashes[payload.Operation.OperationID] = payload.MapHash
+		} else {
+			network.acceptedReceipts[payload.Operation.OperationID] = receipt
+		}
 		if index, found := network.conflictLocked(payload.Operation.OperationID); found {
 			conflict := network.conflicts[index]
 			if conflict.Code == conflictDeliveryUnconfirmed && model.SameOperation(conflict.Draft, payload.Operation.Operation) {
