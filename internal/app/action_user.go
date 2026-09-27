@@ -248,12 +248,12 @@ func (a *app) DoBrowseHostedSessions() {
 	if a.collaborationClient == nil || a.hostedBrowser != nil {
 		return
 	}
-	browser := &collabui.Browser{Client: a.collaborationClient, Schedule: window.RunLater, SignIn: a.DoSignInHostedCollaboration, CanJoin: a.hostedJoinBlocker, Join: a.joinBrowsedHostedSession, Closed: func() { a.hostedBrowser = nil }}
+	browser := &collabui.Browser{Client: a.collaborationClient, Schedule: window.RunLater, SignIn: a.DoSignInHostedCollaboration, CanJoin: a.collaborationJoinBlocker, Join: a.joinBrowsedHostedSession, Closed: func() { a.hostedBrowser = nil }}
 	a.hostedBrowser = browser
 	dial.Open(browser)
 }
 
-func (a *app) hostedJoinBlocker() string {
+func (a *app) collaborationJoinBlocker() string {
 	if a.HasActiveCollaboration() {
 		return "Leave the current session before opening another."
 	}
@@ -271,7 +271,7 @@ func (a *app) hostedJoinBlocker() string {
 }
 
 func (a *app) joinBrowsedHostedSession(ctx context.Context, id string, done func(error)) {
-	if reason := a.hostedJoinBlocker(); reason != "" {
+	if reason := a.collaborationJoinBlocker(); reason != "" {
 		done(fmt.Errorf("%s", reason))
 		return
 	}
@@ -415,11 +415,7 @@ func (a *app) DoJoinCollaborationSession() {
 			w.Text("Paste the invitation shared by the session owner."),
 			w.InputTextWithHint("##collaboration-invitation", "Invitation", &encodedInvitation).Width(-1),
 			w.Button("Join Session", func() {
-				if a.CurrentEditor() != selectedEditor || a.HasActiveCollaboration() {
-					util.ShowErrorDialog("Unable to join collaboration: the active map or session changed")
-					return
-				}
-				invitation, err := collabui.ParseInvitation(strings.TrimSpace(encodedInvitation))
+				invitation, err := a.validateCollaborationInvitation(selectedEditor, encodedInvitation)
 				encodedInvitation = ""
 				if err != nil {
 					util.ShowErrorDialog("Unable to join collaboration: " + err.Error())
@@ -431,6 +427,16 @@ func (a *app) DoJoinCollaborationSession() {
 			}),
 		},
 	})
+}
+
+func (a *app) validateCollaborationInvitation(selectedEditor *editor.Editor, encoded string) (collabui.Invitation, error) {
+	if selectedEditor == nil || a.CurrentEditor() != selectedEditor {
+		return collabui.Invitation{}, fmt.Errorf("the active map or session changed")
+	}
+	if reason := a.collaborationJoinBlocker(); reason != "" {
+		return collabui.Invitation{}, fmt.Errorf("%s", reason)
+	}
+	return collabui.ParseInvitation(strings.TrimSpace(encoded))
 }
 
 func (a *app) joinCollaborationSession(invitation collabui.Invitation, selectedEditor *editor.Editor, generation uint64) {

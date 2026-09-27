@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 	collabui "sdmm/internal/aphelion/collab/ui"
+	mappingui "sdmm/internal/aphelion/mapping/ui"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/prefs"
@@ -133,6 +135,7 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 	defer brush.Dispose()
 	a := &pasteActionUI{app: &app{loadedEnvironment: environment, pathsFilter: dm.NewPathsFilterEmpty(), configs: map[string]config.Config{}, commandStorage: command.NewStorage(), clipboard: dmmclip.New(), layout: &layout.Layout{WsArea: &cpwsarea.WsArea{}}}}
 	a.jobs = make(chan func(), 128)
+	a.layout.Composition = mappingui.NewHub(a)
 	a.layout.WsArea.Init(a)
 	a.menu = menu.New(a)
 	openMap := func(name string) *wsmap.WsMap {
@@ -163,6 +166,13 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 	}
 	first := openMap("first")
 	defer first.Map().Editor().Close()
+	invitation, err := collabui.EncodeInvitation(collabui.Invitation{BaseURL: "http://127.0.0.1:1234", Origin: "http://127.0.0.1:1234", SessionID: "session", Token: "secret"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.validateCollaborationInvitation(first.Map().Editor(), invitation); err != nil {
+		t.Fatalf("clean map refused invitation: %v", err)
+	}
 	g := tools.SetSelected(tools.TNGrab).(*tools.ToolGrab)
 	g.Reset()
 	g.SelectArea([]util.Point{{X: 1, Y: 1, Z: 1}})
@@ -201,6 +211,9 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 	if !first.Map().Editor().HasPastePlacement() || !g.Placing() || a.commandStorage.HasUndo() {
 		t.Fatal("application Ctrl+V did not start an uncommitted preview")
 	}
+	if _, err := a.validateCollaborationInvitation(first.Map().Editor(), invitation); err == nil || !strings.Contains(err.Error(), "Finish") {
+		t.Fatalf("invitation did not protect active paste: %v", err)
+	}
 	// Floating paste is presentation-only. Save must keep the acknowledged map
 	// available without including the unconfirmed preview.
 	previewSnapshot, err := first.Map().Editor().SaveSnapshot(context.Background())
@@ -231,6 +244,9 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 	if err != nil || state.Revision != 1 || g.Placing() {
 		t.Fatalf("application Enter did not confirm: revision=%d err=%v", state.Revision, err)
 	}
+	if _, err := a.validateCollaborationInvitation(first.Map().Editor(), invitation); err == nil || !strings.Contains(err.Error(), "Save") {
+		t.Fatalf("invitation did not protect unsaved paste: %v", err)
+	}
 	press(glfw.KeyRightControl, glfw.KeyV)
 	if !g.Placing() {
 		t.Fatal("right Ctrl+V did not start placement")
@@ -249,6 +265,12 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 	state, err = second.Map().Editor().SaveSnapshot(context.Background())
 	if err != nil || state.Revision != 0 || a.commandStorage.HasUndo() {
 		t.Fatal("application Escape changed second map authority/history")
+	}
+	if _, err := a.validateCollaborationInvitation(second.Map().Editor(), invitation); err != nil {
+		t.Fatalf("clean map remained blocked after canceled paste: %v", err)
+	}
+	if _, err := a.validateCollaborationInvitation(first.Map().Editor(), invitation); err == nil {
+		t.Fatal("invitation accepted an inactive workspace")
 	}
 	if len(a.errors) != 0 {
 		t.Fatalf("application errors: %v", a.errors)
