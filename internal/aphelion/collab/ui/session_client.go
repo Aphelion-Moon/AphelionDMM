@@ -666,6 +666,7 @@ func (client *SessionClient) Status() SessionStatus {
 
 func (client *SessionClient) StatusForConflictPage(page int) SessionStatus {
 	client.mutex.Lock()
+	client.expirePresenceLocked(client.config.Now())
 	machine := client.machine
 	status := SessionStatus{SessionID: client.sessionID, Role: client.role, Revision: client.revision, Err: client.lastErr}
 	status.InviteReady = client.transport != nil && client.role == "owner" && client.administrationToken != "" && (client.administrationExpiresAt.IsZero() || client.config.Now().Before(client.administrationExpiresAt))
@@ -678,7 +679,7 @@ func (client *SessionClient) StatusForConflictPage(page int) SessionStatus {
 	}
 	status.Participants = make([]protocol.ParticipantPresence, 0, len(client.participants))
 	for _, observed := range client.participants {
-		status.Participants = append(status.Participants, observed.Presence)
+		status.Participants = append(status.Participants, cloneParticipantPresence(observed.Presence))
 	}
 	network := client.network
 	client.mutex.Unlock()
@@ -696,6 +697,7 @@ func (client *SessionClient) StatusForConflictPage(page int) SessionStatus {
 func (client *SessionClient) ObservedPresence() []ObservedPresence {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
+	client.expirePresenceLocked(client.config.Now())
 	result := make([]ObservedPresence, 0, len(client.participants))
 	for _, observed := range client.participants {
 		copy := observed

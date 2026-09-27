@@ -13,7 +13,7 @@ import (
 
 const (
 	collaborationPresenceCap     = 64
-	collaborationPresenceTimeout = 30 * time.Second
+	collaborationPresenceTimeout = collabui.PresenceTimeout
 	collaborationPresenceWidth   = 2
 )
 
