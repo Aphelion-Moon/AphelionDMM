@@ -88,7 +88,6 @@ rollback on a clone, not a live rollback or an old-provider login.
 
 ## Remaining acceptance and operator inputs
 
-- Complete the new main CI run after the fixture repairs described below.
 - Complete Discord member/nonmember sign-in, logout/expiry and the two-user
   Community/Private/restart procedure, followed by human desktop acceptance.
 - Supply disposable authenticated users for the reference-hosted load/fault
@@ -140,3 +139,19 @@ Goroutines remained 2 at all three checkpoints; post-GC heap allocation went fro
 grew from 2 to 1,398 goroutines. This repairs the measurement fixture and adds
 bounded native evidence; it does not claim representative-map or full-editor
 endurance qualification.
+
+## Main CI result
+
+The follow-up at `73f676d258965fcb01ed36fabd44a8b463b352a7` passed all build
+and test steps in [main CI run 36324986237](https://github.com/Aphelion-Moon/AphelionDMM/actions/runs/36324986237):
+Windows, Linux and macOS native builds; lint; collaboration race and fuzz gates;
+and hosted PostgreSQL, authentication, vulnerability, container lifecycle and
+image scanning gates. This includes actual macOS Go/Rust execution and the Linux
+container login handoff. No CI or production authentication check was bypassed.
+
+The main checkout and origin were synchronized at that code revision. The
+subsequent evidence-only commit changes this document, not executable source.
+The reference service remains on the deployed `3221379b` revision; all three
+automatic Windows services and public readiness/Discord capabilities were
+rechecked successfully after source publication. Human and operator acceptance
+items above remain open.
