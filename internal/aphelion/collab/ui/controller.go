@@ -97,6 +97,7 @@ type Controller struct {
 	invitation Invitation
 	active     bool
 	inflight   bool
+	leaving    bool
 	generation uint64
 }
 
@@ -257,11 +258,19 @@ func (controller *Controller) leave(ctx context.Context, generation uint64, reva
 	}
 	service := controller.service
 	controller.active = false
+	controller.leaving = true
 	controller.service = nil
 	controller.invitation = Invitation{}
 	controller.generation++
 	controller.mutex.Unlock()
 
+	// The shared client still belongs to this teardown until all cleanup has
+	// returned. Otherwise a new Join can be closed by the preceding Leave.
+	defer func() {
+		controller.mutex.Lock()
+		controller.leaving = false
+		controller.mutex.Unlock()
+	}()
 	clientErr := controller.client.Leave(ctx)
 	var serviceErr error
 	if service != nil {
@@ -273,7 +282,7 @@ func (controller *Controller) leave(ctx context.Context, generation uint64, reva
 func (controller *Controller) Active() bool {
 	controller.mutex.Lock()
 	defer controller.mutex.Unlock()
-	return controller.active
+	return controller.active || controller.inflight || controller.leaving
 }
 
 func (controller *Controller) Invitation() Invitation {
@@ -287,7 +296,7 @@ func (controller *Controller) Invitation() Invitation {
 func (controller *Controller) reserve() (uint64, error) {
 	controller.mutex.Lock()
 	defer controller.mutex.Unlock()
-	if controller.active || controller.inflight {
+	if controller.active || controller.inflight || controller.leaving {
 		return 0, ErrSessionActive
 	}
 	controller.active = true

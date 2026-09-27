@@ -188,12 +188,73 @@ func TestControllerLeaveSupersedesInFlightCreate(t *testing.T) {
 	if err := controller.Leave(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	if !controller.Active() {
+		t.Fatal("canceled creation was advertised as idle before its worker finished")
+	}
 	close(release)
 	if err := <-createResult; !errors.Is(err, ErrSessionChanged) {
 		t.Fatalf("in-flight create result = %v, want session changed", err)
 	}
 	if controller.Active() || service.shutdownCalls != 1 {
 		t.Fatalf("active = %t, service shutdown calls = %d", controller.Active(), service.shutdownCalls)
+	}
+}
+
+func TestControllerReservesSessionUntilLeaveCompletes(t *testing.T) {
+	for _, stage := range []string{"client", "service"} {
+		for _, fails := range []bool{false, true} {
+			t.Run(stage+map[bool]string{false: "/success", true: "/failure"}[fails], func(t *testing.T) {
+				entered, release := make(chan struct{}), make(chan struct{})
+				defer close(release)
+				var cause error
+				if fails {
+					cause = errors.New("cleanup failed")
+				}
+				gate := func() error { close(entered); <-release; return cause }
+				service := &fakeEmbeddedService{endpoint: "http://127.0.0.1:1234", token: "launch-secret"}
+				client := &fakeCollaborationClient{}
+				if stage == "client" {
+					client.leaveHook = gate
+				} else {
+					service.shutdownHook = gate
+				}
+				controller := NewController(func(context.Context, model.Snapshot) (EmbeddedService, error) { return service, nil }, client)
+				if err := controller.CreateLocal(context.Background(), controllerSnapshot(t)); err != nil {
+					t.Fatal(err)
+				}
+				left := make(chan error, 1)
+				go func() { left <- controller.Leave(context.Background()) }()
+				select {
+				case <-entered:
+				case <-time.After(time.Second):
+					t.Fatal("leave did not reach cleanup")
+				}
+				invitation := Invitation{BaseURL: "http://127.0.0.1:1234", Origin: "http://127.0.0.1:1234", SessionID: "new-session", Token: "new-secret"}
+				if err := controller.Join(context.Background(), invitation); !errors.Is(err, ErrSessionActive) {
+					t.Fatalf("join entered unfinished %s cleanup: %v", stage, err)
+				}
+				if !controller.Active() {
+					t.Fatal("UI considered unfinished cleanup ready for another session")
+				}
+				release <- struct{}{}
+				if err := <-left; !errors.Is(err, cause) {
+					t.Fatalf("cleanup error = %v, want %v", err, cause)
+				}
+				if controller.Active() {
+					t.Fatal("completed cleanup retained its reservation")
+				}
+				client.leaveHook, service.shutdownHook = nil, nil
+				if err := controller.Join(context.Background(), invitation); err != nil {
+					t.Fatalf("could not join after cleanup: %v", err)
+				}
+				if client.joined.SessionID != "new-session" {
+					t.Fatal("new session was not installed")
+				}
+				if err := controller.Leave(context.Background()); err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
 	}
 }
 
@@ -210,6 +271,7 @@ type fakeEmbeddedService struct {
 	endpoint      string
 	token         string
 	shutdownCalls int
+	shutdownHook  func() error
 }
 
 func (service *fakeEmbeddedService) Endpoint() string { return service.endpoint }
@@ -222,6 +284,9 @@ func (service *fakeEmbeddedService) TakeLaunchToken() string {
 
 func (service *fakeEmbeddedService) Shutdown(context.Context) error {
 	service.shutdownCalls++
+	if service.shutdownHook != nil {
+		return service.shutdownHook()
+	}
 	return nil
 }
 
@@ -231,6 +296,7 @@ type fakeCollaborationClient struct {
 	joined      Invitation
 	leaveCalls  int
 	pending     bool
+	leaveHook   func() error
 }
 
 func (client *fakeCollaborationClient) CreateNamed(_ context.Context, baseURL, launchToken string, _ model.Snapshot, displayName string) (Invitation, error) {
@@ -251,6 +317,9 @@ func (client *fakeCollaborationClient) Join(_ context.Context, invitation Invita
 
 func (client *fakeCollaborationClient) Leave(context.Context) error {
 	client.leaveCalls++
+	if client.leaveHook != nil {
+		return client.leaveHook()
+	}
 	return nil
 }
 
