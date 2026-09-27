@@ -12,7 +12,7 @@ import (
 )
 
 func TestProjectionCaptureSurvivesExecutorTransitions(t *testing.T) {
-	for _, transition := range []string{"accept", "reject", "suspend"} {
+	for _, transition := range []string{"accept", "reject", "suspend", "send_failure"} {
 		t.Run(transition, func(t *testing.T) {
 			network, _, baseHash := acceptedNetworkFixture(t)
 			defer network.Suspend(errors.New("test cleanup"))
@@ -90,6 +90,8 @@ func TestProjectionCaptureSurvivesExecutorTransitions(t *testing.T) {
 				transitionErr = network.Receive(serverEnvelope(t, protocol.ServerOperationRejected, protocol.OperationRejectedPayload{OperationID: operation.OperationID, Code: "precondition_failed", Message: "conflict", Revision: base.Revision, MapHash: baseHash}))
 			case "suspend":
 				network.Suspend(errors.New("transport lost"))
+			case "send_failure":
+				network.failPending(operation.OperationID, errors.New("transport send failed"))
 			}
 			if err := <-readDone; err != nil {
 				t.Fatal(err)
@@ -113,5 +115,43 @@ func TestProjectionCaptureSurvivesExecutorTransitions(t *testing.T) {
 				t.Fatal("returned capture mutation reached acknowledged state")
 			}
 		})
+	}
+}
+
+func TestSnapshotReadDoesNotWaitForReconciliation(t *testing.T) {
+	network, _, _ := acceptedNetworkFixture(t)
+	capture, err := network.CaptureProjection(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := capture.AcceptedSnapshot()
+	type result struct {
+		snapshot model.Snapshot
+		err      error
+	}
+	done := make(chan result, 1)
+	// A verified publication remains readable while the owner prepares the
+	// next transition. Copying an export must not wait on that preparation.
+	network.mutex.Lock()
+	go func() {
+		snapshot, err := network.Snapshot(context.Background())
+		done <- result{snapshot, err}
+	}()
+	var got result
+	select {
+	case got = <-done:
+		network.mutex.Unlock()
+	case <-time.After(time.Second):
+		network.mutex.Unlock()
+		<-done
+		t.Fatal("snapshot read waited for reconciliation instead of using verified publication")
+	}
+	if got.err != nil || !reflect.DeepEqual(got.snapshot, want) {
+		t.Fatalf("snapshot differs from verified publication: %v", got.err)
+	}
+	got.snapshot.Tiles[0].State.Prefabs[0].Path = "/obj/caller_mutation"
+	got.snapshot.Tiles[0].State.Prefabs[0].Vars["caller"] = "mutation"
+	if !reflect.DeepEqual(capture.AcceptedSnapshot(), want) {
+		t.Fatal("snapshot output aliases captured authority")
 	}
 }

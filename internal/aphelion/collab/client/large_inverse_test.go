@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -115,6 +116,20 @@ func BenchmarkWholeLevelNetworkInverse(b *testing.B) {
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
 		if _, err := network.BuildInverse(context.Background(), id); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLargeMapSuspension(b *testing.B) {
+	network, _ := wholeLevelNetwork(b)
+	transport := network.transport
+	cause := errors.New("benchmark disconnect")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		network.Suspend(cause)
+		if err := network.Resume(transport); err != nil {
 			b.Fatal(err)
 		}
 	}

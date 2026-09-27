@@ -362,12 +362,13 @@ func (network *NetworkExecutor) BuildInverse(ctx context.Context, targetID model
 }
 
 func (network *NetworkExecutor) Snapshot(ctx context.Context) (model.Snapshot, error) {
-	if err := ctx.Err(); err != nil {
+	capture, err := network.CaptureProjection(ctx)
+	if err != nil {
 		return model.Snapshot{}, err
 	}
-	network.mutex.Lock()
-	defer network.mutex.Unlock()
-	return model.CloneSnapshot(network.projection.Acknowledged), nil
+	// Pin a coherent verified revision, then copy outside reconciliation. Public
+	// callers still own detached data even while the executor advances.
+	return capture.AcceptedSnapshot(), nil
 }
 
 // CaptureProjection pins the current acknowledged and speculative views with
@@ -449,7 +450,8 @@ func (network *NetworkExecutor) clearPendingLocked(cause error) {
 		waiters = append(waiters, waiter)
 	}
 	previous := network.projection
-	network.projection = Projection{Acknowledged: model.CloneSnapshot(previous.Acknowledged), acknowledgedHash: previous.acknowledgedHash}
+	// Dropping speculation does not change immutable executor-owned authority.
+	network.projection = Projection{Acknowledged: previous.Acknowledged, acknowledgedHash: previous.acknowledgedHash}
 	network.beginPublicationLocked(previous, network.projection, nil, nil, false)
 	for _, waiter := range waiters {
 		waiter <- operationResult{err: cause}
@@ -774,7 +776,7 @@ func (network *NetworkExecutor) failPending(operationID model.OperationID, cause
 			waiter <- operationResult{err: cause}
 			return
 		}
-		network.projection = Projection{Acknowledged: model.CloneSnapshot(previous.Acknowledged), Pending: rebased, acknowledgedHash: previous.acknowledgedHash}
+		network.projection = Projection{Acknowledged: previous.Acknowledged, Pending: rebased, acknowledgedHash: previous.acknowledgedHash}
 		network.beginPublicationLocked(previous, network.projection, nil, nil, false)
 		waiter <- operationResult{err: cause}
 	}
