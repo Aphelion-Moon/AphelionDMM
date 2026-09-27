@@ -1014,12 +1014,17 @@ func (client *SessionClient) startReconnect(machine *collabclient.StateMachine, 
 }
 
 func (client *SessionClient) runReconnect(ctx context.Context, machine *collabclient.StateMachine, network *collabclient.NetworkExecutor) {
-	err := client.config.Reconnect.Reconnect(ctx, client.Status().Revision, func(attemptContext context.Context, _ model.Revision) error {
-		current, snapshotErr := network.Snapshot(attemptContext)
-		if snapshotErr != nil {
-			return snapshotErr
+	client.mutex.Lock()
+	revision := client.revision
+	client.mutex.Unlock()
+	err := client.config.Reconnect.Reconnect(ctx, revision, func(attemptContext context.Context, _ model.Revision) error {
+		// A fallback may advance authority between attempts. Pin its revision
+		// again without materializing every tile or building panel previews.
+		current, captureErr := network.CaptureProjection(attemptContext)
+		if captureErr != nil {
+			return captureErr
 		}
-		return client.reconnectAttempt(attemptContext, machine, network, current.Revision)
+		return client.reconnectAttempt(attemptContext, machine, network, current.BaseRevision())
 	})
 	client.mutex.Lock()
 	if client.machine == machine && machine.State() != collabclient.StateClosed {
