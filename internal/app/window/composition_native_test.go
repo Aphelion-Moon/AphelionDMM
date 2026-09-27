@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -119,6 +120,12 @@ func TestNativeInspectorAcceptedSourceConflictUndoAndSave(t *testing.T) {
 			outcome := func(reject bool) {
 				if !shared {
 					return
+				}
+				// Network inverse preparation now returns through the UI owner.
+				deadline := time.Now().Add(3 * time.Second)
+				for len(transport.sent) == 0 && time.Now().Before(deadline) {
+					frame()
+					runtime.Gosched()
 				}
 				operation := transport.next(t)
 				kind := protocol.ServerOperationAccepted

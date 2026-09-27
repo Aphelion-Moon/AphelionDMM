@@ -169,6 +169,10 @@ func (e *Editor) ProcessCollaborationUpdates() {
 	if e.localWork != nil || e.selectionMove != nil || e.selectionMovePreviewResolving() || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
 		return
 	}
+	if execution, ok := e.executor.(presentationExecutor); ok {
+		e.processPresentationUpdate(execution)
+		return
+	}
 	execution, ok := e.executor.(projectionExecutor)
 	if !ok {
 		return
@@ -328,19 +332,31 @@ func (e *Editor) commitOperation(commitMessage string) {
 		e.commitLocal(local, commitMessage, changes, selectionOutcome, repeatAccepted)
 		return
 	}
-	base, err := execution.Snapshot(context.Background())
+	operation, err := e.operationForChanges(execution, changes)
 	if err != nil {
 		selectionApplied(selectionOutcome, false)
-		e.rejectSpeculation(execution, fmt.Errorf("read authoritative snapshot: %w", err))
+		// Keep captured intent available for retry or explicit recovery.
+		e.reportCollaborationError("Unable to prepare map change", err)
 		return
+	}
+	if _, incremental := execution.(presentationExecutor); incremental {
+		// The gesture is already in the UI-owned model. Publish its derived
+		// display through the same installer now, without waiting for queued
+		// canonical verification or a server round trip. Rejection deltas restore
+		// the effective network view without taking ownership of a newer gesture.
+		display := make([]model.Tile, len(changes))
+		for i, change := range changes {
+			display[i] = model.Tile{Coord: change.Coord, State: change.After}
+		}
+		if err := e.installPresentationUpdate(&client.PresentationUpdate{DocumentID: e.documentID, EnvironmentHash: e.authoritative.EnvironmentHash, Revision: e.authoritative.Revision, Display: display}); err != nil {
+			e.collaborationErr = err
+			selectionApplied(selectionOutcome, false)
+			e.reportCollaborationError("Unable to display pending map change", err)
+			return
+		}
+		e.presentationStats.Publications++
 	}
 	e.pendingChanges = make(map[model.Coord]model.TileState)
-	operation, err := e.forwardOperation(base, changes)
-	if err != nil {
-		selectionApplied(selectionOutcome, false)
-		e.rejectSpeculation(execution, err)
-		return
-	}
 	acceptedChanges := model.CloneOperation(operation).Changes
 	activeLevel := e.pMap.ActiveLevel()
 	e.submitOperation(execution, operation, func(accepted model.AcceptedOperation) {
@@ -399,34 +415,33 @@ func (e *Editor) pushAcceptedCommand(execution executor.Executor, commitMessage 
 			complete(fmt.Errorf("editor attachment changed"))
 			return
 		}
-		inverse, inverseErr := execution.BuildInverse(context.Background(), forwardID)
-		if inverseErr != nil {
-			e.reportCollaborationError("Unable to undo map change", inverseErr)
-			complete(inverseErr)
-			return
-		}
-		e.executeHistoryOperation(execution, inverse, func(_ model.AcceptedOperation, executeErr error) {
-			if executeErr != nil {
-				e.reportCollaborationError("Unable to undo map change", executeErr)
-				complete(executeErr)
+		e.prepareHistoryInverse(execution, forwardID, generation, func(inverse model.Operation, inverseErr error) {
+			if generation != e.historyGeneration {
+				complete(fmt.Errorf("editor attachment changed"))
 				return
 			}
-			e.syncFromExecutor(execution, true, activeLevel, coords)
-			selectionApplied(selectionOutcome, false)
-			complete(nil)
+			if inverseErr != nil {
+				e.reportCollaborationError("Unable to undo map change", inverseErr)
+				complete(inverseErr)
+				return
+			}
+			e.executeHistoryOperation(execution, inverse, func(_ model.AcceptedOperation, executeErr error) {
+				if executeErr != nil {
+					e.reportCollaborationError("Unable to undo map change", executeErr)
+					complete(executeErr)
+					return
+				}
+				e.syncFromExecutor(execution, true, activeLevel, coords)
+				selectionApplied(selectionOutcome, false)
+				complete(nil)
+			})
 		})
 	}, func(complete func(error)) {
 		if generation != e.historyGeneration {
 			complete(fmt.Errorf("editor attachment changed"))
 			return
 		}
-		current, redoErr := execution.Snapshot(context.Background())
-		if redoErr != nil {
-			e.reportCollaborationError("Unable to redo map change", redoErr)
-			complete(redoErr)
-			return
-		}
-		redo, redoErr := e.forwardOperation(current, acceptedChanges)
+		redo, redoErr := e.operationForChanges(execution, acceptedChanges)
 		if redoErr != nil {
 			e.reportCollaborationError("Unable to redo map change", redoErr)
 			complete(redoErr)
@@ -506,6 +521,12 @@ func (e *Editor) rejectSpeculation(execution executor.Executor, cause error) {
 }
 
 func (e *Editor) syncFromExecutor(execution executor.Executor, apply bool, activeLevel int, coords []model.Coord) {
+	if _, ok := execution.(presentationExecutor); ok {
+		// Outcomes settle history/status; the one publication owner installs
+		// accumulated authority and effective display changes, including rollback.
+		e.ProcessCollaborationUpdates()
+		return
+	}
 	snapshot, err := execution.Snapshot(context.Background())
 	if err != nil {
 		e.reportCollaborationError("Unable to synchronize map", err)
@@ -559,6 +580,8 @@ func (e *Editor) setAuthoritative(snapshot model.Snapshot) {
 }
 
 func (e *Editor) resetAttachment() {
+	e.presentationUpdate = nil
+	e.presentationSequence = 0
 	e.CancelSelectionMovePreview()
 	e.PreviewHeldPrefab(nil, util.Point{}, false)
 	if e.localWork != nil {

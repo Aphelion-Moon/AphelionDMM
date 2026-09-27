@@ -88,7 +88,21 @@ func (v *VarEditor) Sync() {
 		return
 	}
 	e := v.app.CurrentEditor()
-	if e == nil || (v.instance != nil && !e.Dmm().IsInstanceExist(v.instance.Id())) {
+	// APHELION EDIT ADDITION START - INCREMENTAL COLLABORATION
+	present := v.instance == nil
+	if e != nil && v.instance != nil && e.Dmm().HasTile(v.instance.Coord()) {
+		// Instances stay on their tile; a moved/replaced instance is reselected
+		// by its new owner. Do not scan the whole map after every small edit.
+		for _, instance := range e.Dmm().GetTile(v.instance.Coord()).Instances() {
+			if instance == v.instance {
+				present = true
+				break
+			}
+		}
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - INCREMENTAL COLLABORATION - ORIGINAL: if e == nil || (v.instance != nil && !e.Dmm().IsInstanceExist(v.instance.Id())) {
+	if e == nil || !present {
 		v.instance = nil
 		v.sessionEditMode = emPrefab
 	}

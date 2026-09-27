@@ -445,6 +445,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 					t.Fatal("released drag rejection lost its conflict or error")
 				}
 				app.commands.UndoV(path)
+				settle(func() bool { return len(transport.sent) != 0 })
 				outcome(transport.next(t), false)
 				frame(false, 2, 2)
 				e.ProcessCollaborationUpdates()
@@ -465,6 +466,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 				bounds util.Bounds
 			}{{rotatedHash, rotated}, {hash(initial), origin}} {
 				app.commands.UndoV(path)
+				settle(func() bool { return len(transport.sent) != 0 })
 				outcome(transport.next(t), false)
 				frame(false, 2, 2)
 				e.ProcessCollaborationUpdates()

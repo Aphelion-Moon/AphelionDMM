@@ -266,7 +266,12 @@ func (a *app) CollaborationViewModel() collabui.ViewModel {
 	if a.collaborationClient == nil {
 		return collabui.BuildViewModel(collabui.SessionStatus{})
 	}
-	return collabui.BuildViewModel(a.collaborationClient.Status())
+	status := a.collaborationClient.Status()
+	view := collabui.BuildViewModel(status)
+	if status.State == collabclient.StateCaughtUp && a.collaborationEditor != nil && a.collaborationEditor.CollaborationSynchronizing() {
+		view.SyncLabel = "Synchronizing"
+	}
+	return view
 }
 
 func (a *app) CollaborationPresence() []collabui.ObservedPresence {

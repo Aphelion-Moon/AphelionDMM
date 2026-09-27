@@ -321,9 +321,8 @@ joinAttempts:
 					return
 				}
 				payload := decoded.Payload.(*protocol.ReplayCompletePayload)
-				current, snapshotErr := network.Snapshot(context.Background())
-				currentHash, hashErr := current.Hash()
-				if snapshotErr != nil || hashErr != nil || current.Revision != payload.Revision || currentHash != payload.MapHash {
+				current, currentHash, snapshotErr := verifiedNetworkBase(network)
+				if snapshotErr != nil || current != payload.Revision || currentHash != payload.MapHash {
 					nonBlockingError(errorsFound, fmt.Errorf("replay completion does not match client revision"))
 					return
 				}
@@ -845,14 +844,25 @@ func (client *SessionClient) recordSynchronized(machine *collabclient.StateMachi
 	client.mutex.Unlock()
 }
 
+// These values come from the client's locally verified immutable authority.
+// Replaying or recording an acknowledgement does not need another map copy/hash.
+func verifiedNetworkBase(network *collabclient.NetworkExecutor) (model.Revision, string, error) {
+	capture, err := network.CaptureProjection(context.Background())
+	if err != nil {
+		return 0, "", err
+	}
+	_, revision, _, hash, err := capture.OperationBase()
+	return revision, hash, err
+}
+
 func (client *SessionClient) recordOperation(machine *collabclient.StateMachine, network *collabclient.NetworkExecutor, messageType protocol.ServerType) {
-	snapshot, err := network.Snapshot(context.Background())
+	revision, _, err := verifiedNetworkBase(network)
 	client.mutex.Lock()
 	if client.machine == machine {
 		if err != nil {
 			client.lastErr = err
 		} else {
-			client.revision = snapshot.Revision
+			client.revision = revision
 		}
 	}
 	client.mutex.Unlock()
@@ -1019,9 +1029,8 @@ func (client *SessionClient) reconnectAttempt(ctx context.Context, machine *coll
 			client.recordOperation(machine, network, decoded.Envelope.Type)
 		case protocol.ServerReplayComplete:
 			payload := decoded.Payload.(*protocol.ReplayCompletePayload)
-			current, snapshotErr := network.Snapshot(context.Background())
-			currentHash, hashErr := current.Hash()
-			if snapshotErr != nil || hashErr != nil || current.Revision != payload.Revision || currentHash != payload.MapHash {
+			current, currentHash, snapshotErr := verifiedNetworkBase(network)
+			if snapshotErr != nil || current != payload.Revision || currentHash != payload.MapHash {
 				nonBlockingError(errorsFound, fmt.Errorf("replay completion does not match client revision"))
 				return
 			}

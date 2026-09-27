@@ -16,6 +16,7 @@ import (
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/collab/server"
 	collabui "sdmm/internal/aphelion/collab/ui"
 	"sdmm/internal/aphelion/diagnostics/uistage"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
@@ -39,10 +40,22 @@ func (*mouseNetworkApp) CollaborationPresence() []collabui.ObservedPresence { re
 // This measures a hidden native frame and explicit GPU completion, not
 // physical visibility, OS input latency or a representative mapping workload.
 func TestQueuedNativeUIStageTrace(t *testing.T) {
-	runQueuedNativeUIStageTrace(t, "", "")
+	runQueuedNativeUIStageTrace(t, "", "", false)
+}
+
+func TestQueuedNativeCollaborationStageTrace(t *testing.T) {
+	runQueuedNativeUIStageTrace(t, "", "", true)
 }
 
 func TestRepresentativeNativeUIStageTrace(t *testing.T) {
+	runRepresentativeNativeUIStageTrace(t, false)
+}
+
+func TestRepresentativeNativeCollaborationStageTrace(t *testing.T) {
+	runRepresentativeNativeUIStageTrace(t, true)
+}
+
+func runRepresentativeNativeUIStageTrace(t *testing.T, hosted bool) {
 	mapPath, dmePath := os.Getenv("APHELION_AUDIT_MAP"), os.Getenv("APHELION_AUDIT_DME")
 	if mapPath == "" && dmePath == "" {
 		t.Skip("set APHELION_AUDIT_MAP and APHELION_AUDIT_DME for representative native frames")
@@ -64,15 +77,38 @@ func TestRepresentativeNativeUIStageTrace(t *testing.T) {
 			}
 		})
 	}
-	runQueuedNativeUIStageTrace(t, mapPath, dmePath)
+	runQueuedNativeUIStageTrace(t, mapPath, dmePath, hosted)
 }
 
-func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
+func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string, hosted bool) {
 	t.Helper()
 	started := time.Now()
 	ws, app := newNativeMapWorkspace(t, mapPath, dmePath)
 	t.Logf("workspace_setup_ms=%.3f", float64(time.Since(started).Microseconds())/1000)
 	e := ws.Map().Editor()
+	if hosted {
+		initial, err := e.CollaborationSnapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		embedded, err := server.StartEmbedded(context.Background(), initial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = embedded.Shutdown(context.Background()) })
+		session := collabui.NewSessionClient(collabui.SessionClientConfig{})
+		t.Cleanup(func() { _ = session.Leave(context.Background()) })
+		invitation, err := session.Create(context.Background(), embedded.Endpoint(), embedded.TakeLaunchToken(), initial)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := session.Join(context.Background(), invitation); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.AttachCollaborationExecutor(session.NetworkExecutor()); err != nil {
+			t.Fatal(err)
+		}
+	}
 	path := e.Dmm().Path.Absolute
 	input, err := os.ReadFile(path)
 	if err != nil {
@@ -289,6 +325,13 @@ func runQueuedNativeUIStageTrace(t *testing.T, mapPath, dmePath string) {
 	}
 	metrics("frame_cpu_and_present", frameTimes)
 	t.Logf("retained_cache_after=%+v", ws.Map().Canvas().Render().RetainedCacheStats())
+	if hosted {
+		stats := e.CollaborationPublicationStats()
+		t.Logf("hosted_publication=%+v", stats)
+		if stats.FullReplacements != 0 {
+			t.Fatal("ordinary hosted edits used full replacement")
+		}
+	}
 	metrics("action_to_gpu_complete", operationTimes)
 	if output := os.Getenv("APHELION_UI_TRACE_OUTPUT"); output != "" {
 		file, err := os.OpenFile(output, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
