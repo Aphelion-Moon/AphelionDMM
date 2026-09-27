@@ -210,7 +210,7 @@ func TestControllerLeaveCancelsSetup(t *testing.T) {
 			block := func(ctx context.Context) error {
 				entered <- ctx
 				<-ctx.Done()
-				return context.Cause(ctx)
+				return ctx.Err()
 			}
 			client := &cancelSetupClient{block: block}
 			controller := NewController(func(ctx context.Context, _ model.Snapshot) (EmbeddedService, error) {

@@ -128,12 +128,12 @@ func (controller *Controller) createLocal(ctx context.Context, snapshot model.Sn
 	service, err := controller.start(ctx, snapshot)
 	if err != nil {
 		controller.releaseReservation(reservation)
-		return err
+		return setupError(ctx, err)
 	}
 	if err := context.Cause(ctx); err != nil {
 		_ = service.Shutdown(context.Background())
 		controller.releaseReservation(reservation)
-		return err
+		return setupError(ctx, err)
 	}
 	launchToken := service.TakeLaunchToken()
 	if launchToken == "" {
@@ -150,22 +150,22 @@ func (controller *Controller) createLocal(ctx context.Context, snapshot model.Sn
 	if err != nil {
 		_ = service.Shutdown(context.Background())
 		controller.releaseReservation(reservation)
-		return err
+		return setupError(ctx, err)
 	}
 	if err := context.Cause(ctx); err != nil {
 		_ = service.Shutdown(context.Background())
 		controller.releaseReservation(reservation)
-		return err
+		return setupError(ctx, err)
 	}
 	if err := invitation.validate(); err != nil {
 		_ = service.Shutdown(context.Background())
 		controller.releaseReservation(reservation)
-		return err
+		return setupError(ctx, err)
 	}
 	if err := controller.client.Join(ctx, invitation); err != nil {
 		_ = service.Shutdown(context.Background())
 		controller.releaseReservation(reservation)
-		return err
+		return setupError(ctx, err)
 	}
 	if !controller.activate(reservation, invitation, service) {
 		_ = controller.client.Leave(context.Background())
@@ -188,7 +188,7 @@ func (controller *Controller) Join(ctx context.Context, invitation Invitation) e
 	}
 	if err := controller.client.Join(ctx, invitation); err != nil {
 		controller.releaseReservation(reservation)
-		return err
+		return setupError(ctx, err)
 	}
 	if !controller.activate(reservation, invitation, nil) {
 		_ = controller.client.Leave(context.Background())
@@ -217,7 +217,7 @@ func (controller *Controller) JoinHosted(ctx context.Context, target HostedConne
 	}
 	if err = client.JoinHosted(ctx, target); err != nil {
 		controller.releaseReservation(reservation)
-		return err
+		return setupError(ctx, err)
 	}
 	if !controller.activate(reservation, Invitation{BaseURL: target.BaseURL, Origin: target.BaseURL, SessionID: target.SessionID, Hosted: true}, nil) {
 		_ = controller.client.Leave(context.Background())
@@ -351,4 +351,13 @@ func (controller *Controller) activate(reservation uint64, invitation Invitation
 	controller.inflight = false
 	controller.setupCancel = nil
 	return true
+}
+
+// Context-aware libraries commonly return ctx.Err(), losing the reason Leave
+// superseded a setup attempt. Preserve that cause at the controller boundary.
+func setupError(ctx context.Context, err error) error {
+	if cause := context.Cause(ctx); cause != nil {
+		return cause
+	}
+	return err
 }
