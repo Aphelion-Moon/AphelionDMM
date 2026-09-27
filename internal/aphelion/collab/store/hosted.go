@@ -73,6 +73,18 @@ type HostedSession struct {
 	OwnerDisplayName string
 }
 
+// Notification summaries expose bounded Community metadata and Private totals.
+type HostedNotificationSummary struct {
+	Community          []HostedSession
+	CommunityCount     int
+	PrivateCount       int
+	ActivePrivateCount int
+}
+
+type HostedNotificationStore interface {
+	HostedNotificationSummary(context.Context, []string) (HostedNotificationSummary, error)
+}
+
 type HostedIdentity struct {
 	Issuer      string
 	Subject     string

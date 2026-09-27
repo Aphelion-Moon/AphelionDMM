@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +25,13 @@ type HostedDiscordNotifications struct {
 // RunDiscordNotifications is a best-effort observer. Discord failures never gate
 // session creation, admission or durable edits. The caller owns its context.
 func (service *Service) RunDiscordNotifications(ctx context.Context, config HostedDiscordNotifications, token string, reportError func(error)) {
+	registry, supported := service.config.HostedRegistry.(collabstore.HostedNotificationStore)
+	if !supported {
+		if reportError != nil {
+			reportError(fmt.Errorf("session registry does not support bounded notification summaries"))
+		}
+		return
+	}
 	reporter := discordSessionReporter{
 		client:  &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		baseURL: "https://discord.com/api/v10", guildID: config.GuildID, channelID: config.ChannelID, token: token,
@@ -33,9 +39,14 @@ func (service *Service) RunDiscordNotifications(ctx context.Context, config Host
 	for ctx.Err() == nil {
 		delay := discordStatusInterval
 		pollContext, cancel := context.WithTimeout(ctx, 15*time.Second)
-		sessions, err := service.config.HostedRegistry.ListHostedSessions(pollContext)
+		counts := service.hostedActivity()
+		activeIDs := make([]string, 0, len(counts))
+		for id := range counts {
+			activeIDs = append(activeIDs, id)
+		}
+		summary, err := registry.HostedNotificationSummary(pollContext, activeIDs)
 		if err == nil {
-			delay, err = reporter.publish(pollContext, discordSessionStatus(sessions, service.hostedActivity()))
+			delay, err = reporter.publish(pollContext, discordSessionStatus(summary, counts))
 		} else {
 			err = fmt.Errorf("discord session status could not read the session registry")
 		}
@@ -53,27 +64,16 @@ func (service *Service) RunDiscordNotifications(ctx context.Context, config Host
 	}
 }
 
-func discordSessionStatus(sessions []collabstore.HostedSession, counts map[string]int) string {
-	community := make([]collabstore.HostedSession, 0)
-	private, privateActive := 0, 0
-	for _, session := range sessions {
-		if session.Visibility == collabstore.HostedVisibilityCommunity {
-			community = append(community, session)
-		} else {
-			private++
-			if counts[session.SessionID] > 0 {
-				privateActive++
-			}
-		}
-	}
-	sort.Slice(community, func(i, j int) bool { return community[i].SessionID < community[j].SessionID })
+func discordSessionStatus(summary collabstore.HostedNotificationSummary, counts map[string]int) string {
 	var text strings.Builder
-	fmt.Fprintf(&text, "AphelionDMM hosted sessions\nCommunity sessions: %d\n", len(community))
+	fmt.Fprintf(&text, "AphelionDMM hosted sessions\nCommunity sessions: %d\n", summary.CommunityCount)
 	escape := strings.NewReplacer("\\", "\\\\", "`", "\\`", "*", "\\*", "_", "\\_", "~", "\\~", "[", "\\[", "]", "\\]", "<", "\\<", ">", "\\>", "\n", " ", "\r", " ")
-	for i, session := range community {
+	for i, session := range summary.Community {
 		if i == 10 {
-			fmt.Fprintf(&text, "…and %d more.\n", len(community)-i)
 			break
+		}
+		if session.Visibility != collabstore.HostedVisibilityCommunity {
+			continue
 		}
 		title := strings.TrimSpace(session.Title)
 		if title == "" {
@@ -89,7 +89,10 @@ func discordSessionStatus(sessions []collabstore.HostedSession, counts map[strin
 		}
 		fmt.Fprintf(&text, "• %s — %d participants (%s)\n", escape.Replace(title), counts[session.SessionID], state)
 	}
-	fmt.Fprintf(&text, "Private sessions: %d (%d active). Private titles and map details are omitted.\nOpen Collaboration → Browse Sessions in AphelionDMM.", private, privateActive)
+	if summary.CommunityCount > 10 {
+		fmt.Fprintf(&text, "…and %d more.\n", summary.CommunityCount-10)
+	}
+	fmt.Fprintf(&text, "Private sessions: %d (%d active). Private titles and map details are omitted.\nOpen Collaboration → Browse Sessions in AphelionDMM.", summary.PrivateCount, summary.ActivePrivateCount)
 	return text.String()
 }
 
@@ -107,10 +110,11 @@ func (reporter *discordSessionReporter) publish(ctx context.Context, content str
 			return delay, err
 		}
 		var channel struct {
+			ID      string `json:"id"`
 			GuildID string `json:"guild_id"`
-			Type    int    `json:"type"`
+			Type    *int   `json:"type"`
 		}
-		if json.Unmarshal(body, &channel) != nil || channel.GuildID != reporter.guildID || (channel.Type != 0 && channel.Type != 5) {
+		if json.Unmarshal(body, &channel) != nil || channel.ID != reporter.channelID || channel.GuildID != reporter.guildID || channel.Type == nil || (*channel.Type != 0 && *channel.Type != 5) {
 			return 5 * time.Minute, fmt.Errorf("discord notification channel must be a text channel in the configured guild")
 		}
 		reporter.channelVerified = true
