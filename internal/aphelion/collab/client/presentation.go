@@ -1,7 +1,6 @@
 package client
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -516,10 +515,7 @@ func (network *NetworkExecutor) refuseAdmitted(operation model.Operation, cause 
 }
 
 func (network *NetworkExecutor) reserveAdmission(operation model.Operation) (uint64, uint64, error) {
-	bytes, err := operationAdmissionBytes(operation)
-	if err != nil {
-		return 0, 0, err
-	}
+	bytes := operationAdmissionBytes(operation)
 	network.publication.mu.Lock()
 	defer network.publication.mu.Unlock()
 	if network.publication.admissionErr != nil {
@@ -542,16 +538,6 @@ func (network *NetworkExecutor) reserveAdmission(operation model.Operation) (uin
 	// prior immutable view until the ordered owner installs this operation.
 	network.publishAdmissionMetadataLocked()
 	return ticket, bytes, nil
-}
-
-func operationAdmissionBytes(operation model.Operation) (uint64, error) {
-	// The operation is encoded exactly once for admission accounting. Transport
-	// encoding may still perform its own immutable wire encoding later.
-	data, err := jsonMarshalOperation(operation)
-	if err != nil {
-		return 0, err
-	}
-	return uint64(len(data)), nil
 }
 
 func (network *NetworkExecutor) waitDispatchTurn(ticket uint64) {
@@ -608,8 +594,4 @@ func (network *NetworkExecutor) releasePendingAdmission(operationID model.Operat
 		}
 	}
 	network.publication.mu.Unlock()
-}
-
-func jsonMarshalOperation(operation model.Operation) ([]byte, error) {
-	return json.Marshal(operation)
 }
