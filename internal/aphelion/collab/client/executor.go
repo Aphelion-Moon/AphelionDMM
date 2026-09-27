@@ -378,38 +378,50 @@ func (network *NetworkExecutor) BuildInverse(ctx context.Context, targetID model
 		return model.Operation{}, err
 	}
 	network.mutex.Lock()
-	defer network.mutex.Unlock()
 	target, exists := network.accepted[targetID]
 	if !exists {
+		network.mutex.Unlock()
 		return model.Operation{}, fmt.Errorf("accepted operation %q is not retained", targetID)
 	}
 	if target.ActorID != network.actor {
+		network.mutex.Unlock()
 		return model.Operation{}, fmt.Errorf("accepted operation belongs to actor %q", target.ActorID)
 	}
 	if target.Kind == model.OperationKindInverse {
+		network.mutex.Unlock()
 		return model.Operation{}, fmt.Errorf("inverse operations are redone as new forward operations")
 	}
 	operationID, err := model.NewOperationID()
 	if err != nil {
+		network.mutex.Unlock()
 		return model.Operation{}, err
 	}
 	baseHash, err := network.projection.verifiedMapHash()
 	if err != nil {
+		network.mutex.Unlock()
 		return model.Operation{}, err
 	}
+	// Pin the current footprint and base together. Retained history and indexed
+	// tile values are immutable, so expensive value checks/copies can run while
+	// reconciliation advances. Submission still validates every precondition.
 	changes := make([]model.TileChange, len(target.Changes))
+	for index, targetChange := range target.Changes {
+		changes[index] = model.TileChange{Coord: targetChange.Coord, Before: network.authorityTiles[targetChange.Coord]}
+	}
+	inverseOf := targetID
+	inverse := model.Operation{ProtocolVersion: model.ProtocolVersion, DocumentID: network.projection.Acknowledged.DocumentID, ActorID: network.actor, OperationID: operationID, BaseRevision: network.projection.Acknowledged.Revision, EnvironmentHash: network.projection.Acknowledged.EnvironmentHash, BaseMapHash: baseHash, Kind: model.OperationKindInverse, Changes: changes, InverseOf: &inverseOf}
+	network.mutex.Unlock()
 	for index, targetChange := range target.Changes {
 		if err := ctx.Err(); err != nil {
 			return model.Operation{}, err
 		}
-		current := network.authorityTiles[targetChange.Coord]
+		current := changes[index].Before
 		if !current.Equal(targetChange.After) {
 			return model.Operation{}, fmt.Errorf("tile (%d,%d,%d) was changed by a later edit; undo would overwrite newer work. Undo the conflicting edit first, then retry. Your undo history is preserved", targetChange.Coord.X, targetChange.Coord.Y, targetChange.Coord.Z)
 		}
 		changes[index] = model.TileChange{Coord: targetChange.Coord, Before: model.CloneTileState(targetChange.After), After: model.CloneTileState(targetChange.Before)}
 	}
-	inverseOf := targetID
-	return model.Operation{ProtocolVersion: model.ProtocolVersion, DocumentID: network.projection.Acknowledged.DocumentID, ActorID: network.actor, OperationID: operationID, BaseRevision: network.projection.Acknowledged.Revision, EnvironmentHash: network.projection.Acknowledged.EnvironmentHash, BaseMapHash: baseHash, Kind: model.OperationKindInverse, Changes: changes, InverseOf: &inverseOf}, nil
+	return inverse, nil
 }
 
 func (network *NetworkExecutor) Snapshot(ctx context.Context) (model.Snapshot, error) {
