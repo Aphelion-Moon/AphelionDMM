@@ -5,8 +5,11 @@ package container_test
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -203,12 +206,43 @@ func startOIDCFixture(t *testing.T, clientSecret string) (int, []byte, *testoidc
 
 func authenticate(t *testing.T, client *http.Client, baseURL string, oidcPort int, caPEM []byte) string {
 	t.Helper()
-	begin := request(t, client, http.MethodPost, baseURL+"/v1/auth/begin", "", nil, http.StatusOK)
+	verifierBytes := make([]byte, 32)
+	if _, err := rand.Read(verifierBytes); err != nil {
+		t.Fatal(err)
+	}
+	verifier := base64.RawURLEncoding.EncodeToString(verifierBytes)
+	challenge := sha256.Sum256([]byte(verifier))
+	beginJSON, err := json.Marshal(map[string]string{"verifier_challenge": base64.RawURLEncoding.EncodeToString(challenge[:])})
+	if err != nil {
+		t.Fatal(err)
+	}
+	begin := request(t, client, http.MethodPost, baseURL+"/v1/auth/desktop/begin", "", beginJSON, http.StatusOK)
 	var beginBody struct {
 		AuthorizationURL string `json:"authorization_url"`
+		HandoffID        string `json:"handoff_id"`
 	}
 	decodeJSON(t, begin, &beginBody)
-	authorizeURL, err := url.Parse(beginBody.AuthorizationURL)
+	if beginBody.HandoffID == "" {
+		t.Fatal("desktop handoff ID is empty")
+	}
+	origin, err := url.Parse(baseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browserURL, err := url.Parse(beginBody.AuthorizationURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	browserURL.Scheme, browserURL.Host = origin.Scheme, origin.Host
+	browserClient := *client
+	browserClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	browser := request(t, &browserClient, http.MethodGet, browserURL.String(), "", nil, http.StatusFound)
+	_ = browser.Body.Close()
+	cookies := browser.Cookies()
+	if len(cookies) != 1 || !cookies[0].Secure || !cookies[0].HttpOnly || cookies[0].SameSite != http.SameSiteLaxMode {
+		t.Fatal("browser start did not set a protected binding cookie")
+	}
+	authorizeURL, err := url.Parse(browser.Header.Get("Location"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,11 +268,32 @@ func authenticate(t *testing.T, client *http.Client, baseURL string, oidcPort in
 	if err != nil {
 		t.Fatal(err)
 	}
-	complete := request(t, client, http.MethodGet, baseURL+"/v1/auth/complete?"+callback.RawQuery, "", nil, http.StatusOK)
+	callback.Scheme, callback.Host = origin.Scheme, origin.Host
+	callbackRequest, err := http.NewRequest(http.MethodGet, callback.String(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture maps the public HTTPS origin to loopback HTTP. Carry the
+	// Secure cookie explicitly without weakening the production cookie policy.
+	callbackRequest.AddCookie(cookies[0])
+	complete, err := browserClient.Do(callbackRequest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var completed map[string]any
+	decodeJSON(t, complete, &completed)
+	if complete.StatusCode != http.StatusOK || completed["status"] != "complete" || completed["token"] != nil {
+		t.Fatal("browser callback did not complete without exposing credentials")
+	}
+	exchangeJSON, err := json.Marshal(map[string]string{"handoff_id": beginBody.HandoffID, "verifier": verifier})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exchange := request(t, client, http.MethodPost, baseURL+"/v1/auth/desktop/exchange", "", exchangeJSON, http.StatusOK)
 	var result struct {
 		Token string `json:"token"`
 	}
-	decodeJSON(t, complete, &result)
+	decodeJSON(t, exchange, &result)
 	if result.Token == "" {
 		t.Fatal("hosted authentication token is empty")
 	}

@@ -66,7 +66,41 @@ func (a *mouseNetworkApp) PathsFilter() *dm.PathsFilter {
 	}
 	return a.paths
 }
-func (a *mouseNetworkApp) RunLater(job func())                                                 { window.RunLater(job); a.queued <- struct{}{} }
+func (a *mouseNetworkApp) RunLater(job func()) {
+	window.RunLater(job)
+	// This is a wake-up hint, not the job queue. A fixture that does not drain
+	// hints must not retain producers after the production queue accepts work.
+	select {
+	case a.queued <- struct{}{}:
+	default:
+	}
+}
+
+func TestNativeFixtureRunLaterDoesNotRetainProducer(t *testing.T) {
+	window.DrainFrameJobsForTest()
+	t.Cleanup(window.DrainFrameJobsForTest)
+	app := &mouseNetworkApp{queued: make(chan struct{}, 1)}
+	completed := 0
+	returned := make(chan struct{})
+	go func() {
+		app.RunLater(func() { completed++ })
+		app.RunLater(func() { completed++ })
+		close(returned)
+	}()
+	select {
+	case <-returned:
+	case <-time.After(time.Second):
+		// Release the old blocking fixture before reporting the regression.
+		<-app.queued
+		<-returned
+		t.Fatal("notification backlog retained a producer after its jobs were queued")
+	}
+	window.DrainFrameJobsForTest()
+	if completed != 2 {
+		t.Fatalf("completed %d queued jobs, want 2", completed)
+	}
+}
+
 func (*mouseNetworkApp) ConfigRegister(config.Config)                                          {}
 func (a *mouseNetworkApp) AddMouseChangeCallback(cb func(uint, uint)) int                      { a.mouse = cb; return 0 }
 func (a *mouseNetworkApp) RemoveMouseChangeCallback(int)                                       { a.mouse = nil }

@@ -51,7 +51,10 @@ tests ran with a restricted disposable LOCALAPPDATA directory.
 
 The macOS render scheduler and bulk-edit timeout trace to failed memory admission.
 The latter opened a blocking Cocoa error dialog. This causal diagnosis is source
-and CI-log evidence; the Mach path still requires macOS build/runtime validation.
+and CI-log evidence. The subsequent CI run passed all macOS Go tests, including
+the Mach path; a separate Rust fixture path assertion then blocked the desktop
+build. That test now expects the OS working-directory spelling, preserving
+separate lexical source-path assertions.
 
 The complete Windows `task verify` passed with Go 1.25.13, Rust 1.82 GNU,
 golangci-lint 2.12.2 and Task 3.53.1: zero lint issues, contract checks, all Go
@@ -85,8 +88,7 @@ rollback on a clone, not a live rollback or an old-provider login.
 
 ## Remaining acceptance and operator inputs
 
-- Publish the local source commits and rerun Windows, Linux and macOS CI.
-  Source commits are authorized; a remote push has not been authorized.
+- Complete the new main CI run after the fixture repairs described below.
 - Complete Discord member/nonmember sign-in, logout/expiry and the two-user
   Community/Private/restart procedure, followed by human desktop acceptance.
 - Supply disposable authenticated users for the reference-hosted load/fault
@@ -104,3 +106,37 @@ rollback on a clone, not a live rollback or an old-provider login.
 
 Multi-replica operation remains unsupported. Removed Meridian-MCP, Content Tools
 and Rift integrations are not acceptance requirements.
+
+## Main integration and fixture follow-up
+
+The operator approved publication and then directed that commits belong on main.
+The main checkout was clean and was fast-forwarded to the reviewed source. The
+initial branch run (36324162167) passed lint, Linux build and collaboration
+resilience. macOS passed all Go tests but exposed the Rust path expectation above.
+Hosted conformance, auth and vulnerability checks passed before the container
+lifecycle fixture reached an outdated empty login request.
+
+The container fixture now supplies a desktop verifier challenge, opens the real
+browser-start endpoint, carries its Secure/HttpOnly/SameSite cookie across the
+fixture's loopback HTTP transport, completes the provider callback without a
+credential response, and exchanges the verifier for the application credential.
+It retains the restart, database interruption, invitation and telemetry checks.
+No production auth or CI entry point was weakened. Container-tagged compilation
+and focused lint passed locally; Linux container execution requires CI because
+this host's Docker daemon runs Windows containers.
+
+Native window checks exposed two blocked fixture workers per lifetime: the
+fixture sent to a full notification channel after the production queue had
+already accepted each job. The production queue does not contain that send.
+A regression failed before changing the hint to a nonblocking, coalesced send;
+both actual queued callbacks are still required to execute. The complete native
+window package passed with GL enabled. Two representative-asset checks skipped
+because their external fixture inputs were not configured.
+
+A 70-second follow-up completed 697 measured synthetic lifetimes, including
+per-cycle authority/save, editor reachability and texture-disposal checks.
+Goroutines remained 2 at all three checkpoints; post-GC heap allocation went from
+2,700,072 to 2,774,256 bytes. Before the fixture fix, a comparable 698-cycle run
+grew from 2 to 1,398 goroutines. This repairs the measurement fixture and adds
+bounded native evidence; it does not claim representative-map or full-editor
+endurance qualification.
