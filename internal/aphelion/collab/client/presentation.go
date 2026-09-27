@@ -35,9 +35,9 @@ type publishedProjection struct {
 
 const (
 	// These bounds cover a burst of ordinary gesture submissions while keeping
-	// the pre-send dispatch working set finite. Once a submission is handed to
-	// the transport, its admission is released; ACK state remains in the normal
-	// projection/pending bookkeeping and is never silently discarded.
+	// both the pre-send dispatch and ACK-pending ownership finite. A sent
+	// operation keeps its budget until its ACK, rejection, suspension, or
+	// terminal cleanup releases it.
 	maxLocalAdmissionCount = 64
 	maxLocalAdmissionBytes = 256 << 20
 )
@@ -60,6 +60,15 @@ type publicationState struct {
 	nextDispatch          uint64
 	dispatchTurn          uint64
 	dispatchWake          chan struct{}
+	completionTurn        uint64
+	completion            map[uint64]completionEntry
+	completionRunning     bool
+}
+
+type completionEntry struct {
+	accepted model.AcceptedOperation
+	err      error
+	callback func(model.AcceptedOperation, error)
 }
 
 func newPublicationState() publicationState {
@@ -68,6 +77,43 @@ func newPublicationState() publicationState {
 		display:          make(map[model.Coord]model.Tile),
 		pendingAdmission: make(map[model.OperationID]uint64),
 		dispatchWake:     make(chan struct{}),
+		completion:       make(map[uint64]completionEntry),
+	}
+}
+
+// recordCompletion preserves admission order for asynchronous callbacks while
+// invoking them outside every executor/publication lock. Synchronous Execute
+// calls record a nil callback skip as soon as their transport handoff ends.
+func (network *NetworkExecutor) recordCompletion(ticket uint64, accepted model.AcceptedOperation, err error, callback func(model.AcceptedOperation, error)) {
+	network.publication.mu.Lock()
+	network.publication.completion[ticket] = completionEntry{accepted: accepted, err: err, callback: callback}
+	if network.publication.completionRunning {
+		network.publication.mu.Unlock()
+		return
+	}
+	network.publication.completionRunning = true
+	network.publication.mu.Unlock()
+	network.drainCompletions()
+}
+
+// drainCompletions is the sole callback owner while it is running. A callback
+// may block or re-enter the executor, so each entry is detached before the
+// callback runs and no executor/publication lock is held across user code.
+func (network *NetworkExecutor) drainCompletions() {
+	for {
+		network.publication.mu.Lock()
+		entry, exists := network.publication.completion[network.publication.completionTurn]
+		if !exists {
+			network.publication.completionRunning = false
+			network.publication.mu.Unlock()
+			return
+		}
+		delete(network.publication.completion, network.publication.completionTurn)
+		network.publication.completionTurn++
+		network.publication.mu.Unlock()
+		if entry.callback != nil {
+			entry.callback(entry.accepted, entry.err)
+		}
 	}
 }
 
@@ -172,6 +218,19 @@ func (network *NetworkExecutor) publishCaptureLocked() {
 	})
 }
 
+func (network *NetworkExecutor) publishAdmissionMetadataLocked() {
+	prior := network.published.Load()
+	if prior == nil {
+		return
+	}
+	network.published.Store(&publishedProjection{
+		projection: prior.projection,
+		mapHash:    prior.mapHash,
+		hasPending: true,
+		conflicts:  prior.conflicts,
+	})
+}
+
 func buildAuthorityIndex(snapshot model.Snapshot) (map[model.Coord]model.TileState, map[model.StableID]model.Coord) {
 	tiles := make(map[model.Coord]model.TileState, len(snapshot.Tiles))
 	owners := make(map[model.StableID]model.Coord)
@@ -216,6 +275,15 @@ func (network *NetworkExecutor) authorityTileState(coord model.Coord) model.Tile
 }
 
 func effectiveProjectionStates(projection Projection, authorityTiles map[model.Coord]model.TileState, authorityOwners map[model.StableID]model.Coord, coords map[model.Coord]struct{}, stateOverrides map[model.Coord]model.TileState, ownerOverrides map[model.StableID]effectiveOwner) map[model.Coord]model.TileState {
+	states, _ := effectiveProjectionOverlay(projection, authorityTiles, authorityOwners, coords, stateOverrides, ownerOverrides)
+	return states
+}
+
+// effectiveProjectionOverlay builds the sparse effective view used by both
+// publication and private network submission. The returned owner overrides
+// contain only IDs touched by pending operations; callers can fall back to the
+// immutable authority owner index for all other IDs.
+func effectiveProjectionOverlay(projection Projection, authorityTiles map[model.Coord]model.TileState, authorityOwners map[model.StableID]model.Coord, coords map[model.Coord]struct{}, stateOverrides map[model.Coord]model.TileState, ownerOverrides map[model.StableID]effectiveOwner) (map[model.Coord]model.TileState, map[model.StableID]effectiveOwner) {
 	for _, operation := range projection.Pending {
 		for _, change := range operation.Changes {
 			coords[change.Coord] = struct{}{}
@@ -299,7 +367,7 @@ func effectiveProjectionStates(projection Projection, authorityTiles map[model.C
 			}
 		}
 	}
-	return states
+	return states, overrides
 }
 
 type effectiveOwner struct {
@@ -308,12 +376,9 @@ type effectiveOwner struct {
 }
 
 func (network *NetworkExecutor) beginPublicationLocked(previous, next Projection, authorityChanges []model.TileChange, explicitDisplay []model.Coord, forceDisplay bool) {
-	network.publication.mu.Lock()
-	network.publication.sequence++
-	network.publication.ready = true
-
+	authoritative := make(map[model.Coord]model.Tile, len(authorityChanges))
 	for _, change := range authorityChanges {
-		network.publication.authoritative[change.Coord] = model.Tile{Coord: change.Coord, State: network.authorityTileState(change.Coord)}
+		authoritative[change.Coord] = model.Tile{Coord: change.Coord, State: network.authorityTileState(change.Coord)}
 	}
 
 	coords := make(map[model.Coord]struct{}, len(authorityChanges)+len(explicitDisplay))
@@ -354,19 +419,39 @@ func (network *NetworkExecutor) beginPublicationLocked(previous, next Projection
 	}
 	beforeStates := effectiveProjectionStates(previous, network.authorityTiles, network.authorityOwners, coords, beforeStateOverrides, beforeOwnerOverrides)
 	afterStates := effectiveProjectionStates(next, network.authorityTiles, network.authorityOwners, coords, nil, nil)
+	display := make(map[model.Coord]model.Tile, len(coords))
 	for coord := range coords {
 		before := beforeStates[coord]
 		after := afterStates[coord]
 		if forceDisplay || !before.Equal(after) {
-			network.publication.display[coord] = model.Tile{Coord: coord, State: model.CloneTileState(after)}
+			display[coord] = model.Tile{Coord: coord, State: model.CloneTileState(after)}
 		}
 	}
 
-	if network.publication.replacement != nil {
+	// Reading the replacement flag is a short publication critical section;
+	// materializing the full fallback snapshot happens before reacquiring it.
+	network.publication.mu.Lock()
+	hasReplacement := network.publication.replacement != nil
+	network.publication.mu.Unlock()
+	var replacement *model.Snapshot
+	if hasReplacement {
+		updated := model.CloneSnapshot(next.Acknowledged)
+		replacement = &updated
+	}
+
+	network.publication.mu.Lock()
+	network.publication.sequence++
+	network.publication.ready = true
+	for coord, tile := range authoritative {
+		network.publication.authoritative[coord] = tile
+	}
+	for coord, tile := range display {
+		network.publication.display[coord] = tile
+	}
+	if replacement != nil && network.publication.replacement != nil {
 		// A fallback is a coherent baseline. If more accepted data arrives before
 		// the UI consumes it, keep that baseline at the newest acknowledged state.
-		replacement := model.CloneSnapshot(next.Acknowledged)
-		network.publication.replacement = &replacement
+		network.publication.replacement = replacement
 	}
 	network.publishCaptureLocked()
 	network.publication.mu.Unlock()
@@ -384,12 +469,12 @@ func (network *NetworkExecutor) beginMetadataPublicationLocked() {
 }
 
 func (network *NetworkExecutor) beginReplacementPublicationLocked(snapshot model.Snapshot) {
+	replacement := model.CloneSnapshot(snapshot)
 	network.publication.mu.Lock()
 	network.publication.sequence++
 	network.publication.ready = true
 	network.publication.authoritative = make(map[model.Coord]model.Tile)
 	network.publication.display = make(map[model.Coord]model.Tile)
-	replacement := model.CloneSnapshot(snapshot)
 	network.publication.replacement = &replacement
 	network.publishCaptureLocked()
 	network.publication.mu.Unlock()
@@ -440,6 +525,10 @@ func (network *NetworkExecutor) reserveAdmission(operation model.Operation) (uin
 	network.publication.nextDispatch++
 	network.publication.localAdmissions++
 	network.publication.localAdmissionBytes += bytes
+	// Publish the pending/admission bit without touching network.projection or
+	// waiting for its reconciliation mutex. The projection pointer remains the
+	// prior immutable view until the ordered owner installs this operation.
+	network.publishAdmissionMetadataLocked()
 	return ticket, bytes, nil
 }
 
@@ -505,7 +594,6 @@ func (network *NetworkExecutor) releasePendingAdmission(operationID model.Operat
 			network.publication.pendingAdmissionBytes = 0
 		}
 	}
-	network.publishCaptureLocked()
 	network.publication.mu.Unlock()
 }
 

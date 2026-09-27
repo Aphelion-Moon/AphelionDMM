@@ -405,6 +405,138 @@ func TestNetworkExecutorExecuteAsyncDoesNotWaitForAcknowledgement(t *testing.T) 
 	}
 }
 
+func TestNetworkExecutorExecuteAsyncCallbacksRemainInAdmissionOrder(t *testing.T) {
+	snapshot := projectionSnapshot(t)
+	actorID := mustActorID(t)
+	transport := newFakeTransport()
+	network, err := NewNetworkExecutor(transport, snapshot, actorID, "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstStarted := make(chan struct{}, 1)
+	releaseFirst := make(chan struct{})
+	callbacks := make(chan string, 2)
+	first := projectionOperation(t, snapshot, 1)
+	second := projectionOperation(t, snapshot, 2)
+	if err := network.ExecuteAsync(context.Background(), first, func(accepted model.AcceptedOperation, executeErr error) {
+		if executeErr != nil {
+			callbacks <- "first-error"
+			return
+		}
+		firstStarted <- struct{}{}
+		<-releaseFirst
+		callbacks <- string(accepted.OperationID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	firstEnvelope := transport.next(t)
+	if err := network.ExecuteAsync(context.Background(), second, func(accepted model.AcceptedOperation, executeErr error) {
+		if executeErr != nil {
+			callbacks <- "second-error"
+			return
+		}
+		callbacks <- string(accepted.OperationID)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	secondEnvelope := transport.next(t)
+	decodedFirst, err := protocol.DecodeClient(mustJSON(t, firstEnvelope))
+	if err != nil {
+		t.Fatal(err)
+	}
+	decodedSecond, err := protocol.DecodeClient(mustJSON(t, secondEnvelope))
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstOperation := decodedFirst.Payload.(*protocol.OperationSubmitPayload).Operation
+	secondOperation := decodedSecond.Payload.(*protocol.OperationSubmitPayload).Operation
+	acceptedFirst := model.AcceptedOperation{Operation: firstOperation, Revision: snapshot.Revision + 1, AcceptedAt: time.Unix(1, 0)}
+	afterFirst := snapshotWithOperation(t, snapshot, acceptedFirst)
+	firstHash, err := afterFirst.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := network.Receive(serverEnvelope(t, protocol.ServerOperationAccepted, protocol.OperationAcceptedPayload{Operation: acceptedFirst, MapHash: firstHash})); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		t.Fatal("first callback did not start")
+	}
+	acceptedSecond := model.AcceptedOperation{Operation: secondOperation, Revision: snapshot.Revision + 2, AcceptedAt: time.Unix(2, 0)}
+	afterSecond := snapshotWithOperation(t, afterFirst, acceptedSecond)
+	secondHash, err := afterSecond.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := network.Receive(serverEnvelope(t, protocol.ServerOperationAccepted, protocol.OperationAcceptedPayload{Operation: acceptedSecond, MapHash: secondHash})); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case callback := <-callbacks:
+		t.Fatalf("second callback ran while first callback was blocked: %q", callback)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(releaseFirst)
+	select {
+	case callback := <-callbacks:
+		if callback != string(firstOperation.OperationID) {
+			t.Fatalf("first callback = %q, want %q", callback, firstOperation.OperationID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("first callback did not finish")
+	}
+	select {
+	case callback := <-callbacks:
+		if callback != string(secondOperation.OperationID) {
+			t.Fatalf("second callback = %q, want %q", callback, secondOperation.OperationID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("second callback did not finish")
+	}
+}
+
+func TestNetworkExecutorAcceptsLocallyVerifiedStaleDisjointBase(t *testing.T) {
+	snapshot := projectionSnapshot(t)
+	actor := mustActorID(t)
+	transport := newFakeTransport()
+	network, err := NewNetworkExecutor(transport, snapshot, actor, "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote := projectionOperation(t, snapshot, 1)
+	remote.ActorID = mustActorID(t)
+	accepted := model.AcceptedOperation{Operation: remote, Revision: snapshot.Revision + 1, AcceptedAt: time.Unix(1, 0)}
+	after := snapshotWithOperation(t, snapshot, accepted)
+	hash, err := after.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := network.Receive(serverEnvelope(t, protocol.ServerOperationAccepted, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: hash})); err != nil {
+		t.Fatal(err)
+	}
+
+	local := projectionOperation(t, snapshot, 2)
+	completed := make(chan error, 1)
+	if err := network.ExecuteAsync(context.Background(), local, func(_ model.AcceptedOperation, executeErr error) { completed <- executeErr }); err != nil {
+		t.Fatal(err)
+	}
+	submitted := transport.next(t)
+	decoded, err := protocol.DecodeClient(mustJSON(t, submitted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decoded.Payload.(*protocol.OperationSubmitPayload).Operation
+	if got.BaseRevision != local.BaseRevision || got.BaseMapHash != local.BaseMapHash {
+		t.Fatalf("stale operation header was rewritten: %#v", got)
+	}
+	network.Terminate(errors.New("test cleanup"))
+	if err := <-completed; err == nil {
+		t.Fatal("terminated stale operation unexpectedly succeeded")
+	}
+}
+
 func TestNetworkExecutorTerminationReleasesPendingOperation(t *testing.T) {
 	t.Parallel()
 

@@ -63,6 +63,96 @@ func (projection Projection) Submit(operation model.Operation) (Projection, erro
 }
 
 func (projection Projection) submitWithHash(operation model.Operation, acknowledgedHash string, hashErr error) (Projection, error) {
+	return projection.submitWithHashMode(operation, acknowledgedHash, hashErr, false)
+}
+
+func (projection Projection) submitWithVerifiedHash(operation model.Operation, acknowledgedHash string, hashErr error) (Projection, error) {
+	return projection.submitWithHashMode(operation, acknowledgedHash, hashErr, true)
+}
+
+// submitWithVerifiedOverlay validates a network-owned operation against the
+// sparse effective view and appends it without cloning or hashing the full
+// acknowledged snapshot. The executor owns the acknowledged snapshot and its
+// authority indexes immutably between publications; only the pending slice and
+// submitted operation need new storage here.
+func (projection Projection) submitWithVerifiedOverlay(operation model.Operation, acknowledgedHash string, hashErr error, authorityTiles map[model.Coord]model.TileState, authorityOwners map[model.StableID]model.Coord) (Projection, error) {
+	if hashErr != nil {
+		return Projection{}, hashErr
+	}
+	if operation.ProtocolVersion != model.ProtocolVersion || operation.DocumentID != projection.Acknowledged.DocumentID || operation.EnvironmentHash != projection.Acknowledged.EnvironmentHash {
+		return Projection{}, fmt.Errorf("operation is incompatible with acknowledged document")
+	}
+	if operation.BaseRevision > projection.Acknowledged.Revision {
+		return Projection{}, fmt.Errorf("operation base does not match acknowledged revision")
+	}
+	if err := model.ValidateSHA256("acknowledged map hash", acknowledgedHash); err != nil {
+		return Projection{}, err
+	}
+
+	coords := make(map[model.Coord]struct{}, len(operation.Changes))
+	for _, change := range operation.Changes {
+		coords[change.Coord] = struct{}{}
+	}
+	states, owners := effectiveProjectionOverlay(projection, authorityTiles, authorityOwners, coords, nil, nil)
+	affected := make(map[model.Coord]struct{}, len(operation.Changes))
+	for _, change := range operation.Changes {
+		if _, duplicate := affected[change.Coord]; duplicate {
+			return Projection{}, fmt.Errorf("apply speculative operation: duplicate coordinate (%d,%d,%d)", change.Coord.X, change.Coord.Y, change.Coord.Z)
+		}
+		affected[change.Coord] = struct{}{}
+		if !projection.Acknowledged.Contains(change.Coord) {
+			return Projection{}, fmt.Errorf("apply speculative operation: coordinate (%d,%d,%d) is out of bounds", change.Coord.X, change.Coord.Y, change.Coord.Z)
+		}
+		if !states[change.Coord].Equal(change.Before) {
+			return Projection{}, fmt.Errorf("apply speculative operation: precondition failed at (%d,%d,%d)", change.Coord.X, change.Coord.Y, change.Coord.Z)
+		}
+	}
+
+	afterIDs := make(map[model.StableID]struct{})
+	for _, change := range operation.Changes {
+		for _, prefab := range change.After.Prefabs {
+			if err := prefab.StableID.Validate(); err != nil {
+				return Projection{}, fmt.Errorf("apply speculative operation: %w", err)
+			}
+			if _, duplicate := afterIDs[prefab.StableID]; duplicate {
+				return Projection{}, fmt.Errorf("apply speculative operation: duplicate stable id %q", prefab.StableID)
+			}
+			afterIDs[prefab.StableID] = struct{}{}
+			owner, overridden := owners[prefab.StableID]
+			exists := overridden && owner.present
+			if !overridden {
+				coord, found := authorityOwners[prefab.StableID]
+				owner = effectiveOwner{coord: coord, present: found}
+				exists = found
+			}
+			if exists {
+				if _, changingOwner := affected[owner.coord]; !changingOwner {
+					return Projection{}, fmt.Errorf("apply speculative operation: stable id %q belongs to unchanged tile", prefab.StableID)
+				}
+			}
+		}
+	}
+
+	for _, change := range operation.Changes {
+		for _, prefab := range states[change.Coord].Prefabs {
+			owners[prefab.StableID] = effectiveOwner{coord: change.Coord, present: false}
+		}
+	}
+	for _, change := range operation.Changes {
+		after := model.CloneTileState(change.After)
+		states[change.Coord] = after
+		for _, prefab := range after.Prefabs {
+			owners[prefab.StableID] = effectiveOwner{coord: change.Coord, present: true}
+		}
+	}
+
+	pending := make([]model.Operation, len(projection.Pending)+1)
+	copy(pending, projection.Pending)
+	pending[len(projection.Pending)] = model.CloneOperation(operation)
+	return Projection{Acknowledged: projection.Acknowledged, Pending: pending, acknowledgedHash: projection.acknowledgedHash}, nil
+}
+
+func (projection Projection) submitWithHashMode(operation model.Operation, acknowledgedHash string, hashErr error, allowStaleBase bool) (Projection, error) {
 	err := hashErr
 	if err != nil {
 		return Projection{}, err
@@ -70,7 +160,10 @@ func (projection Projection) submitWithHash(operation model.Operation, acknowled
 	if operation.ProtocolVersion != model.ProtocolVersion || operation.DocumentID != projection.Acknowledged.DocumentID || operation.EnvironmentHash != projection.Acknowledged.EnvironmentHash {
 		return Projection{}, fmt.Errorf("operation is incompatible with acknowledged document")
 	}
-	if operation.BaseRevision != projection.Acknowledged.Revision || operation.BaseMapHash != acknowledgedHash {
+	if !allowStaleBase && (operation.BaseRevision != projection.Acknowledged.Revision || operation.BaseMapHash != acknowledgedHash) {
+		return Projection{}, fmt.Errorf("operation base does not match acknowledged revision")
+	}
+	if allowStaleBase && operation.BaseRevision > projection.Acknowledged.Revision {
 		return Projection{}, fmt.Errorf("operation base does not match acknowledged revision")
 	}
 	visible, err := projection.Visible()
@@ -86,6 +179,21 @@ func (projection Projection) submitWithHash(operation model.Operation, acknowled
 }
 
 func (projection Projection) Accept(accepted model.AcceptedOperation, authoritativeHash string) (Projection, error) {
+	// Projection is a public value with an exported mutable acknowledged
+	// snapshot. Validate that snapshot before applying an accepted operation so
+	// callers cannot use a stale private digest after mutating it.
+	_, currentHashErr := projection.acknowledgedMapHash()
+	return projection.acceptWithVerifiedCurrent(accepted, authoritativeHash, currentHashErr)
+}
+
+// acceptWithVerifiedCurrent is used by NetworkExecutor for its immutable
+// executor-owned projection. The caller has already retained the locally
+// verified acknowledged hash, so rehashing the current snapshot here would
+// add a full-map validation to every receive path.
+func (projection Projection) acceptWithVerifiedCurrent(accepted model.AcceptedOperation, authoritativeHash string, currentHashErr error) (Projection, error) {
+	if currentHashErr != nil {
+		return Projection{}, currentHashErr
+	}
 	if accepted.Revision != projection.Acknowledged.Revision+1 {
 		return Projection{}, fmt.Errorf("accepted revision is %d, want %d", accepted.Revision, projection.Acknowledged.Revision+1)
 	}
@@ -114,10 +222,18 @@ func (projection Projection) Accept(accepted model.AcceptedOperation, authoritat
 
 func (projection Projection) Reject(rejected protocol.OperationRejectedPayload) (Projection, Conflict, error) {
 	acknowledgedHash, err := projection.acknowledgedMapHash()
-	return projection.rejectWithHash(rejected, acknowledgedHash, err)
+	return projection.rejectWithHashMode(rejected, acknowledgedHash, err, true)
 }
 
 func (projection Projection) rejectWithHash(rejected protocol.OperationRejectedPayload, acknowledgedHash string, hashErr error) (Projection, Conflict, error) {
+	return projection.rejectWithHashMode(rejected, acknowledgedHash, hashErr, true)
+}
+
+func (projection Projection) rejectWithVerifiedHash(rejected protocol.OperationRejectedPayload, acknowledgedHash string, hashErr error) (Projection, Conflict, error) {
+	return projection.rejectWithHashMode(rejected, acknowledgedHash, hashErr, false)
+}
+
+func (projection Projection) rejectWithHashMode(rejected protocol.OperationRejectedPayload, acknowledgedHash string, hashErr error, cloneAcknowledged bool) (Projection, Conflict, error) {
 	err := hashErr
 	if err != nil {
 		return Projection{}, Conflict{}, err
@@ -143,7 +259,11 @@ func (projection Projection) rejectWithHash(rejected protocol.OperationRejectedP
 	if err != nil {
 		return Projection{}, Conflict{}, fmt.Errorf("reapply pending operations after rejection: %w", err)
 	}
-	return Projection{Acknowledged: model.CloneSnapshot(projection.Acknowledged), Pending: rebased, acknowledgedHash: acknowledgedHash}, Conflict{
+	acknowledged := projection.Acknowledged
+	if cloneAcknowledged {
+		acknowledged = model.CloneSnapshot(acknowledged)
+	}
+	return Projection{Acknowledged: acknowledged, Pending: rebased, acknowledgedHash: acknowledgedHash}, Conflict{
 		OperationID:         rejected.OperationID,
 		Draft:               draft,
 		Code:                rejected.Code,
