@@ -282,13 +282,15 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 	}
 	incoming := make(chan incomingMessage)
 	readErrors := make(chan error, 1)
-	go func() {
-		readClientMessages(parent, connection, auth.sessionID, incoming, readErrors)
+	// Reauthorization replaces auth in the connection loop; the reader owns only
+	// the session ID captured before it starts.
+	go func(sessionID string) {
+		readClientMessages(parent, connection, sessionID, incoming, readErrors)
 		// A handler may be validating an edit while the reader observes EOF.
 		// Cancel it immediately rather than waiting for the handler's next select.
 		// Append reconciliation still uses its separate post-commit context.
 		cancelConnection()
-	}()
+	}(auth.sessionID)
 	var reauthorization <-chan time.Time
 	var reauthorizationTicker *time.Ticker
 	if auth.hosted {
