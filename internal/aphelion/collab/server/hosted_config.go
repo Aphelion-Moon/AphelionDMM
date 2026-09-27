@@ -76,7 +76,7 @@ func (config HostedDiscord) SessionLifetime() (time.Duration, error) {
 	}
 	lifetime, err := time.ParseDuration(strings.TrimSpace(*config.SessionTTL))
 	if err != nil || lifetime <= 0 || lifetime > 24*time.Hour {
-		return 0, fmt.Errorf("Discord session_ttl must be a positive duration of at most 24h")
+		return 0, fmt.Errorf("the Discord session_ttl must be a positive duration of at most 24h")
 	}
 	return lifetime, nil
 }
@@ -182,10 +182,10 @@ func (config *HostedConfig) validate() error {
 
 func (config HostedConfig) validateDiscord() error {
 	if !validHostedDecimalID(config.Discord.ClientID) {
-		return fmt.Errorf("Discord client_id must be a decimal ID of at most 20 digits")
+		return fmt.Errorf("the Discord client_id must be a decimal ID of at most 20 digits")
 	}
 	if !validHostedDecimalID(config.Discord.GuildID) {
-		return fmt.Errorf("Discord guild_id must be a decimal ID of at most 20 digits")
+		return fmt.Errorf("the Discord guild_id must be a decimal ID of at most 20 digits")
 	}
 	if err := validateDiscordHostedRedirect(config.PublicOrigin, config.Discord.RedirectURL); err != nil {
 		return err
@@ -214,11 +214,11 @@ func validHostedDecimalID(value string) bool {
 func validateDiscordHostedRedirect(publicOrigin, value string) error {
 	redirect, err := url.Parse(value)
 	if err != nil || redirect.Scheme != "https" || redirect.Host == "" || redirect.User != nil || redirect.RawQuery != "" || redirect.ForceQuery || redirect.Fragment != "" || redirect.Path != "/v1/auth/complete" {
-		return fmt.Errorf("Discord redirect URL must be HTTPS /v1/auth/complete without credentials, query, or fragment")
+		return fmt.Errorf("the Discord redirect URL must be HTTPS /v1/auth/complete without credentials, query, or fragment")
 	}
 	public, err := url.Parse(publicOrigin)
 	if err != nil || !strings.EqualFold(redirect.Scheme, public.Scheme) || !strings.EqualFold(redirect.Host, public.Host) {
-		return fmt.Errorf("Discord redirect URL must use the public origin")
+		return fmt.Errorf("the Discord redirect URL must use the public origin")
 	}
 	return nil
 }

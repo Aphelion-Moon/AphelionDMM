@@ -77,12 +77,4 @@ func shapeBrushEnabled() bool {
 	return d.Kind != editing.ShapeRectangle || d.Width > 1 || d.Height > 1 || d.Outline || shapeRestricted()
 }
 
-func restrictShape(selection editing.Selection) editing.Selection {
-	selection = editing.ClipSelection(selection, ed.Dmm().MaxX, ed.Dmm().MaxY)
-	if shapeRestricted() {
-		return editing.CombineSelection(selection, SelectionForEditor(ed), editing.SelectionIntersect)
-	}
-	return selection
-}
-
 // APHELION EDIT ADDITION END

@@ -22,7 +22,9 @@ func TestHostedBrowserPreservesOriginAndRejectsStalePage(t *testing.T) {
 		}
 		close(entered)
 		<-release
-		json.NewEncoder(w).Encode(protocol.HostedSessionsPage{Sessions: []protocol.HostedSessionSummary{{SessionID: "old"}}})
+		if err := json.NewEncoder(w).Encode(protocol.HostedSessionsPage{Sessions: []protocol.HostedSessionSummary{{SessionID: "old"}}}); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer server.Close()
 	client := NewSessionClient(SessionClientConfig{})
@@ -73,10 +75,14 @@ func TestHostedDelayedSignInCannotReplaceNewerAccount(t *testing.T) {
 	actor, _ := model.NewActorID()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/auth/desktop/begin" {
-			json.NewEncoder(w).Encode(map[string]string{"authorization_url": "https://provider.example/auth", "handoff_id": "id"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"authorization_url": "https://provider.example/auth", "handoff_id": "id"}); err != nil {
+				t.Error(err)
+			}
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"actor_id": actor, "token": "secret", "display_name": "Mapper", "expires_at": time.Now().Add(time.Hour)})
+		if err := json.NewEncoder(w).Encode(map[string]any{"actor_id": actor, "token": "secret", "display_name": "Mapper", "expires_at": time.Now().Add(time.Hour)}); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer server.Close()
 	client := NewSessionClient(SessionClientConfig{})
@@ -101,10 +107,14 @@ func TestHostedReauthenticationRejectsDifferentActor(t *testing.T) {
 	otherActor, _ := model.NewActorID()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/auth/desktop/begin" {
-			json.NewEncoder(w).Encode(map[string]string{"authorization_url": "https://provider.example/auth", "handoff_id": "id"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"authorization_url": "https://provider.example/auth", "handoff_id": "id"}); err != nil {
+				t.Error(err)
+			}
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"actor_id": otherActor, "token": "wrong-account", "display_name": "Other", "expires_at": time.Now().Add(time.Hour)})
+		if err := json.NewEncoder(w).Encode(map[string]any{"actor_id": otherActor, "token": "wrong-account", "display_name": "Other", "expires_at": time.Now().Add(time.Hour)}); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer server.Close()
 	client := NewSessionClient(SessionClientConfig{})

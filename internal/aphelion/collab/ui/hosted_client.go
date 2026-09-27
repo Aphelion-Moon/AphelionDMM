@@ -82,7 +82,7 @@ func (client *SessionClient) BeginHostedSignIn(ctx context.Context, baseURL stri
 		origin, _ := url.Parse(baseURL)
 		authorizationURL = origin.ResolveReference(authorizationURL)
 	}
-	if authorizationURL.Scheme != "https" && !(authorizationURL.Scheme == "http" && authorizationURL.Host == request.URL.Host) {
+	if authorizationURL.Scheme != "https" && (authorizationURL.Scheme != "http" || authorizationURL.Host != request.URL.Host) {
 		return HostedSignIn{}, fmt.Errorf("insecure sign-in browser address")
 	}
 	return HostedSignIn{AuthorizationURL: authorizationURL.String(), baseURL: baseURL, handoffID: started.HandoffID, verifier: verifier, generation: generation}, nil
@@ -151,7 +151,7 @@ func (client *SessionClient) exchangeHostedSignIn(ctx context.Context, signIn Ho
 		case "missing_permissions":
 			return hostedSignInResult{}, fmt.Errorf("grant the requested Discord permissions and sign in again")
 		case "provider_unavailable":
-			return hostedSignInResult{}, fmt.Errorf("Discord is temporarily unavailable; try again later")
+			return hostedSignInResult{}, fmt.Errorf("the Discord is temporarily unavailable; try again later")
 		case "consent_denied":
 			return hostedSignInResult{}, fmt.Errorf("browser authorization was canceled")
 		case "expired_sign_in":

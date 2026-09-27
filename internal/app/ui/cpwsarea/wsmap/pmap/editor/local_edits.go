@@ -10,7 +10,7 @@ import (
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/app/command"
-	"sdmm/internal/dmapi/dm"
+
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/util"
 )
@@ -180,16 +180,6 @@ func (e *Editor) installLocalTile(change model.TileChange, applyDisplay bool) er
 		e.authoritative.Tiles = append(e.authoritative.Tiles, model.Tile{Coord: change.Coord, State: state})
 	}
 	return nil
-}
-
-func areaState(state model.TileState) model.TileState {
-	var result model.TileState
-	for _, prefab := range state.Prefabs {
-		if dm.IsPath(prefab.Path, "/area") {
-			result.Prefabs = append(result.Prefabs, prefab)
-		}
-	}
-	return result
 }
 
 // APHELION EDIT ADDITION END

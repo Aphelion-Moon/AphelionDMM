@@ -13,8 +13,8 @@ func storageLock(path string) (func(), error) {
 		return nil, err
 	}
 	if err = unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, err
 	}
-	return func() { f.Close() }, nil
+	return func() { _ = f.Close() }, nil
 }

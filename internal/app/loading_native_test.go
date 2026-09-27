@@ -210,7 +210,11 @@ func TestNativeEnvironmentLoading(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer recording.Close()
+		defer func() {
+			if err := recording.Close(); err != nil {
+				t.Error(err)
+			}
+		}()
 	}
 	a.masterWindow.Process()
 	if len(measurements) == 0 {

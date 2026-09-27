@@ -35,7 +35,7 @@ import (
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmicon"
 	"sdmm/internal/dmapi/dmmap"
-	"sdmm/internal/dmapi/dmmap/dmmdata"
+	// APHELION EDIT REMOVAL - OWNED MAP OPEN: "sdmm/internal/dmapi/dmmap/dmmdata"
 	"sdmm/internal/util"
 
 	"github.com/SpaiR/imgui-go"
@@ -349,11 +349,6 @@ func newPathsFilter(env *dmenv.Dme) *dm.PathsFilter {
 func (a *app) loadMap(path string, workspace *workspace.Workspace) {
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	a.enqueueMapOpen(path, workspace)
-}
-
-func (a *app) installParsedMap(path string, workspace *workspace.Workspace, data *dmmdata.DmmData, backup string) {
-	dmm, unknown := dmmap.New(a.loadedEnvironment, data, backup)
-	a.installOpenMap(path, workspace, dmm, unknown, nil)
 }
 
 func (a *app) installOpenMap(path string, workspace *workspace.Workspace, dmm *dmmap.Dmm, unknownPrefabs map[string]*dmmprefab.Prefab, prepared *editor.PreparedOpen) {

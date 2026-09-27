@@ -29,11 +29,11 @@ const (
 )
 
 var (
-	ErrDiscordNotMember            = errors.New("Discord account is not a member of the configured server")
-	ErrDiscordMissingScopes        = errors.New("Discord authorization did not grant the required permissions")
-	ErrDiscordTemporaryFailure     = errors.New("Discord is temporarily unavailable")
-	ErrDiscordAuthenticationFailed = errors.New("Discord sign-in could not be completed")
-	errDiscordResponseTooLarge     = errors.New("Discord response exceeds the configured limit")
+	ErrDiscordNotMember            = errors.New("account is not a member of the configured Discord server")
+	ErrDiscordMissingScopes        = errors.New("authorization did not grant the required Discord permissions")
+	ErrDiscordTemporaryFailure     = errors.New("the Discord service is temporarily unavailable")
+	ErrDiscordAuthenticationFailed = errors.New("the Discord sign-in could not be completed")
+	errDiscordResponseTooLarge     = errors.New("the Discord response exceeds the configured limit")
 )
 
 type DiscordConfig struct {
@@ -56,10 +56,10 @@ type DiscordFlow struct {
 
 func NewDiscordFlow(config DiscordConfig) (*DiscordFlow, error) {
 	if !validDiscordID(config.ClientID) || !validDiscordID(config.GuildID) {
-		return nil, fmt.Errorf("Discord client and guild IDs must be decimal IDs of at most 20 digits")
+		return nil, fmt.Errorf("the Discord client and guild IDs must be decimal IDs of at most 20 digits")
 	}
 	if config.ClientSecret == "" || len(config.ClientSecret) > 64<<10 {
-		return nil, fmt.Errorf("Discord client secret is required and must not exceed 64 KiB")
+		return nil, fmt.Errorf("the Discord client secret is required and must not exceed 64 KiB")
 	}
 	if err := validateDiscordRedirect(config.RedirectURL); err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func NewDiscordFlow(config DiscordConfig) (*DiscordFlow, error) {
 		ttl = discordDefaultSession
 	}
 	if ttl < 0 || ttl > discordMaximumSession {
-		return nil, fmt.Errorf("Discord session lifetime must be positive and at most 24 hours")
+		return nil, fmt.Errorf("the Discord session lifetime must be positive and at most 24 hours")
 	}
 
 	transport := http.RoundTripper(http.DefaultTransport)
@@ -176,7 +176,7 @@ func (flow *DiscordFlow) get(ctx context.Context, endpoint, accessToken string) 
 	if err != nil {
 		return nil, ErrDiscordTemporaryFailure
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		if errors.Is(err, errDiscordResponseTooLarge) {
@@ -252,7 +252,7 @@ func validDiscordID(value string) bool {
 func validateDiscordRedirect(value string) error {
 	redirect, err := url.Parse(value)
 	if err != nil || redirect.Scheme != "https" || redirect.Host == "" || redirect.User != nil || redirect.RawQuery != "" || redirect.Fragment != "" || redirect.Path != "/v1/auth/complete" {
-		return fmt.Errorf("Discord redirect URL must be HTTPS /v1/auth/complete without credentials, query, or fragment")
+		return fmt.Errorf("the Discord redirect URL must be HTTPS /v1/auth/complete without credentials, query, or fragment")
 	}
 	return nil
 }

@@ -38,7 +38,8 @@ func TestPasteTranslationAndCancelLeaveCommittedStateUntouched(t *testing.T) {
 	settlePasteSource(t, e)
 	payload, presentation := e.paste.payload, e.paste.presentation
 	for i := 0; i < 100; i++ {
-		e.UpdatePastePlacement(util.Point{X: 1 + i%2, Y: 1, Z: 1})
+		// Both valid and out-of-bounds hover must leave committed state alone.
+		_, _, _ = e.UpdatePastePlacement(util.Point{X: 1 + i%2, Y: 1, Z: 1})
 		e.ProcessPasteWork()
 	}
 	if !reflect.DeepEqual(before, e.dmm.Copy()) || len(e.pendingChanges) != 0 || counted.snapshots != 0 || counted.wireEdits != 0 {
@@ -84,7 +85,9 @@ func TestPasteClickDuringPreparationRetainsExactTarget(t *testing.T) {
 	if !e.ConfirmPastePlacement() {
 		t.Fatal("preparing click was discarded")
 	}
-	e.UpdatePastePlacement(util.Point{X: 2, Y: 1, Z: 1})
+	if _, _, err := e.UpdatePastePlacement(util.Point{X: 2, Y: 1, Z: 1}); err == nil {
+		t.Fatal("preparing source unexpectedly reported ready")
+	}
 	if e.paste.target.X != 1 || e.paste.intent.X != 1 {
 		t.Fatal("hover moved the pending click")
 	}

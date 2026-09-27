@@ -66,8 +66,12 @@ func TestCacheBoundsEntriesAndLayerKeys(t *testing.T) {
 	if _, ok := cache.Get(last, Versions{}); !ok {
 		t.Fatal("newest entry was evicted")
 	}
-	if LayerKey(float32(math.NaN())) != LayerKey(float32(math.NaN())) {
-		t.Fatal("NaN layer key is unstable")
+	nanKey := Key{Chunk: last.Chunk, Layer: LayerKey(float32(math.NaN()))}
+	if !cache.Put(nanKey, Versions{}, nil) {
+		t.Fatal("NaN layer entry was rejected")
+	}
+	if _, ok := cache.Get(Key{Chunk: last.Chunk, Layer: LayerKey(float32(math.NaN()))}, Versions{}); !ok {
+		t.Fatal("NaN layer entry could not be retrieved")
 	}
 	cache.Clear()
 	cache.DisposeRetired()

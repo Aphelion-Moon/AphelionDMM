@@ -58,7 +58,7 @@ func (client *SessionClient) discardHostedLogin(origin, token string) {
 	request, err := client.request(ctx, http.MethodPost, origin+"/v1/auth/logout", token, nil)
 	if err == nil {
 		if response, err := client.http.Do(request); err == nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}
 }
@@ -76,7 +76,7 @@ func (client *SessionClient) HostedCapabilities(ctx context.Context) (protocol.H
 	if err != nil {
 		return protocol.HostedCapabilities{}, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	// Only the old Go ServeMux's plain unsupported-route response counts as absent support.
 	if (response.StatusCode == 404 || response.StatusCode == 405) && strings.HasPrefix(response.Header.Get("Content-Type"), "text/plain") {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 256))
@@ -128,7 +128,7 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 	if err != nil {
 		return fmt.Errorf("hosted service request failed: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if !client.HostedAccountCurrent(account) || ctx.Err() != nil {
 		return ErrSessionChanged
 	}

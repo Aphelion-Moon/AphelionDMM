@@ -26,12 +26,14 @@ func (p *pathValidator) directory(path string) (string, error) {
 	if real, ok := p.directories[path]; ok {
 		return real, nil
 	}
-	info, err := os.Lstat(path)
+	_, err := os.Lstat(path)
 	if err != nil && !os.IsNotExist(err) {
 		return "", err
 	}
 	var real string
-	if err == nil && info.Mode()&os.ModeSymlink != 0 {
+	if err == nil {
+		// Existing directories also need canonical spelling: Windows short
+		// names otherwise disagree with the resolved approved roots.
 		real, err = filepath.EvalSymlinks(path)
 	} else {
 		parent := filepath.Dir(path)

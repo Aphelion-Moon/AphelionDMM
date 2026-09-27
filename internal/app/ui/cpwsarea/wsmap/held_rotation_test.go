@@ -12,7 +12,7 @@ import (
 
 func TestHeldRotationRegistryTargetsPasteAndLeavesSelectionAlone(t *testing.T) {
 	ws, app := newSelectionWorkspace(t)
-	grab := activateSelectionWorkspace(t, ws)
+	activateSelectionWorkspace(t, ws)
 	e := ws.Map().Editor()
 	pressSelectionShortcut(glfw.KeyE)
 	if resizeSnapshot(t, e).Revision != 0 {
@@ -55,7 +55,7 @@ func TestHeldRotationRegistryTargetsPasteAndLeavesSelectionAlone(t *testing.T) {
 	if resizeSnapshot(t, e).Revision != 0 {
 		t.Fatal("held rotation committed before placement")
 	}
-	grab = tools.Selected().(*tools.ToolGrab)
+	grab := tools.Selected().(*tools.ToolGrab)
 	if !grab.ConfirmPlacement() {
 		t.Fatal("rotated paste not confirmed")
 	}

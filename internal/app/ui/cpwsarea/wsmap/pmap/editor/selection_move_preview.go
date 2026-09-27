@@ -312,10 +312,6 @@ func (e *Editor) CancelSelectionMovePreview() {
 
 func (e *Editor) SelectionMovePreviewActive() bool { return e.selectionMovePreview != nil }
 
-func (e *Editor) selectionMovePreviewPreparing() bool {
-	return e.selectionMovePreview != nil && e.selectionMovePreview.preparing
-}
-
 func (e *Editor) selectionMovePreviewResolving() bool {
 	return e.selectionMovePreview != nil && e.selectionMovePreview.phase == selectionMoveResolving
 }

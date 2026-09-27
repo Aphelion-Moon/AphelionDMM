@@ -35,7 +35,7 @@ func (e *Editor) PrepareStampCapture(name string, selection editing.Selection) (
 		return nil, fmt.Errorf("%s", reason)
 	}
 	if selection.Len() == 0 {
-		return nil, fmt.Errorf("Select tiles on the source map first.")
+		return nil, fmt.Errorf("select tiles on the source map first")
 	}
 	base := e.authoritativeTiles
 	read := func(c model.Coord) (model.TileState, bool) { state, ok := base[c]; return state, ok }

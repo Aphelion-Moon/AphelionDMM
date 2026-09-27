@@ -8,7 +8,7 @@ import (
 
 func TestHostedBrowserRoutesRequireAuthentication(t *testing.T) {
 	service := NewService(ServiceConfig{HostedAuth: newFakeHostedBackend(nil)})
-	defer service.Shutdown(context.Background())
+	defer func() { _ = service.Shutdown(context.Background()) }()
 	for _, path := range []string{"/v1/hosted/sessions?scope=community", "/v1/hosted/sessions?scope=mine"} {
 		response := httptest.NewRecorder()
 		service.Handler().ServeHTTP(response, httptest.NewRequest("GET", path, nil))

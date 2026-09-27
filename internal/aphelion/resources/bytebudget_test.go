@@ -6,6 +6,14 @@ import (
 	"testing"
 )
 
+func TestHostBudgetCanAdmitSmallReservation(t *testing.T) {
+	reservation, err := NewHostBudget(1024, 3).Reserve(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation.Release()
+}
+
 func TestBudgetReservesReleasesAndReportsAdmission(t *testing.T) {
 	budget := NewFixedBudget(1 << 20)
 	first, err := budget.Reserve(768 << 10)

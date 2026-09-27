@@ -10,7 +10,7 @@ import (
 func TestHostedActivityTracksUniqueLiveConnections(t *testing.T) {
 	now := time.Now()
 	service := NewService(ServiceConfig{Now: func() time.Time { return now }})
-	defer service.Shutdown(context.Background())
+	defer func() { _ = service.Shutdown(context.Background()) }()
 	actor, _ := model.NewActorID()
 	first := service.trackHostedConnection("session", actor, now.Add(time.Hour))
 	second := service.trackHostedConnection("session", actor, now.Add(time.Hour))
