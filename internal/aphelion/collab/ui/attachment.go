@@ -52,6 +52,7 @@ type CollaborationExecutorProvider interface {
 
 type CollaborationAttachmentTarget interface {
 	AttachCollaborationExecutor(executor.Executor) error
+	MapViewVersion() (generation uint64, ready bool)
 }
 
 // PrepareLocalSession creates a session and returns its synchronized executor for UI-thread attachment.
@@ -107,13 +108,19 @@ func PrepareJoinedSession(ctx context.Context, lifecycle JoinedSessionLifecycle,
 	return nil, errors.Join(fmt.Errorf("prepare joined collaboration session: synchronized executor is unavailable"), cleanupErr)
 }
 
-// AttachPreparedSession installs a synchronized executor only if the originating editor is still current.
-func AttachPreparedSession(execution executor.Executor, target CollaborationAttachmentTarget, stillCurrent bool) error {
+// AttachPreparedSession runs on the UI thread and installs a synchronized
+// executor only if the originating editor is still current and unchanged since
+// preparation began. An edit followed by undo still changes this generation:
+// attaching would otherwise dispose the user's newly created history.
+func AttachPreparedSession(execution executor.Executor, target CollaborationAttachmentTarget, expectedGeneration uint64, stillCurrent bool) error {
 	if !stillCurrent {
 		return ErrAttachmentTargetChanged
 	}
 	if execution == nil || target == nil {
 		return fmt.Errorf("attach prepared collaboration session: target or executor is unavailable")
+	}
+	if generation, ready := target.MapViewVersion(); !ready || generation != expectedGeneration {
+		return ErrAttachmentTargetChanged
 	}
 	return target.AttachCollaborationExecutor(execution)
 }

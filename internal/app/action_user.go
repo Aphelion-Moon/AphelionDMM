@@ -290,12 +290,11 @@ func (a *app) joinBrowsedHostedSession(ctx context.Context, id string, done func
 				done(err)
 				return
 			}
-			currentGeneration, ready := selectedEditor.MapViewVersion()
-			current := ctx.Err() == nil && a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && ready && currentGeneration == generation && a.collaborationClient.HostedAccountCurrent(account)
+			current := ctx.Err() == nil && a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && a.collaborationClient.HostedAccountCurrent(account)
 			if ws, ok := a.activeWsMap(); !ok || ws.HasUnsavedChanges() {
 				current = false
 			}
-			err = collabui.AttachPreparedSession(execution, selectedEditor, current)
+			err = collabui.AttachPreparedSession(execution, selectedEditor, generation, current)
 			if err != nil {
 				go a.leaveCollaborationAfterAttachmentFailure()
 			} else {
@@ -341,8 +340,7 @@ func (a *app) DoCreateHostedCollaborationSession() {
 					util.ShowErrorDialog("Unable to start hosted session: " + prepareErr.Error())
 					return
 				}
-				currentGeneration, ready := selectedEditor.MapViewVersion()
-				err := collabui.AttachPreparedSession(execution, selectedEditor, a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && ready && currentGeneration == generation && a.collaborationClient.HostedAccountCurrent(account))
+				err := collabui.AttachPreparedSession(execution, selectedEditor, generation, a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && a.collaborationClient.HostedAccountCurrent(account))
 				if err != nil {
 					util.ShowErrorDialog(err.Error())
 					go a.leaveCollaborationAfterAttachmentFailure()
@@ -380,6 +378,7 @@ func (a *app) createLocalCollaborationSession(selectedEditor *editor.Editor, dis
 		util.ShowErrorDialog("Unable to start collaboration: " + err.Error())
 		return
 	}
+	generation, _ := selectedEditor.MapViewVersion()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), collaborationActionTimeout)
 		defer cancel()
@@ -390,7 +389,7 @@ func (a *app) createLocalCollaborationSession(selectedEditor *editor.Editor, dis
 				util.ShowErrorDialog("Unable to start collaboration: " + prepareErr.Error())
 				return
 			}
-			attachErr := collabui.AttachPreparedSession(execution, selectedEditor, a.CurrentEditor() == selectedEditor)
+			attachErr := collabui.AttachPreparedSession(execution, selectedEditor, generation, a.CurrentEditor() == selectedEditor)
 			if attachErr == nil {
 				a.collaborationEditor = selectedEditor
 				return
@@ -427,13 +426,14 @@ func (a *app) DoJoinCollaborationSession() {
 					return
 				}
 				imgui.CloseCurrentPopup()
-				go a.joinCollaborationSession(invitation, selectedEditor)
+				generation, _ := selectedEditor.MapViewVersion()
+				go a.joinCollaborationSession(invitation, selectedEditor, generation)
 			}),
 		},
 	})
 }
 
-func (a *app) joinCollaborationSession(invitation collabui.Invitation, selectedEditor *editor.Editor) {
+func (a *app) joinCollaborationSession(invitation collabui.Invitation, selectedEditor *editor.Editor, generation uint64) {
 	timeout := collaborationActionTimeout
 	if invitation.Hosted {
 		timeout = hostedCollaborationActionTimeout
@@ -454,7 +454,7 @@ func (a *app) joinCollaborationSession(invitation collabui.Invitation, selectedE
 			util.ShowErrorDialog("Unable to join collaboration: " + prepareErr.Error())
 			return
 		}
-		attachErr := collabui.AttachPreparedSession(execution, selectedEditor, a.CurrentEditor() == selectedEditor)
+		attachErr := collabui.AttachPreparedSession(execution, selectedEditor, generation, a.CurrentEditor() == selectedEditor)
 		if attachErr == nil {
 			a.collaborationEditor = selectedEditor
 			return

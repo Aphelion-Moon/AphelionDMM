@@ -839,6 +839,66 @@ func TestRecoveryHistoryCompletionKeepsItsEditorOwner(t *testing.T) {
 	}
 }
 
+func TestPreparedAttachmentPreservesEditsMadeDuringConnection(t *testing.T) {
+	for _, change := range []string{"committed", "undone", "closed", "unchanged"} {
+		t.Run(change, func(t *testing.T) {
+			dmmap.PrefabStorage.Free()
+			t.Cleanup(dmmap.PrefabStorage.Free)
+			environment := editorTestEnvironment()
+			mapState := editorTestMap(environment)
+			application := &editorTestApp{commands: command.NewStorage(), environment: environment, paths: dm.NewPathsFilterEmpty()}
+			application.commands.SetStack("test")
+			editor := New(application, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
+			snapshot, err := editor.CollaborationSnapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			document, err := engine.NewDocument(snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := executor.NewLocal(document, editor.actorID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			generation, ready := editor.MapViewVersion()
+			if !ready {
+				t.Fatal("initial attachment target is not ready")
+			}
+			switch change {
+			case "committed", "undone":
+				instance := mapState.Tiles[0].Instances()[2]
+				editor.InstanceReplace(instance, dmmprefab.New(dmmprefab.IdNone, instance.Prefab().Path(), dmvars.Set(instance.Prefab().Vars(), "dir", "4")))
+				editor.CommitOperation("Edit during connection setup")
+				if change == "undone" {
+					application.commands.UndoV("test")
+				}
+			case "closed":
+				editor.Close()
+			}
+			err = collabui.AttachPreparedSession(prepared, editor, generation, true)
+			if change == "unchanged" {
+				if err != nil || editor.executor != prepared {
+					t.Fatal("unchanged target refused attachment", err)
+				}
+				return
+			}
+			if !errors.Is(err, collabui.ErrAttachmentTargetChanged) || editor.executor == prepared {
+				t.Fatal("delayed attachment replaced a changed target", err)
+			}
+			switch change {
+			case "committed":
+				assertEditorDirection(t, mapState, "4")
+				application.commands.UndoV("test")
+				assertEditorDirection(t, mapState, "2")
+			case "undone":
+				application.commands.RedoV("test")
+				assertEditorDirection(t, mapState, "4")
+			}
+		})
+	}
+}
+
 func TestEditorAttachesRemoteExecutorAndAppliesSnapshot(t *testing.T) {
 	dmmap.PrefabStorage.Free()
 	t.Cleanup(dmmap.PrefabStorage.Free)
