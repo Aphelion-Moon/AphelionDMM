@@ -62,14 +62,6 @@ func (projection Projection) Submit(operation model.Operation) (Projection, erro
 	return projection.submitWithHash(operation, acknowledgedHash, err)
 }
 
-func (projection Projection) submitWithHash(operation model.Operation, acknowledgedHash string, hashErr error) (Projection, error) {
-	return projection.submitWithHashMode(operation, acknowledgedHash, hashErr, false)
-}
-
-func (projection Projection) submitWithVerifiedHash(operation model.Operation, acknowledgedHash string, hashErr error) (Projection, error) {
-	return projection.submitWithHashMode(operation, acknowledgedHash, hashErr, true)
-}
-
 // submitWithVerifiedOverlay validates a network-owned operation against the
 // sparse effective view and appends it without cloning or hashing the full
 // acknowledged snapshot. The executor owns the acknowledged snapshot and its
@@ -152,7 +144,7 @@ func (projection Projection) submitWithVerifiedOverlay(operation model.Operation
 	return Projection{Acknowledged: projection.Acknowledged, Pending: pending, acknowledgedHash: projection.acknowledgedHash}, nil
 }
 
-func (projection Projection) submitWithHashMode(operation model.Operation, acknowledgedHash string, hashErr error, allowStaleBase bool) (Projection, error) {
+func (projection Projection) submitWithHash(operation model.Operation, acknowledgedHash string, hashErr error) (Projection, error) {
 	err := hashErr
 	if err != nil {
 		return Projection{}, err
@@ -160,10 +152,7 @@ func (projection Projection) submitWithHashMode(operation model.Operation, ackno
 	if operation.ProtocolVersion != model.ProtocolVersion || operation.DocumentID != projection.Acknowledged.DocumentID || operation.EnvironmentHash != projection.Acknowledged.EnvironmentHash {
 		return Projection{}, fmt.Errorf("operation is incompatible with acknowledged document")
 	}
-	if !allowStaleBase && (operation.BaseRevision != projection.Acknowledged.Revision || operation.BaseMapHash != acknowledgedHash) {
-		return Projection{}, fmt.Errorf("operation base does not match acknowledged revision")
-	}
-	if allowStaleBase && operation.BaseRevision > projection.Acknowledged.Revision {
+	if operation.BaseRevision != projection.Acknowledged.Revision || operation.BaseMapHash != acknowledgedHash {
 		return Projection{}, fmt.Errorf("operation base does not match acknowledged revision")
 	}
 	visible, err := projection.Visible()
@@ -223,10 +212,6 @@ func (projection Projection) acceptWithVerifiedCurrent(accepted model.AcceptedOp
 func (projection Projection) Reject(rejected protocol.OperationRejectedPayload) (Projection, Conflict, error) {
 	acknowledgedHash, err := projection.acknowledgedMapHash()
 	return projection.rejectWithHashMode(rejected, acknowledgedHash, err, true)
-}
-
-func (projection Projection) rejectWithHash(rejected protocol.OperationRejectedPayload, acknowledgedHash string, hashErr error) (Projection, Conflict, error) {
-	return projection.rejectWithHashMode(rejected, acknowledgedHash, hashErr, true)
 }
 
 func (projection Projection) rejectWithVerifiedHash(rejected protocol.OperationRejectedPayload, acknowledgedHash string, hashErr error) (Projection, Conflict, error) {

@@ -143,9 +143,8 @@ func TestCaptureProjectionAndPendingMetadataAvoidExecutorMutex(t *testing.T) {
 		if captureErr == nil && capture.DocumentID() == "" {
 			captureErr = errors.New("capture lost immutable metadata")
 		}
-		if captureErr == nil && !network.HasUnacknowledgedOperations() {
-			// The initial immutable publication has no pending operation, so this
-			// is only a sanity check that the read completed without blocking.
+		if captureErr == nil && network.HasUnacknowledgedOperations() {
+			captureErr = errors.New("initial publication unexpectedly has pending operations")
 		}
 		_ = network.Conflicts()
 		finished <- captureErr
