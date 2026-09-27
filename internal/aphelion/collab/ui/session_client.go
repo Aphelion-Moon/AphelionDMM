@@ -643,11 +643,7 @@ func (client *SessionClient) RebuildConflict(ctx context.Context, operationID mo
 	if err != nil {
 		return err
 	}
-	operation, err := network.BuildConflictRebuild(ctx, operationID)
-	if err != nil {
-		return err
-	}
-	return network.ExecuteAsync(ctx, operation, func(accepted model.AcceptedOperation, executeErr error) {
+	return network.RebuildConflictAsync(ctx, operationID, func(accepted model.AcceptedOperation, executeErr error) {
 		if executeErr == nil {
 			network.DismissConflict(operationID)
 			if capture, captureErr := network.CaptureProjection(context.Background()); captureErr != nil {

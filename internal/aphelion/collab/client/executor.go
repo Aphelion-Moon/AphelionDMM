@@ -154,6 +154,7 @@ type NetworkExecutor struct {
 	sessionID string
 
 	mutex            sync.Mutex
+	conflictRebuilds map[model.OperationID]struct{}
 	projection       Projection
 	pending          map[model.OperationID]chan operationResult
 	accepted         map[model.OperationID]model.AcceptedOperation
@@ -618,6 +619,9 @@ func (network *NetworkExecutor) DiscardConflict(ctx context.Context, operationID
 	}
 	network.mutex.Lock()
 	defer network.mutex.Unlock()
+	if _, rebuilding := network.conflictRebuilds[operationID]; rebuilding {
+		return ProjectionCapture{}, fmt.Errorf("draft is being rebuilt; wait for recovery to finish before discarding it")
+	}
 	index, exists := network.conflictLocked(operationID)
 	if !exists {
 		return ProjectionCapture{}, fmt.Errorf("conflict for operation %q is not retained", operationID)
@@ -632,47 +636,73 @@ func (network *NetworkExecutor) DiscardConflict(ctx context.Context, operationID
 	return capture, nil
 }
 
+// RebuildConflictAsync claims a draft until preparation and submission complete.
+// Discard and duplicate rebuilds must not race with that user-authorized intent.
+func (network *NetworkExecutor) RebuildConflictAsync(ctx context.Context, operationID model.OperationID, complete func(model.AcceptedOperation, error)) error {
+	if complete == nil {
+		return fmt.Errorf("conflict rebuild completion callback is nil")
+	}
+	network.mutex.Lock()
+	if _, rebuilding := network.conflictRebuilds[operationID]; rebuilding {
+		network.mutex.Unlock()
+		return fmt.Errorf("this draft is already being rebuilt")
+	}
+	if network.conflictRebuilds == nil {
+		network.conflictRebuilds = make(map[model.OperationID]struct{})
+	}
+	network.conflictRebuilds[operationID] = struct{}{}
+	network.mutex.Unlock()
+	finish := func(accepted model.AcceptedOperation, err error) {
+		network.mutex.Lock()
+		delete(network.conflictRebuilds, operationID)
+		network.mutex.Unlock()
+		complete(accepted, err)
+	}
+	go func() {
+		operation, err := network.BuildConflictRebuild(ctx, operationID)
+		if err == nil {
+			err = network.ExecuteAsync(ctx, operation, finish)
+		}
+		if err != nil {
+			finish(model.AcceptedOperation{}, err)
+		}
+	}()
+	return nil
+}
+
 func (network *NetworkExecutor) BuildConflictRebuild(ctx context.Context, operationID model.OperationID) (model.Operation, error) {
 	if err := ctx.Err(); err != nil {
 		return model.Operation{}, err
 	}
 	network.mutex.Lock()
-	defer network.mutex.Unlock()
 	index, exists := network.conflictLocked(operationID)
 	if !exists {
+		network.mutex.Unlock()
 		return model.Operation{}, fmt.Errorf("conflict for operation %q is not retained", operationID)
 	}
 	if len(network.projection.Pending) != 0 {
+		network.mutex.Unlock()
 		return model.Operation{}, fmt.Errorf("cannot rebuild conflict while operations are pending")
 	}
 	conflict := network.conflicts[index]
 	newOperationID, err := model.NewOperationID()
 	if err != nil {
+		network.mutex.Unlock()
 		return model.Operation{}, err
 	}
 	baseHash, err := network.projection.verifiedMapHash()
 	if err != nil {
+		network.mutex.Unlock()
 		return model.Operation{}, err
 	}
-	changes := make([]model.TileChange, 0, len(conflict.Draft.Changes))
-	for _, draftChange := range conflict.Draft.Changes {
-		if err := ctx.Err(); err != nil {
-			return model.Operation{}, err
-		}
-		current := network.authorityTiles[draftChange.Coord]
-		if current.Equal(draftChange.After) {
-			continue
-		}
-		changes = append(changes, model.TileChange{
-			Coord:  draftChange.Coord,
-			Before: model.CloneTileState(current),
-			After:  model.CloneTileState(draftChange.After),
-		})
+	// Authority values and retained drafts are replaced, never mutated. Pin
+	// just this footprint with its base before doing comparisons and deep copies
+	// outside reconciliation; reading the mutable authority map later is unsafe.
+	changes := make([]model.TileChange, len(conflict.Draft.Changes))
+	for i, draftChange := range conflict.Draft.Changes {
+		changes[i] = model.TileChange{Coord: draftChange.Coord, Before: network.authorityTiles[draftChange.Coord], After: draftChange.After}
 	}
-	if len(changes) == 0 {
-		return model.Operation{}, fmt.Errorf("rejected intent is already present in the authoritative document")
-	}
-	return model.Operation{
+	operation := model.Operation{
 		ProtocolVersion: model.ProtocolVersion,
 		DocumentID:      network.projection.Acknowledged.DocumentID,
 		ActorID:         network.actor,
@@ -681,8 +711,25 @@ func (network *NetworkExecutor) BuildConflictRebuild(ctx context.Context, operat
 		EnvironmentHash: network.projection.Acknowledged.EnvironmentHash,
 		BaseMapHash:     baseHash,
 		Kind:            model.OperationKindTileChange,
-		Changes:         changes,
-	}, nil
+	}
+	network.mutex.Unlock()
+	changed := 0
+	for _, change := range changes {
+		if err := ctx.Err(); err != nil {
+			return model.Operation{}, err
+		}
+		if change.Before.Equal(change.After) {
+			continue
+		}
+		changes[changed] = model.TileChange{Coord: change.Coord, Before: model.CloneTileState(change.Before), After: model.CloneTileState(change.After)}
+		changed++
+	}
+	if changed == 0 {
+		return model.Operation{}, fmt.Errorf("rejected intent is already present in the authoritative document")
+	}
+	clear(changes[changed:])
+	operation.Changes = changes[:changed]
+	return operation, nil
 }
 
 func (network *NetworkExecutor) DismissConflict(operationID model.OperationID) bool {
