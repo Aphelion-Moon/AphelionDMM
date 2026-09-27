@@ -44,6 +44,12 @@ configuration up to 24 hours), remain in memory, and require fresh browser login
 after expiry or service restart. Guild departure does not revoke an existing login.
 No Discord requests occur during browsing, admission, editing or reconnect.
 
+An optional independent background observer can post session summaries to a
+configured Discord channel. It uses a separate bot token, suppresses mentions,
+verifies the guild, and exposes only Community titles/counts and aggregate Private
+counts. Its failures never gate editing or authentication. See
+[Discord session notifications](../hosting/discord-session-notifications.md).
+
 Browser-start transactions bind single-use state to a Secure, HttpOnly, SameSite=Lax
 cookie. The separate desktop verifier is required to obtain the application token;
 callbacks never return it. The legacy `/v1/auth/begin` alias now requires that same

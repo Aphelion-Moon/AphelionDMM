@@ -6,12 +6,37 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 )
+
+func TestHostedBrowserExplainsKnownConflictsWithoutEchoingServerText(t *testing.T) {
+	for code, want := range map[string]string{
+		"transaction_upgrade_required": "upgrade transaction storage",
+		"session_exists":               "My sessions",
+		"unknown":                      "HTTP 409",
+	} {
+		t.Run(code, func(t *testing.T) {
+			service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"code":"` + code + `","message":"secret-server-detail"}`))
+			}))
+			defer service.Close()
+			client := NewSessionClient(SessionClientConfig{})
+			client.hostedBaseURL = service.URL
+			client.hostedCredential = "secret"
+			client.hostedCredentialExpires = time.Now().Add(time.Hour)
+			err := client.hostedBrowserRequest(context.Background(), client.HostedAccount(), "POST", "/v1/hosted/sessions", nil, nil, nil)
+			if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "secret-server-detail") {
+				t.Fatalf("unexpected conflict explanation: %v", err)
+			}
+		})
+	}
+}
 
 func TestHostedBrowserPreservesOriginAndRejectsStalePage(t *testing.T) {
 	entered := make(chan struct{})

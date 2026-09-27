@@ -32,16 +32,17 @@ type SecretSource struct {
 }
 
 type HostedConfig struct {
-	BindAddress       string          `yaml:"bind_address"`
-	PublicOrigin      string          `yaml:"public_origin"`
-	TrustedProxyCIDRs []string        `yaml:"trusted_proxy_cidrs"`
-	Database          HostedDatabase  `yaml:"database"`
-	AuthProvider      *string         `yaml:"auth_provider,omitempty"`
-	OIDC              HostedOIDC      `yaml:"oidc"`
-	Discord           HostedDiscord   `yaml:"discord"`
-	Limits            HostedLimits    `yaml:"limits"`
-	Telemetry         HostedTelemetry `yaml:"telemetry"`
-	trustedProxies    []*net.IPNet
+	BindAddress          string                      `yaml:"bind_address"`
+	PublicOrigin         string                      `yaml:"public_origin"`
+	TrustedProxyCIDRs    []string                    `yaml:"trusted_proxy_cidrs"`
+	Database             HostedDatabase              `yaml:"database"`
+	AuthProvider         *string                     `yaml:"auth_provider,omitempty"`
+	OIDC                 HostedOIDC                  `yaml:"oidc"`
+	Discord              HostedDiscord               `yaml:"discord"`
+	DiscordNotifications *HostedDiscordNotifications `yaml:"discord_notifications,omitempty"`
+	Limits               HostedLimits                `yaml:"limits"`
+	Telemetry            HostedTelemetry             `yaml:"telemetry"`
+	trustedProxies       []*net.IPNet
 }
 
 type HostedDatabase struct {
@@ -159,6 +160,14 @@ func (config *HostedConfig) validate() error {
 	}
 	if config.Telemetry.Endpoint != "" {
 		if err := validateHTTPSOrigin("telemetry endpoint", config.Telemetry.Endpoint); err != nil {
+			return err
+		}
+	}
+	if config.DiscordNotifications != nil {
+		if !validHostedDecimalID(config.DiscordNotifications.GuildID) || !validHostedDecimalID(config.DiscordNotifications.ChannelID) {
+			return fmt.Errorf("discord notification guild_id and channel_id must be decimal IDs of at most 20 digits")
+		}
+		if err := config.DiscordNotifications.BotToken.validate("Discord notification bot token"); err != nil {
 			return err
 		}
 	}

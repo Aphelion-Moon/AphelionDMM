@@ -141,6 +141,19 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 		return ErrHostedSignInRequired
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode == http.StatusConflict {
+			var conflict struct {
+				Code string `json:"code"`
+			}
+			if json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&conflict) == nil {
+				switch conflict.Code {
+				case "transaction_upgrade_required":
+					return fmt.Errorf("the hosted service needs an operator to upgrade transaction storage before this editor can start a session")
+				case "session_exists":
+					return fmt.Errorf("this map already has a hosted session; open Browse Sessions and choose My sessions to rejoin it")
+				}
+			}
+		}
 		return fmt.Errorf("hosted service returned HTTP %d; refresh and check your access", response.StatusCode)
 	}
 	if result != nil {
