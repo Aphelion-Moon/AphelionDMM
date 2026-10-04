@@ -67,7 +67,11 @@ func UpdateFontsTexture() {
 }
 
 func Render(drawData imgui.DrawData) {
-	if len(drawData.CommandLists()) <= 0 {
+	// APHELION EDIT ADDITION START - RETAINED IMGUI VERTEX ARRAY
+	commandLists := drawData.CommandLists()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - RETAINED IMGUI VERTEX ARRAY - ORIGINAL: if len(drawData.CommandLists()) <= 0 {
+	if len(commandLists) <= 0 {
 		return
 	}
 
@@ -86,7 +90,11 @@ func Render(drawData imgui.DrawData) {
 	backupGlState()
 	bind(&displayPos, &displaySize, int32(fbWidth), int32(fbHeight))
 
-	for _, list := range drawData.CommandLists() {
+	// APHELION EDIT ADDITION START - RETAINED IMGUI VERTEX ARRAY
+	hasUserCallback := false
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - RETAINED IMGUI VERTEX ARRAY - ORIGINAL: for _, list := range drawData.CommandLists() {
+	for _, list := range commandLists {
 		var indexBufferOffset uintptr
 
 		vertexBuffer, vertexBufferSize := list.VertexBuffer()
@@ -105,6 +113,9 @@ func Render(drawData imgui.DrawData) {
 			clipRectW := (clipRect.W - displayPos.Y) * fbScale.Y
 
 			if cmd.HasUserCallback() {
+				// APHELION EDIT ADDITION START - RETAINED IMGUI VERTEX ARRAY
+				hasUserCallback = true
+				// APHELION EDIT ADDITION END
 				cmd.CallUserCallback(list)
 			} else if clipRectX < fbWidth && clipRectY < fbHeight && clipRectZ > 0 && clipRectW > 0 {
 				gl.Scissor(int32(clipRectX), int32(fbHeight-clipRectW), int32(clipRectZ-clipRectX), int32(clipRectW-clipRectY))
@@ -117,11 +128,20 @@ func Render(drawData imgui.DrawData) {
 		}
 	}
 
-	unbind()
+	// APHELION EDIT ADDITION START - RETAINED IMGUI VERTEX ARRAY
+	// Callbacks may change vertex-array state. Do not carry those changes into
+	// another frame; callback-free draws only replace the attached buffer data.
+	if hasUserCallback {
+		unbind()
+	}
+	// APHELION EDIT ADDITION END
 	restoreModifiedState()
 }
 
 func DisposeImGuiGL() {
+	// APHELION EDIT ADDITION START - RETAINED IMGUI VERTEX ARRAY
+	unbind()
+	// APHELION EDIT ADDITION END
 	gl.DeleteBuffers(1, &gVboHandle)
 	gl.DeleteBuffers(1, &gElementsHandle)
 	gl.DeleteProgram(gShaderHandle)
@@ -244,7 +264,13 @@ func toggleGlMode(mode uint32, state bool) {
 }
 
 func bind(displayPos, displaySize *imgui.Vec2, fbWidth, fbHeight int32) {
-	gl.GenVertexArrays(1, &gVaoHandle)
+	// APHELION EDIT ADDITION START - RETAINED IMGUI VERTEX ARRAY
+	// This backend owns one current context between InitImGuiGL and DisposeImGuiGL.
+	fresh := gVaoHandle == 0
+	if fresh {
+		gl.GenVertexArrays(1, &gVaoHandle)
+	}
+	// APHELION EDIT ADDITION END
 
 	gl.Enable(gl.BLEND)
 	gl.BlendEquation(gl.FUNC_ADD)
@@ -280,6 +306,12 @@ func bind(displayPos, displaySize *imgui.Vec2, fbWidth, fbHeight int32) {
 	gl.BindVertexArray(gVaoHandle)
 
 	gl.BindBuffer(gl.ARRAY_BUFFER, gVboHandle)
+	// APHELION EDIT ADDITION START - RETAINED IMGUI VERTEX ARRAY
+	// The index binding and attribute layout belong to the retained VAO.
+	if !fresh {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, gElementsHandle)
 	gl.EnableVertexAttribArray(uint32(gAttributeLocationVtxPos))
 	gl.EnableVertexAttribArray(uint32(gAttributeLocationVtxUV))
@@ -300,4 +332,7 @@ func bind(displayPos, displaySize *imgui.Vec2, fbWidth, fbHeight int32) {
 
 func unbind() {
 	gl.DeleteVertexArrays(1, &gVaoHandle)
+	// APHELION EDIT ADDITION START - RETAINED IMGUI VERTEX ARRAY
+	gVaoHandle = 0
+	// APHELION EDIT ADDITION END
 }
