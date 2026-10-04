@@ -205,3 +205,48 @@ func TestGrabEscapeCancelsDuringDrag(t *testing.T) {
 		t.Fatal("Escape did not cancel the active drag through the tool frame handler")
 	}
 }
+
+func TestCoalescedDragUsesGestureOwnerAndValidPose(t *testing.T) {
+	grab, e := lifecycleFixture(t)
+	e.m.MaxY = 4
+	grab.SelectArea([]util.Point{{X: 1, Y: 1, Z: 1}, {X: 2, Y: 1, Z: 1}})
+	grab.onStart(util.Point{X: 1, Y: 1, Z: 1})
+	beforeActive, beforeStarted, beforeName, beforeCoord := active, startedTool, selectedToolName, oldCoord
+	t.Cleanup(func() {
+		active, startedTool, selectedToolName, oldCoord = beforeActive, beforeStarted, beforeName, beforeCoord
+	})
+	active, startedTool, selectedToolName = true, grab, TNDelete
+	if CoalescibleSelectionDrag(e) != grab {
+		t.Fatal("temporary tool replaced the actual drag owner")
+	}
+	if CoalescibleSelectionDrag(&lifecycleEditor{}) != nil {
+		t.Fatal("another editor acquired the drag")
+	}
+	if _, err := grab.previewMove.Rotate(true, 4, 4, 1); err != nil {
+		t.Fatal(err)
+	}
+	beforeBounds, beforeShift := grab.previewMove.Bounds(), grab.previewMove.Shift()
+	for _, point := range []util.Point{{X: 4, Y: 4, Z: 1}, {X: 1, Y: 1, Z: 2}, {X: 0, Y: 1, Z: 1}} {
+		if grab.ApplyCoalescedDragPoint(point) {
+			t.Fatal("accepted invalid rotated footprint", point)
+		}
+	}
+	if grab.previewMove.Bounds() != beforeBounds || grab.previewMove.Shift() != beforeShift {
+		t.Fatal("rejected candidate changed the live pose")
+	}
+	point := util.Point{X: 4, Y: 3, Z: 1}
+	oldCoord = point
+	if !grab.ApplyCoalescedDragPoint(point) || grab.Bounds() != (util.Bounds{X1: 4, Y1: 3, X2: 4, Y2: 4}) {
+		t.Fatal("cursor deduplication skipped a valid pose")
+	}
+	startedTool = tools[TNDelete]
+	selectedToolName = TNGrab
+	if CoalescibleSelectionDrag(e) != nil {
+		t.Fatal("brush gesture became coalescible through selected Grab")
+	}
+	startedTool = grab
+	grab.previewMove.Finish()
+	if CoalescibleSelectionDrag(e) != nil {
+		t.Fatal("closed move retained coalesced input")
+	}
+}

@@ -545,3 +545,37 @@ func (t *ToolGrab) beginSelectionMovePreview() (*editing.SelectionMove, error) {
 }
 
 // APHELION EDIT ADDITION END
+
+// APHELION EDIT ADDITION START - COALESCED SELECTION INPUT
+// Only a held selection translation is independent of its intervening pointer
+// samples. Use the gesture owner even if a temporary tool is currently selected.
+func CoalescibleSelectionDrag(owner editor) *ToolGrab {
+	if !OwnsGesture(owner) {
+		return nil
+	}
+	grab, ok := startedTool.(*ToolGrab)
+	if !ok || !grab.dragging || grab.mode != tSelectModeMoveArea ||
+		grab.previewMove == nil || grab.previewMove.Closed() ||
+		grab.areaQuery != nil || grab.placement != nil {
+		return nil
+	}
+	return grab
+}
+
+// ApplyCoalescedDragPoint retains the latest valid absolute destination. Update
+// changes only bounds and shift, so a value copy validates without changing the
+// live pose or copying its immutable selection geometry.
+func (t *ToolGrab) ApplyCoalescedDragPoint(coord util.Point) bool {
+	pose := *t.previewMove
+	dmm := ed.Dmm()
+	if _, _, err := pose.Update(coord.Minus(t.startMovePoint), dmm.MaxX, dmm.MaxY, coord.Z); err != nil {
+		return false
+	}
+	// oldCoord can name a previously rejected cursor position which becomes
+	// valid after rotation. Deliver this pose even if the cursor is unchanged.
+	t.onMove(coord)
+	oldCoord = coord
+	return true
+}
+
+// APHELION EDIT ADDITION END

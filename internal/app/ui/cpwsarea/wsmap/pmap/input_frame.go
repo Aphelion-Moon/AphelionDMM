@@ -58,6 +58,7 @@ func (p *PaneMap) ResolveCanvasInput() {
 	}
 	r := p.canvas.Render()
 	r.BeginUpdateBatch()
+	p.coalesceSelectionDragSamples()
 	started := time.Now()
 	consumed := 0
 	steps := 0
@@ -137,6 +138,27 @@ func (p *PaneMap) publishPointerPresence() {
 		selection = &protocol.PresenceSelection{Min: model.Coord{X: int(bounds.X1), Y: int(bounds.Y1), Z: p.activeLevel}, Max: model.Coord{X: int(bounds.X2), Y: int(bounds.Y2), Z: p.activeLevel}}
 	}
 	p.app.PublishCollaborationPresence(model.Coord{X: hovered.X, Y: hovered.Y, Z: hovered.Z}, selection)
+}
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT ADDITION START - COALESCED SELECTION INPUT
+func (p *PaneMap) coalesceSelectionDragSamples() {
+	drag := tools.CoalescibleSelectionDrag(p.editor)
+	if drag == nil {
+		return
+	}
+	// Resolve against this frame's camera. A trailing invalid destination must
+	// retain the last valid pose, just as ordered delivery did. No picking or
+	// authority mutation is needed to discard obsolete absolute positions.
+	for i := len(p.pointerSamples) - 1; i >= 0; i-- {
+		point := p.pointerSamples[i]
+		p.updateCanvasMousePosition(int(point.X), int(point.Y))
+		if !p.canvasState.HoverOutOfBounds() && drag.ApplyCoalescedDragPoint(p.canvasState.HoveredTile()) {
+			break
+		}
+	}
+	p.pointerSamples = p.pointerSamples[:0]
 }
 
 // APHELION EDIT ADDITION END
