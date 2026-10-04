@@ -13,6 +13,7 @@ import (
 	"sort"
 
 	"sdmm/internal/aphelion/diskversion"
+	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/util"
 )
 
@@ -180,6 +181,8 @@ func (d DmmData) semanticDigest() ([sha256.Size]byte, error) {
 	// SHA-256 writes cannot fail; the buffer batches small fields and long strings.
 	digest := sha256.New()
 	encoded := bufio.NewWriter(digest)
+	prefabEncodings := make(map[*dmmprefab.Prefab][]byte)
+	cachedBytes := 0
 	writeSaveUint64(encoded, uint64(d.MaxX))
 	writeSaveUint64(encoded, uint64(d.MaxY))
 	writeSaveUint64(encoded, uint64(d.MaxZ))
@@ -200,9 +203,28 @@ func (d DmmData) semanticDigest() ([sha256.Size]byte, error) {
 					if prefab == nil || prefab.Vars() == nil {
 						return [sha256.Size]byte{}, fmt.Errorf("key %q contains nil prefab data", key)
 					}
-					writeSaveString(encoded, prefab.Path())
+					cached, seen := prefabEncodings[prefab]
+					if cached != nil {
+						_, _ = encoded.Write(cached)
+						continue
+					}
 					names := append([]string(nil), prefab.Vars().Iterate()...)
 					sort.Strings(names)
+					if !seen && len(prefabEncodings) < 256 {
+						cached, err := encodeSavePrefab(prefab, names, (64<<10)-cachedBytes)
+						if err != nil {
+							return [sha256.Size]byte{}, err
+						}
+						// Nil remembers a payload that cannot fit, avoiding repeated
+						// sizing attempts. Scratch stays independent of map size.
+						prefabEncodings[prefab] = cached
+						if cached != nil {
+							cachedBytes += len(cached)
+							_, _ = encoded.Write(cached)
+							continue
+						}
+					}
+					writeSaveString(encoded, prefab.Path())
 					writeSaveUint64(encoded, uint64(len(names)))
 					for _, name := range names {
 						value, exists := prefab.Vars().Value(name)
@@ -220,6 +242,42 @@ func (d DmmData) semanticDigest() ([sha256.Size]byte, error) {
 	var sum [sha256.Size]byte
 	_ = digest.Sum(sum[:0])
 	return sum, nil
+}
+
+// encodeSavePrefab is request-local: no data is reused across independent
+// validation oracles or later mutations. Oversized payloads use the stream path.
+func encodeSavePrefab(prefab *dmmprefab.Prefab, names []string, available int) ([]byte, error) {
+	if available < 16 || len(prefab.Path()) > available-16 {
+		return nil, nil
+	}
+	size := 16 + len(prefab.Path()) // Path length and variable count.
+	for _, name := range names {
+		value, exists := prefab.Vars().Value(name)
+		if !exists {
+			return nil, fmt.Errorf("variable %q on %q has no value", name, prefab.Path())
+		}
+		if available-size < 16 || len(name) > available-size-16 {
+			return nil, nil
+		}
+		size += 16 + len(name)
+		if len(value) > available-size {
+			return nil, nil
+		}
+		size += len(value)
+	}
+	encoded := make([]byte, 0, size)
+	encoded = appendSaveString(encoded, prefab.Path())
+	encoded = binary.BigEndian.AppendUint64(encoded, uint64(len(names)))
+	for _, name := range names {
+		value, _ := prefab.Vars().Value(name)
+		encoded = appendSaveString(encoded, name)
+		encoded = appendSaveString(encoded, value)
+	}
+	return encoded, nil
+}
+
+func appendSaveString(encoded []byte, value string) []byte {
+	return append(binary.BigEndian.AppendUint64(encoded, uint64(len(value))), value...)
 }
 
 func writeSaveString(buffer *bufio.Writer, value string) {

@@ -65,7 +65,9 @@ func repeatedDigestMap(size int, prefabs Prefabs) DmmData {
 }
 
 func TestSemanticDigestScratchDoesNotGrowWithMap(t *testing.T) {
-	prefab := dmmprefab.New(dmmprefab.IdNone, "/turf/test", (&dmvars.MutableVariables{}).ToImmutable())
+	// Repeated variable-bearing prefabs are the common Save path, including
+	// the independent intended-input dictionary with a distinct key per cell.
+	prefab := fixtureData("").Dictionary["a"][2]
 	small := repeatedDigestMap(1, Prefabs{prefab})
 	large := repeatedDigestMap(128, Prefabs{prefab})
 	allocations := func(data DmmData) float64 {
@@ -112,6 +114,50 @@ func BenchmarkValidateSavedPair(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if err := ValidateSavedPair(path, data, data); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func TestSemanticDigestMixedPrefabPayloads(t *testing.T) {
+	data := DmmData{MaxX: 302, MaxY: 1, MaxZ: 1, Grid: make(DataGrid), Dictionary: make(DataDictionary)}
+	for index := 0; index < 300; index++ {
+		vars := &dmvars.MutableVariables{}
+		vars.Put("b", "\"quoted value\"")
+		vars.Put("a", fmt.Sprint(index))
+		if index == 20 {
+			vars.Put("payload", "\""+strings.Repeat("x", 70<<10)+"\"")
+		}
+		key := Key(fmt.Sprint(index))
+		data.Dictionary[key] = Prefabs{dmmprefab.New(0, "/obj/mixed", vars.ToImmutable())}
+		data.Grid[util.Point{X: index + 1, Y: 1, Z: 1}] = key
+	}
+	data.Grid[util.Point{X: 301, Y: 1, Z: 1}] = "0"
+	data.Grid[util.Point{X: 302, Y: 1, Z: 1}] = "20"
+	got, err := data.semanticDigest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Independently reproduced from explicit big-endian fields and UTF-8 bytes.
+	const want = "87fa63806eed240716c6cd82345b17eec08f90e0c2883b274ea973e8f777e5fd"
+	if fmt.Sprintf("%x", got) != want {
+		t.Fatalf("mixed prefab digest=%x, want %s", got, want)
+	}
+}
+
+func BenchmarkSemanticDigestUniquePrefabs(b *testing.B) {
+	data := repeatedDigestMap(64, nil)
+	for point := range data.Grid {
+		key := Key(fmt.Sprintf("%d:%d", point.X, point.Y))
+		vars := &dmvars.MutableVariables{}
+		vars.Put("value", string(key))
+		data.Grid[point] = key
+		data.Dictionary[key] = Prefabs{dmmprefab.New(0, "/obj/unique", vars.ToImmutable())}
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := data.semanticDigest(); err != nil {
 			b.Fatal(err)
 		}
 	}
