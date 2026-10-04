@@ -1,10 +1,39 @@
 package render
 
 import (
+	"sdmm/internal/aphelion/rendercache"
 	"sdmm/internal/aphelion/resources"
+	"sdmm/internal/app/render/brush"
 	"sdmm/internal/app/render/bucket"
 	"testing"
 )
+
+func TestGeometryEvictionPreservesOtherLevelSubmissionsAndPreparation(t *testing.T) {
+	m := levelBuildTestMap(1, 1, 2)
+	r := &Render{Camera: newCamera(), bucket: bucket.New(), retained: rendercache.New()}
+	keys := make([]rendercache.Key, 2)
+	for z := 1; z <= 2; z++ {
+		r.bucket.UpdateLevel(m, z, nil)
+		for _, c := range r.bucket.Level(z).Chunks {
+			keys[z-1] = rendercache.Key{Chunk: c}
+		}
+		r.retained.Put(keys[z-1], rendercache.Versions{}, &brush.Submission{})
+		r.queueRetainedPreparation(keys[z-1], rendercache.Versions{}, 0)
+	}
+	r.evictGeometry(1)
+	if _, found := r.retained.Get(keys[1], rendercache.Versions{}); !found {
+		t.Fatal("evicting one level discarded another level's retained submission")
+	}
+	if _, found := r.retained.Get(keys[0], rendercache.Versions{}); found || !r.retained.HasRetired() {
+		t.Fatal("evicted level's submission was not retired")
+	}
+	if len(r.retainedPending) != 1 || r.retainedPending[0].key != keys[1] || len(r.retainedQueued) != 1 {
+		t.Fatal("eviction did not preserve only the other level's queued preparation")
+	}
+	if r.bucket.Level(1) != nil || r.bucket.Level(2) == nil {
+		t.Fatal("wrong level geometry was dropped")
+	}
+}
 
 func TestGeometryPressureEvictsOnlyCacheAndRequeues(t *testing.T) {
 	previous, owners := geometryCapacity, geometryOwners

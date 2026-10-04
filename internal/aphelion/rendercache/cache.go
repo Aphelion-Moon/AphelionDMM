@@ -191,6 +191,20 @@ func (c *Cache) EvictOldest() bool {
 	return true
 }
 
+// InvalidateChunks applies the same retirement rule to one evicted geometry
+// set, preserving retained submissions that belong to other levels.
+func (c *Cache) InvalidateChunks(chunks map[*chunk.Chunk]struct{}) {
+	if c == nil {
+		return
+	}
+	for key, element := range c.entries {
+		if _, found := chunks[key.Chunk]; found {
+			c.stats.Invalidations++
+			c.remove(key, element)
+		}
+	}
+}
+
 // Clear drops logical entries immediately and defers GPU deletion to a GL owner.
 func (c *Cache) Clear() {
 	if c == nil {

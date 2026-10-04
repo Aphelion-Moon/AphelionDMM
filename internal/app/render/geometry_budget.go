@@ -30,7 +30,23 @@ func (r *Render) releaseGeometry() {
 
 func (r *Render) evictGeometry(z int) {
 	// Retained submissions reference these chunks; drop them before requeueing.
-	r.clearRetainedScene()
+	if level := r.bucket.Level(z); level != nil {
+		chunks := make(map[*chunk.Chunk]struct{}, len(level.Chunks))
+		for _, c := range level.Chunks {
+			chunks[c] = struct{}{}
+		}
+		r.retained.InvalidateChunks(chunks)
+		kept := r.retainedPending[:0]
+		for _, job := range r.retainedPending {
+			if _, evicted := chunks[job.key.Chunk]; evicted {
+				delete(r.retainedQueued, job.key)
+			} else {
+				kept = append(kept, job)
+			}
+		}
+		clear(r.retainedPending[len(kept):])
+		r.retainedPending = kept
+	}
 	if entry := r.geometry[z]; entry != nil {
 		entry.lease.Release()
 		delete(r.geometry, z)
