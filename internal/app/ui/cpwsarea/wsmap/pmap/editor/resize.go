@@ -32,7 +32,7 @@ func (e *Editor) ResizeMap(x, y, z int) error {
 		return err
 	}
 	local := e.executor.(*executor.Local)
-	before, err := local.Snapshot(context.Background())
+	before, beforeMetadata, err := local.SnapshotWithMetadata(context.Background())
 	if err != nil {
 		return err
 	}
@@ -61,16 +61,12 @@ func (e *Editor) ResizeMap(x, y, z int) error {
 	if err != nil {
 		return err
 	}
-	beforeHash, err := before.Hash()
+	afterMetadata, err := next.Metadata(context.Background())
 	if err != nil {
 		return err
 	}
-	afterHash, err := after.Hash()
-	if err != nil {
-		return err
-	}
-	previous := resizeCheckpoint{execution: local, historyGeneration: e.historyGeneration, boundaryHash: beforeHash}
-	following := resizeCheckpoint{execution: next, boundaryHash: afterHash}
+	previous := resizeCheckpoint{execution: local, historyGeneration: e.historyGeneration, boundaryHash: beforeMetadata.MapHash}
+	following := resizeCheckpoint{execution: next, boundaryHash: afterMetadata.MapHash}
 	if err := e.installResizeCheckpoint(previous, &following); err != nil {
 		return err
 	}
@@ -94,26 +90,18 @@ func (e *Editor) installResizeCheckpoint(expected resizeCheckpoint, target *resi
 	if e.historyGeneration != expected.historyGeneration || !e.CanChangeMapSize() {
 		return fmt.Errorf("map resize belongs to an inactive local history or unfinished edit")
 	}
-	current, err := e.executor.Snapshot(context.Background())
+	current, err := e.executor.(*executor.Local).Metadata(context.Background())
 	if err != nil {
 		return err
 	}
-	currentHash, err := current.Hash()
-	if err != nil {
-		return err
-	}
-	if currentHash != expected.boundaryHash {
+	if current.MapHash != expected.boundaryHash {
 		return fmt.Errorf("map changed since the resize history boundary")
 	}
-	snapshot, err := target.execution.Snapshot(context.Background())
+	snapshot, targetMetadata, err := target.execution.SnapshotWithMetadata(context.Background())
 	if err != nil {
 		return err
 	}
-	targetHash, err := snapshot.Hash()
-	if err != nil {
-		return err
-	}
-	if targetHash != target.boundaryHash {
+	if targetMetadata.MapHash != target.boundaryHash {
 		return fmt.Errorf("retained resize history changed while inactive")
 	}
 	environment := e.app.LoadedEnvironment()
