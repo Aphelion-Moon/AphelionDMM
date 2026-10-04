@@ -1,11 +1,13 @@
 package dmmsave
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"sdmm/internal/aphelion/diskversion"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
@@ -16,33 +18,42 @@ import (
 
 func TestSaveRejectsFaultyKeyAllocation(t *testing.T) {
 	for _, format := range []Format{FormatDM, FormatTGM} {
-		t.Run(fmt.Sprint(format), func(t *testing.T) {
-			sp := validationProcess(t, format)
-			sp.handleReusedKeys()
-			if err := sp.handleLocationsWithoutKeys(); err != nil {
-				t.Fatal(err)
-			}
-			// Simulate a serializer allocator bug after independent input capture.
-			sp.output.Grid[util.Point{X: 2, Y: 1, Z: 1}] = sp.output.Grid[util.Point{X: 1, Y: 1, Z: 1}]
-			// The lower serialization guard accepts this internally consistent but
-			// wrong allocation. Only the independent expected input can reject it.
-			control := *sp.output
-			control.Filepath = filepath.Join(filepath.Dir(sp.output.Filepath), "corrupt-control.dmm")
-			if err := control.Save(); err != nil {
-				t.Fatalf("control is not a valid serialized map: %v", err)
-			}
-			if err := sp.save(); err == nil {
-				t.Fatal("faulty key assignment replaced destination")
-			}
-			got, err := os.ReadFile(sp.output.Filepath)
-			if err != nil || string(got) != "original target" {
-				t.Fatalf("target changed: %q, %v", got, err)
-			}
-			stages, err := filepath.Glob(filepath.Join(filepath.Dir(sp.output.Filepath), ".*.tmp-*"))
-			if err != nil || len(stages) != 0 {
-				t.Fatalf("staging files remain: %v %v", stages, err)
-			}
-		})
+		for _, owned := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%d/owned=%t", format, owned), func(t *testing.T) {
+				sp := validationProcess(t, format)
+				if owned {
+					var err error
+					sp, err = makeOwnedSaveProcess(Config{Format: format}, sp.dme, sp.dmm, sp.output.Filepath)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				sp.handleReusedKeys()
+				if err := sp.handleLocationsWithoutKeys(); err != nil {
+					t.Fatal(err)
+				}
+				// Simulate a serializer allocator bug after independent input capture.
+				sp.output.Grid[util.Point{X: 2, Y: 1, Z: 1}] = sp.output.Grid[util.Point{X: 1, Y: 1, Z: 1}]
+				// The lower serialization guard accepts this internally consistent but
+				// wrong allocation. Only the independent expected input can reject it.
+				control := *sp.output
+				control.Filepath = filepath.Join(filepath.Dir(sp.output.Filepath), "corrupt-control.dmm")
+				if err := control.Save(); err != nil {
+					t.Fatalf("control is not a valid serialized map: %v", err)
+				}
+				if err := sp.save(); err == nil {
+					t.Fatal("faulty key assignment replaced destination")
+				}
+				got, err := os.ReadFile(sp.output.Filepath)
+				if err != nil || string(got) != "original target" {
+					t.Fatalf("target changed: %q, %v", got, err)
+				}
+				stages, err := filepath.Glob(filepath.Join(filepath.Dir(sp.output.Filepath), ".*.tmp-*"))
+				if err != nil || len(stages) != 0 {
+					t.Fatalf("staging files remain: %v %v", stages, err)
+				}
+			})
+		}
 	}
 }
 
@@ -78,25 +89,25 @@ func validationProcess(t *testing.T, format Format) *saveProcess {
 func TestSaveValidationPreservesRawOverridesAndSanitizeChoice(t *testing.T) {
 	for _, format := range []Format{FormatDM, FormatTGM} {
 		for _, sanitize := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%d/%t", format, sanitize), func(t *testing.T) {
-				sp := validationProcess(t, format)
-				vars := &dmvars.MutableVariables{}
-				vars.Put("dir", "2")
-				vars.Put("raw", `list("a" = 12)`)
-				sp.dmm.Tiles[0].Instances()[0].SetPrefab(dmmprefab.New(0, "/obj/one", vars.ToImmutable()))
-				// Unknown type: even sanitize=true must preserve opaque overrides.
-				if err := SaveV(sp.dme, sp.dmm, sp.output.Filepath, Config{Format: format, SanitizeVariables: sanitize}); err != nil {
-					t.Fatal(err)
-				}
-				got, err := dmmdata.New(sp.output.Filepath)
-				if err != nil {
-					t.Fatal(err)
-				}
-				prefab := got.Dictionary[got.Grid[util.Point{X: 1, Y: 1, Z: 1}]][0]
-				if prefab.Vars().ValueV("raw", "") != `list("a" = 12)` || prefab.Vars().ValueV("dir", "") != "2" {
-					t.Fatal("unknown raw overrides changed")
-				}
-			})
+			for _, owned := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%d/%t/owned=%t", format, sanitize, owned), func(t *testing.T) {
+					sp := validationProcess(t, format)
+					vars := &dmvars.MutableVariables{}
+					vars.Put("dir", "2")
+					vars.Put("raw", `list("a" = 12)`)
+					sp.dmm.Tiles[0].Instances()[0].SetPrefab(dmmprefab.New(0, "/obj/one", vars.ToImmutable()))
+					// Unknown type: even sanitize=true must preserve opaque overrides.
+					saveValidationMap(t, sp, Config{Format: format, SanitizeVariables: sanitize}, owned)
+					got, err := dmmdata.New(sp.output.Filepath)
+					if err != nil {
+						t.Fatal(err)
+					}
+					prefab := got.Dictionary[got.Grid[util.Point{X: 1, Y: 1, Z: 1}]][0]
+					if prefab.Vars().ValueV("raw", "") != `list("a" = 12)` || prefab.Vars().ValueV("dir", "") != "2" {
+						t.Fatal("unknown raw overrides changed")
+					}
+				})
+			}
 		}
 	}
 }
@@ -104,27 +115,74 @@ func TestSaveValidationPreservesRawOverridesAndSanitizeChoice(t *testing.T) {
 func TestSaveValidationHonorsKnownDefaultSanitization(t *testing.T) {
 	for _, format := range []Format{FormatDM, FormatTGM} {
 		for _, sanitize := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%d/%t", format, sanitize), func(t *testing.T) {
-				sp := validationProcess(t, format)
-				vars := &dmvars.MutableVariables{}
-				vars.Put("dir", "2")
-				sp.dme.Objects = map[string]*dmenv.Object{"/obj/one": {Path: "/obj/one", Vars: vars.ToImmutable()}}
-				sp.dmm.Tiles[0].Instances()[0].SetPrefab(dmmprefab.New(0, "/obj/one", vars.ToImmutable()))
-				if err := SaveV(sp.dme, sp.dmm, sp.output.Filepath, Config{Format: format, SanitizeVariables: sanitize}); err != nil {
-					t.Fatal(err)
-				}
-				got, err := dmmdata.New(sp.output.Filepath)
-				if err != nil {
-					t.Fatal(err)
-				}
-				_, exists := got.Dictionary[got.Grid[util.Point{X: 1, Y: 1, Z: 1}]][0].Vars().Value("dir")
-				if exists == sanitize {
-					t.Fatalf("sanitize=%t, override exists=%t", sanitize, exists)
-				}
-				if sp.dmm.Tiles[0].Instances()[0].Prefab().Vars().Len() != 1 {
-					t.Fatal("save mutated input")
-				}
-			})
+			for _, owned := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%d/%t/owned=%t", format, sanitize, owned), func(t *testing.T) {
+					sp := validationProcess(t, format)
+					vars := &dmvars.MutableVariables{}
+					vars.Put("dir", "2")
+					sp.dme.Objects = map[string]*dmenv.Object{"/obj/one": {Path: "/obj/one", Vars: vars.ToImmutable()}}
+					sp.dmm.Tiles[0].Instances()[0].SetPrefab(dmmprefab.New(0, "/obj/one", vars.ToImmutable()))
+					saveValidationMap(t, sp, Config{Format: format, SanitizeVariables: sanitize}, owned)
+					got, err := dmmdata.New(sp.output.Filepath)
+					if err != nil {
+						t.Fatal(err)
+					}
+					_, exists := got.Dictionary[got.Grid[util.Point{X: 1, Y: 1, Z: 1}]][0].Vars().Value("dir")
+					if exists == sanitize {
+						t.Fatalf("sanitize=%t, override exists=%t", sanitize, exists)
+					}
+					if !owned && sp.dmm.Tiles[0].Instances()[0].Prefab().Vars().Len() != 1 {
+						t.Fatal("save mutated input")
+					}
+				})
+			}
 		}
+	}
+}
+
+func saveValidationMap(t *testing.T, sp *saveProcess, cfg Config, owned bool) {
+	t.Helper()
+	if !owned {
+		if err := SaveV(sp.dme, sp.dmm, sp.output.Filepath, cfg); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	expected, err := diskversion.Capture(sp.output.Filepath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := SaveOwnedVWithDiskState(sp.dme, sp.dmm, sp.output.Filepath, cfg, expected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !saved.Exists() {
+		t.Fatal("save returned an absent disk state")
+	}
+	if err := saved.Check(sp.output.Filepath); err != nil {
+		t.Fatalf("saved disk state does not match destination: %v", err)
+	}
+}
+
+func TestSaveOwnedRejectsChangedDestination(t *testing.T) {
+	sp := validationProcess(t, FormatTGM)
+	expected, err := diskversion.Capture(sp.output.Filepath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const external = "external replacement"
+	if err := os.WriteFile(sp.output.Filepath, []byte(external), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SaveOwnedVWithDiskState(sp.dme, sp.dmm, sp.output.Filepath, sp.cfg, expected); !errors.Is(err, diskversion.ErrConflict) {
+		t.Fatalf("stale destination returned %v", err)
+	}
+	got, err := os.ReadFile(sp.output.Filepath)
+	if err != nil || string(got) != external {
+		t.Fatalf("conflict changed destination: %q, %v", got, err)
+	}
+	stages, err := filepath.Glob(filepath.Join(filepath.Dir(sp.output.Filepath), ".*.tmp-*"))
+	if err != nil || len(stages) != 0 {
+		t.Fatalf("staging files remain: %v %v", stages, err)
 	}
 }

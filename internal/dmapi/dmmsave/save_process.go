@@ -40,7 +40,13 @@ type saveProcess struct {
 func makeSaveProcess(cfg Config, dme *dmenv.Dme, dmm *dmmap.Dmm, path string) (*saveProcess, error) {
 	// Copy the dmm to avoid unneeded modifications.
 	dmmCopy := dmm.Copy()
-	dmm = &dmmCopy
+	// APHELION EDIT CHANGE - SAVE_OWNERSHIP - ORIGINAL: dmm = &dmmCopy
+	return makeOwnedSaveProcess(cfg, dme, &dmmCopy, path)
+}
+
+// APHELION EDIT ADDITION START - SAVE_OWNERSHIP
+func makeOwnedSaveProcess(cfg Config, dme *dmenv.Dme, dmm *dmmap.Dmm, path string) (*saveProcess, error) {
+	// APHELION EDIT ADDITION END
 
 	initial, err := dmmdata.New(dmm.Backup)
 	if err != nil {

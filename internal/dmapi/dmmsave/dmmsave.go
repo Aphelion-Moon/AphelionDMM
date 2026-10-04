@@ -24,22 +24,34 @@ func SaveWithDiskState(dme *dmenv.Dme, dmm *dmmap.Dmm, cfg Config, expected disk
 }
 
 func SaveVWithDiskState(dme *dmenv.Dme, dmm *dmmap.Dmm, path string, cfg Config, expected diskversion.State) (diskversion.State, error) {
-	return saveV(dme, dmm, path, cfg, &expected)
+	return saveV(dme, dmm, path, cfg, &expected, false)
+}
+
+// SaveOwnedVWithDiskState consumes a private map without copying its tiles and
+// instances. The caller must relinquish access to that graph, including on error:
+// sanitization may mutate it before validation or disk replacement fails.
+// Use SaveVWithDiskState for maps shared with the editor or other readers.
+func SaveOwnedVWithDiskState(dme *dmenv.Dme, dmm *dmmap.Dmm, path string, cfg Config, expected diskversion.State) (diskversion.State, error) {
+	return saveV(dme, dmm, path, cfg, &expected, true)
 }
 
 // APHELION EDIT ADDITION END
 
 // APHELION EDIT CHANGE - ATOMIC_SAVE - ORIGINAL: func SaveV(dme *dmenv.Dme, dmm *dmmap.Dmm, path string, cfg Config)
 func SaveV(dme *dmenv.Dme, dmm *dmmap.Dmm, path string, cfg Config) error {
-	_, err := saveV(dme, dmm, path, cfg, nil)
+	_, err := saveV(dme, dmm, path, cfg, nil, false)
 	return err
 }
 
 // APHELION EDIT ADDITION START - DISK_VERSION
-func saveV(dme *dmenv.Dme, dmm *dmmap.Dmm, path string, cfg Config, expected *diskversion.State) (diskversion.State, error) {
+func saveV(dme *dmenv.Dme, dmm *dmmap.Dmm, path string, cfg Config, expected *diskversion.State, owned bool) (diskversion.State, error) {
 	log.Printf("save started [%s]...", path)
 
-	sp, err := makeSaveProcess(cfg, dme, dmm, path)
+	prepare := makeSaveProcess
+	if owned {
+		prepare = makeOwnedSaveProcess
+	}
+	sp, err := prepare(cfg, dme, dmm, path)
 	if err != nil {
 		log.Print("unable to start save process")
 		return diskversion.State{}, fmt.Errorf("start save process: %w", err)

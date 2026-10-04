@@ -196,7 +196,8 @@ func runSaveWorkerWithBudget(request saveRequest, budget *resources.Budget) save
 	if err != nil {
 		return saveWorkerResult{err: err}
 	}
-	savedDiskState, err := dmmsave.SaveVWithDiskState(request.environment, document, request.path, request.config, request.expected)
+	// The projection is private to this worker; Save may sanitize it in place.
+	savedDiskState, err := dmmsave.SaveOwnedVWithDiskState(request.environment, document, request.path, request.config, request.expected)
 	if err != nil {
 		result := saveWorkerResult{err: err}
 		if errors.Is(err, diskversion.ErrConflict) {
