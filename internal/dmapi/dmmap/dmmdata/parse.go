@@ -383,6 +383,7 @@ func parse(file namedReader) (*DmmData, error) {
 		}
 	}
 
+	/* APHELION EDIT REMOVAL START - IN PLACE GRID ORIENTATION
 	// Make Y axis to go from bottom to top
 	reversedGrid := make(DataGrid, len(dmmData.Grid))
 	for z := 1; z <= dmmData.MaxZ; z++ {
@@ -401,6 +402,26 @@ func parse(file namedReader) (*DmmData, error) {
 		}
 	}
 	dmmData.Grid = reversedGrid
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - IN PLACE GRID ORIENTATION
+	// Preserve the parser's dense bounding box, including empty coordinates,
+	// while reversing Y in the existing grid. The old copy discarded origins
+	// outside that box; remove them before filling and swapping rows.
+	for point := range dmmData.Grid {
+		if point.X < 1 || point.X > dmmData.MaxX || point.Y < 1 || point.Y > dmmData.MaxY || point.Z < 1 || point.Z > dmmData.MaxZ {
+			delete(dmmData.Grid, point)
+		}
+	}
+	for z := 1; z <= dmmData.MaxZ; z++ {
+		for y := 1; y <= (dmmData.MaxY+1)/2; y++ {
+			for x := 1; x <= dmmData.MaxX; x++ {
+				bottom := util.Point{X: x, Y: y, Z: z}
+				top := util.Point{X: x, Y: dmmData.MaxY + 1 - y, Z: z}
+				dmmData.Grid[bottom], dmmData.Grid[top] = dmmData.Grid[top], dmmData.Grid[bottom]
+			}
+		}
+	}
+	// APHELION EDIT ADDITION END
 
 	return &dmmData, nil
 }
