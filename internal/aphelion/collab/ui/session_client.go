@@ -321,9 +321,9 @@ joinAttempts:
 					return
 				}
 				payload := decoded.Payload.(*protocol.ReplayCompletePayload)
-				current, snapshotErr := network.Snapshot(context.Background())
-				currentHash, hashErr := current.Hash()
-				if snapshotErr != nil || hashErr != nil || current.Revision != payload.Revision || currentHash != payload.MapHash {
+				current, snapshotErr := network.CaptureProjection(context.Background())
+				_, revision, _, currentHash, hashErr := current.OperationBase()
+				if snapshotErr != nil || hashErr != nil || revision != payload.Revision || currentHash != payload.MapHash {
 					nonBlockingError(errorsFound, fmt.Errorf("replay completion does not match client revision"))
 					return
 				}
@@ -1019,9 +1019,9 @@ func (client *SessionClient) reconnectAttempt(ctx context.Context, machine *coll
 			client.recordOperation(machine, network, decoded.Envelope.Type)
 		case protocol.ServerReplayComplete:
 			payload := decoded.Payload.(*protocol.ReplayCompletePayload)
-			current, snapshotErr := network.Snapshot(context.Background())
-			currentHash, hashErr := current.Hash()
-			if snapshotErr != nil || hashErr != nil || current.Revision != payload.Revision || currentHash != payload.MapHash {
+			current, snapshotErr := network.CaptureProjection(context.Background())
+			_, revision, _, currentHash, hashErr := current.OperationBase()
+			if snapshotErr != nil || hashErr != nil || revision != payload.Revision || currentHash != payload.MapHash {
 				nonBlockingError(errorsFound, fmt.Errorf("replay completion does not match client revision"))
 				return
 			}
