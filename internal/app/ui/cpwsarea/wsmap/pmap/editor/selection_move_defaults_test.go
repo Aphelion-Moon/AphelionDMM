@@ -2,9 +2,11 @@ package editor
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
+	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/app/render"
 	"sdmm/internal/util"
@@ -78,5 +80,49 @@ func TestPresentationBuildUsesBudgetAndResumesAtExactSprite(t *testing.T) {
 	}
 	if !build.advance(func() bool { return false }) || !build.presentation.Ready || prepared != 703 {
 		t.Fatalf("resumed preparation lost sprites or readiness: prepared=%d ready=%t", prepared, build.presentation.Ready)
+	}
+}
+
+func TestMoveSourceDefaultsReuseWithinTile(t *testing.T) {
+	e := selectionEditor(t)
+	selection := editing.RectangleSelection(util.Bounds{X1: 1, Y1: 1, X2: 3, Y2: 1}, 1)
+	visible := func(path string) bool { return !strings.HasSuffix(path, "/hidden") }
+	payload, err := editing.CompileMovePayload(context.Background(), selection, visible, func(coord model.Coord) (model.TileState, bool) {
+		paths := [3]string{"/area/visible", "/turf/visible", "/obj/visible"}
+		if coord.X >= 2 {
+			paths[0] = "/area/hidden"
+		}
+		if coord.X == 3 {
+			paths[1] = "/turf/hidden"
+		}
+		state := model.TileState{}
+		for i, path := range paths {
+			state.Prefabs = append(state.Prefabs, model.PrefabState{Path: path, StableID: model.StableID(fmt.Sprintf("01890f3e-7b5c-7abc-8def-%012x", coord.X*3+i))})
+		}
+		return state, true
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pose, err := editing.NewSelectionMove(selection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	visits := 0
+	session := &selectionMoveSession{pose: pose, selection: selection, payload: payload, visible: func(path string) bool { visits++; return visible(path) }}
+	session.defaults.Area.Path = "/area/default"
+	session.defaults.Turf.Path = "/turf/default"
+	e.prepareSelectionMovePresentation(session)
+	build := session.presentationBuild
+	for _, tile := range []int{0, 1, 2, 0} {
+		before := visits
+		for sample := 0; sample < 5; sample++ {
+			if got := build.instanceCount(payload.TileCount() + tile); got != 2-tile {
+				t.Fatalf("tile %d source defaults=%d want=%d", tile, got, 2-tile)
+			}
+		}
+		if got := visits - before; got != 3 {
+			t.Fatalf("tile %d inspected %d source prefabs across repeated sprite preparation; want one pass over its 3 prefabs", tile, got)
+		}
 	}
 }

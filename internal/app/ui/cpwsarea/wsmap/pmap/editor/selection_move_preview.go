@@ -387,6 +387,16 @@ func (e *Editor) prepareSelectionMovePresentation(session *selectionMoveSession)
 		return true
 	}
 	sourceCount := session.payload.TileCount()
+	// Count and appearance preparation revisit a tile across sprites and frames.
+	// Its captured source and filter are immutable; retain only that tile's defaults.
+	lastDefaultTile := -1
+	var lastDefaults []model.PrefabState
+	sourceDefaults := func(tile int) []model.PrefabState {
+		if tile != lastDefaultTile {
+			lastDefaultTile, lastDefaults = tile, moveSourceDefaults(session, tile)
+		}
+		return lastDefaults
+	}
 	session.presentationBuild = &presentationBuild{
 		presentation: presentation,
 		tileCount:    sourceCount * 2,
@@ -395,7 +405,7 @@ func (e *Editor) prepareSelectionMovePresentation(session *selectionMoveSession)
 				_, prefabs := session.payload.Tile(tile)
 				return len(prefabs)
 			}
-			return len(moveSourceDefaults(session, tile-sourceCount))
+			return len(sourceDefaults(tile - sourceCount))
 		},
 		appearance: func(tile, instance int) render.Appearance {
 			if tile < sourceCount {
@@ -406,7 +416,7 @@ func (e *Editor) prepareSelectionMovePresentation(session *selectionMoveSession)
 			local, _ := session.payload.Tile(tile - sourceCount)
 			bounds := session.selection.Bounds()
 			coord := util.Point{X: int(bounds.X1) + local.X - 1, Y: int(bounds.Y1) + local.Y - 1, Z: session.pose.Level()}
-			prefab := moveSourceDefaults(session, tile-sourceCount)[instance]
+			prefab := sourceDefaults(tile - sourceCount)[instance]
 			prefab.StableID = ""
 			appearance := render.PrepareAppearance(coord, e.movePresentationInstance(coord, prefab), dmmap.WorldIconSize)
 			appearance.WorldSpace = true
