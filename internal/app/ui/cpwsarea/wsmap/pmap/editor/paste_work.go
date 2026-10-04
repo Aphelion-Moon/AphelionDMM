@@ -596,6 +596,10 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 		return
 	}
 	execution, generation := e.executor, e.attachmentGeneration
+	if _, ok := execution.(presentationExecutor); ok {
+		e.submitPresentationPaste(p, execution, changes)
+		return
+	}
 	// Session hashing/snapshot work occurs only at the real commit boundary.
 	p.phase = pasteResolving
 	e.retainPasteCommit(p)

@@ -52,7 +52,7 @@ func (update ProjectionUpdate) Coalesce(older ProjectionUpdate) ProjectionUpdate
 }
 
 func (network *NetworkExecutor) captureProjectionLocked() ProjectionCapture {
-	return ProjectionCapture{projection: network.projection, tileIndexes: network.tileIndexes, mapHash: network.acknowledgedHash,
+	return ProjectionCapture{projection: network.projection, tileIndexes: network.tileIndexes, mapHash: network.projection.acknowledgedHash,
 		visibleTiles: network.visibleTiles, visibleCoords: network.visibleCoords}
 }
 
@@ -61,16 +61,16 @@ func (network *NetworkExecutor) ProjectionChanges() <-chan ProjectionUpdate { re
 func (network *NetworkExecutor) publishChangesLocked(changes []model.TileChange) {
 	current := network.captureProjectionLocked()
 	update := ProjectionUpdate{capture: current,
-		full: current.BaseRevision() != network.published.BaseRevision() && len(changes) == 0}
+		full: current.BaseRevision() != network.publishedDelta.BaseRevision() && len(changes) == 0}
 	if !update.full {
 		update.coords = make([]model.Coord, 0, len(changes)+len(current.visibleCoords))
 		for _, change := range changes {
 			update.coords = append(update.coords, change.Coord)
 		}
 		update.coords = append(update.coords, current.visibleCoords...)
-		update = update.Coalesce(ProjectionUpdate{coords: network.published.visibleCoords})
+		update = update.Coalesce(ProjectionUpdate{coords: network.publishedDelta.visibleCoords})
 	}
-	network.published = current
+	network.publishedDelta = current
 	// Exactly one producer owns the mutex. A concurrent consumer either already
 	// has the old update or we merge its dirty coverage before replacing it.
 	select {
@@ -79,4 +79,14 @@ func (network *NetworkExecutor) publishChangesLocked(changes []model.TileChange)
 	default:
 	}
 	network.changes <- update
+}
+
+// publishLocked retains the sparse compatibility stream without changing the
+// editor's primary presentation ownership.
+func (network *NetworkExecutor) publishLocked(changes ...model.TileChange) {
+	network.publication.mu.Lock()
+	network.publishCaptureLocked()
+	network.publication.mu.Unlock()
+	network.publishChangesLocked(changes)
+	network.publishLegacyLocked()
 }

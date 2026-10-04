@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 
 	"sdmm/internal/dmapi/dmvars"
 )
 
 // Fingerprint streams the established environment.v1 framing. It deliberately
-// includes the same explicit variable names and effective values as that format.
+// includes explicit variable names and effective values, with physical source
+// line endings canonicalized so equivalent Git checkouts agree.
 func Fingerprint(objects map[string]*dmvars.Variables) (string, error) {
 	paths := make([]string, 0, len(objects))
 	for path := range objects {
@@ -40,7 +42,10 @@ func Fingerprint(objects map[string]*dmvars.Variables) (string, error) {
 				return "", fmt.Errorf("hash environment: variable %q on %q has no value", name, path)
 			}
 			writeString(name)
-			writeString(value)
+			// The parser preserves physical CRLF inside multiline strings. Git
+			// checkout line endings must not change environment identity. Literal
+			// DM escape sequences (backslash-r/backslash-n) remain distinct.
+			writeString(strings.ReplaceAll(value, "\r\n", "\n"))
 		}
 	}
 	return hex.EncodeToString(encoded.Sum(nil)), nil

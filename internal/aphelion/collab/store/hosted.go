@@ -73,6 +73,18 @@ type HostedSession struct {
 	OwnerDisplayName string
 }
 
+// Notification summaries expose bounded Community metadata and Private totals.
+type HostedNotificationSummary struct {
+	Community          []HostedSession
+	CommunityCount     int
+	PrivateCount       int
+	ActivePrivateCount int
+}
+
+type HostedNotificationStore interface {
+	HostedNotificationSummary(context.Context, []string) (HostedNotificationSummary, error)
+}
+
 type HostedIdentity struct {
 	Issuer      string
 	Subject     string
@@ -106,6 +118,12 @@ type HostedRegistry interface {
 	UpdateHostedMemberDisplayName(context.Context, string, model.ActorID, string) error
 	CreateHostedInvitation(context.Context, HostedInvitation) error
 	RedeemHostedInvitation(context.Context, string, [sha256.Size]byte, HostedIdentity, time.Time) (HostedMember, error)
+}
+
+// HostedSessionLifecycleStore ends discovery and admission while retaining the
+// document and its acknowledged operation history for recovery.
+type HostedSessionLifecycleStore interface {
+	EndHostedSession(context.Context, string) error
 }
 
 // HostedSessionBrowserStore contains the bounded, hosted-only operations used by

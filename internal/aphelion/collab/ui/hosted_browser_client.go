@@ -58,13 +58,18 @@ func (client *SessionClient) discardHostedLogin(origin, token string) {
 	request, err := client.request(ctx, http.MethodPost, origin+"/v1/auth/logout", token, nil)
 	if err == nil {
 		if response, err := client.http.Do(request); err == nil {
-			response.Body.Close()
+			_ = response.Body.Close()
 		}
 	}
 }
 
 func (client *SessionClient) HostedCapabilities(ctx context.Context) (protocol.HostedCapabilities, error) {
 	account := client.HostedAccount()
+	client.mutex.Lock()
+	if account.Generation == client.hostedGeneration && account.Origin == client.hostedBaseURL {
+		client.hostedSnapshotGzip = false
+	}
+	client.mutex.Unlock()
 	if account.Origin == "" {
 		return protocol.HostedCapabilities{}, fmt.Errorf("sign in to a hosted service first")
 	}
@@ -76,7 +81,7 @@ func (client *SessionClient) HostedCapabilities(ctx context.Context) (protocol.H
 	if err != nil {
 		return protocol.HostedCapabilities{}, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	// Only the old Go ServeMux's plain unsupported-route response counts as absent support.
 	if (response.StatusCode == 404 || response.StatusCode == 405) && strings.HasPrefix(response.Header.Get("Content-Type"), "text/plain") {
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 256))
@@ -92,6 +97,11 @@ func (client *SessionClient) HostedCapabilities(ctx context.Context) (protocol.H
 	if !client.HostedAccountCurrent(account) {
 		return result, ErrSessionChanged
 	}
+	client.mutex.Lock()
+	if account.Generation == client.hostedGeneration && account.Origin == client.hostedBaseURL {
+		client.hostedSnapshotGzip = err == nil && response.Header.Get("Accept-Encoding") == "gzip"
+	}
+	client.mutex.Unlock()
 	if err == nil && !result.SessionBrowser {
 		err = ErrHostedBrowserUnsupported
 	}
@@ -105,6 +115,7 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 		return ErrSessionChanged
 	}
 	origin, credential := client.hostedBaseURL, client.hostedCredential
+	compressSnapshot := client.hostedSnapshotGzip && method == "POST" && path == "/v1/hosted/sessions"
 	valid := credential != "" && client.config.Now().Before(client.hostedCredentialExpires)
 	client.mutex.Unlock()
 	if !valid {
@@ -118,17 +129,31 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 			return err
 		}
 	}
+	if compressSnapshot {
+		encoded, err = compressSnapshotRequest(encoded)
+		if err != nil {
+			return err
+		}
+	}
 	request, err := client.request(ctx, method, origin+path, credential, bytes.NewReader(encoded))
 	if err != nil {
 		return err
 	}
 	request.URL.RawQuery = query.Encode()
 	request.Header.Set("Content-Type", "application/json")
-	response, err := client.http.Do(request)
+	if compressSnapshot {
+		request.Header.Set("Content-Encoding", "gzip")
+	}
+	var response *http.Response
+	if method == "POST" && path == "/v1/hosted/sessions" {
+		response, err = client.doSnapshotRequest(request)
+	} else {
+		response, err = client.http.Do(request)
+	}
 	if err != nil {
 		return fmt.Errorf("hosted service request failed: %w", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if !client.HostedAccountCurrent(account) || ctx.Err() != nil {
 		return ErrSessionChanged
 	}
@@ -141,6 +166,19 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 		return ErrHostedSignInRequired
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if response.StatusCode == http.StatusConflict {
+			var conflict struct {
+				Code string `json:"code"`
+			}
+			if json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&conflict) == nil {
+				switch conflict.Code {
+				case "transaction_upgrade_required":
+					return fmt.Errorf("the hosted service needs an operator to upgrade transaction storage before this editor can start a session")
+				case "session_exists":
+					return fmt.Errorf("this map's session identity is already stored; choose My sessions to rejoin an active session, or reopen the saved map to start a new one")
+				}
+			}
+		}
 		return fmt.Errorf("hosted service returned HTTP %d; refresh and check your access", response.StatusCode)
 	}
 	if result != nil {

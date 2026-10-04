@@ -156,6 +156,9 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 		pendingAtStart:   hasProjectionCapture && projectionCapture.HasPending(),
 		sourceProjection: projectionCapture,
 	}
+	if hasProjectionCapture {
+		session.revision = projectionCapture.BaseRevision()
+	}
 	e.selectionMovePreview = session
 	// Native executors pin immutable tiles. Only the legacy full-install
 	// fallback lends its replace-only authority map to this worker.
@@ -167,9 +170,6 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 	go func() {
 		if releaseCapturedSource != nil {
 			defer releaseCapturedSource()
-		}
-		if hasProjectionCapture {
-			session.revision = projectionCapture.BaseRevision()
 		}
 		var sourceBytes uint64
 		var captureErr error
@@ -385,10 +385,6 @@ func (e *Editor) CancelSelectionMovePreview() {
 }
 
 func (e *Editor) SelectionMovePreviewActive() bool { return e.selectionMovePreview != nil }
-
-func (e *Editor) selectionMovePreviewPreparing() bool {
-	return e.selectionMovePreview != nil && e.selectionMovePreview.preparing
-}
 
 func (e *Editor) selectionMovePreviewResolving() bool {
 	return e.selectionMovePreview != nil && e.selectionMovePreview.phase == selectionMoveResolving

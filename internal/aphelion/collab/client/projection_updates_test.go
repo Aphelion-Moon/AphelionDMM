@@ -76,3 +76,71 @@ func TestImmutableProjectionPublicationDoesNotCopyUntouchedPayloads(t *testing.T
 		}
 	}
 }
+
+func TestLegacyProjectionGetterDoesNotRefillDrainedChannel(t *testing.T) {
+	network := indexedNetwork(t, 10)
+	updates := network.ProjectionUpdates()
+	<-updates
+	if network.ProjectionUpdates() != updates {
+		t.Fatal("getter replaced the legacy channel")
+	}
+	select {
+	case <-updates:
+		t.Fatal("reading the legacy channel generated another whole-map publication")
+	default:
+	}
+}
+
+func TestSparseCaptureSurvivesQueuedAdmission(t *testing.T) {
+	network := indexedNetwork(t, 10)
+	defer network.Terminate(nil)
+	completed := make(chan error, 2)
+	complete := func(_ model.AcceptedOperation, err error) { completed <- err }
+	first := indexedNetworkOperation(network, 1)
+	if err := network.ExecuteAsync(context.Background(), first, complete); err != nil {
+		t.Fatal(err)
+	}
+	network.transport.(*fakeTransport).next(t)
+	func() {
+		network.mutex.Lock()
+		defer network.mutex.Unlock()
+		second := indexedNetworkOperation(network, 2)
+		second.OperationID = "01890f3e-7b5c-7abc-8def-0123456789ae"
+		if err := network.ExecuteAsync(context.Background(), second, complete); err != nil {
+			t.Fatal(err)
+		}
+		capture, err := network.CaptureProjection(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		coord := first.Changes[0].Coord
+		if !capture.HasPending() {
+			t.Fatal("queued admission lost pending metadata")
+		}
+		accepted, found := capture.AcceptedTile(coord)
+		if !found || !accepted.Equal(first.Changes[0].Before) {
+			t.Fatal("admission lost acknowledged index")
+		}
+		visible, found := capture.VisibleTile(coord)
+		if !found || !visible.Equal(first.Changes[0].After) {
+			t.Fatal("admission lost speculative overlay")
+		}
+		visible.Prefabs[0].Vars["dir"] = "99"
+		again, _ := capture.VisibleTile(coord)
+		if !again.Equal(first.Changes[0].After) {
+			t.Fatal("caller mutated admitted capture")
+		}
+	}()
+	network.transport.(*fakeTransport).next(t)
+	network.Terminate(nil)
+	for range 2 {
+		select {
+		case err := <-completed:
+			if err == nil {
+				t.Fatal("terminated operation unexpectedly succeeded")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("termination did not finish queued admission")
+		}
+	}
+}

@@ -44,7 +44,11 @@ func TestBuildViewModelBoundsConflictsAndRedactsErrors(t *testing.T) {
 		conflicts[index] = client.Conflict{OperationID: model.OperationID("01890f3e-7b5c-7abc-8def-0123456789bb"), Code: "precondition_failed", Message: "authoritative value changed"}
 	}
 	conflicts[0].AuthoritativeValues = []model.Tile{{Coord: model.Coord{X: 1, Y: 1, Z: 1}, State: model.TileState{Prefabs: []model.PrefabState{{Path: "/obj/secret-token", Vars: map[string]string{"value": "secret-token"}}}}}}
-	view := BuildViewModel(SessionStatus{State: client.StateConflict, Role: "viewer", Conflicts: conflicts, Err: errors.New("request used secret-token"), SensitiveValues: []string{"secret-token"}})
+	previews := make([]client.ConflictPreview, maxVisibleConflicts)
+	for index := range previews {
+		previews[index] = client.PreviewConflict(conflicts[index], conflictPreviewLimits())
+	}
+	view := BuildViewModel(SessionStatus{State: client.StateConflict, Role: "viewer", ConflictPreviews: previews, ConflictCount: len(conflicts), Err: errors.New("request used secret-token"), SensitiveValues: []string{"secret-token"}})
 	if len(view.ConflictSummaries) != maxVisibleConflicts || len(view.Conflicts) != maxVisibleConflicts || view.HiddenConflictCount != 2 {
 		t.Fatalf("conflict bounds = %d summaries, %d actionable, %d hidden", len(view.ConflictSummaries), len(view.Conflicts), view.HiddenConflictCount)
 	}
@@ -54,6 +58,9 @@ func TestBuildViewModelBoundsConflictsAndRedactsErrors(t *testing.T) {
 	redactedPrefab := view.Conflicts[0].Values[0].Prefabs[0]
 	if redactedPrefab.Path != "/obj/[redacted]" || redactedPrefab.Variables[0].Value != "[redacted]" {
 		t.Fatalf("authoritative conflict values were not redacted: %#v", redactedPrefab)
+	}
+	if previews[0].Values[0].Prefabs[0].Path != "/obj/secret-token" || previews[0].Values[0].Prefabs[0].Variables[0].Value != "secret-token" {
+		t.Fatal("view redaction mutated reusable status")
 	}
 }
 

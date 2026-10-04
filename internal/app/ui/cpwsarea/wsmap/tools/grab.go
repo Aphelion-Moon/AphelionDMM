@@ -472,6 +472,7 @@ func (t *ToolGrab) active() bool {
 	return !t.fillStart.Equals(0, 0, 0)
 }
 
+/* APHELION EDIT REMOVAL START - SELECTION MEMBERSHIP
 func collectTiles(dmm *dmmap.Dmm, area util.Bounds, zLevel int) (tiles []dmmap.Tile) {
 	for x := area.X1; x <= area.X2; x++ {
 		for y := area.Y1; y <= area.Y2; y++ {
@@ -481,6 +482,7 @@ func collectTiles(dmm *dmmap.Dmm, area util.Bounds, zLevel int) (tiles []dmmap.T
 	}
 	return tiles
 }
+APHELION EDIT REMOVAL END */
 
 // APHELION EDIT ADDITION START - SELECTION MEMBERSHIP
 // Coordinates are selection geometry, independent of captured object contents.

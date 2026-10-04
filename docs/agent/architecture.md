@@ -13,7 +13,7 @@ Dear ImGui UI
     -> acknowledged snapshot -> staged, validated DMM/TGM save
 
 Accepted history -> actor-scoped inverse operation for undo
-Display refresh -> dmmsnap compatibility copy and render invalidation
+Display publication -> changed dmmsnap tiles and retained render chunks
 
 Go application
     -> cgo/static library boundary
@@ -44,7 +44,8 @@ acknowledgements. See the
 admission, not disk completion. `SaveAsync` reports the UI completion used by close
 dialogs. Unshared captures pin immutable authority without copying the map on the
 UI thread. A byte-admitted worker materializes, projects, hashes and validates that
-revision for atomic replacement. Session captures retain executor synchronization.
+revision for atomic replacement. Session captures pin an immutable verified
+projection; workers materialize detached snapshots from that capture.
 Completion is fenced by request, attachment, workspace and history ownership, and
 cannot mark newer edits saved. Close-all rechecks every target after the last save,
 including initially clean documents. Real unfinished edits/submissions are refused;
@@ -165,6 +166,28 @@ to use it for a session. Legacy wire-shaped local producers remain valid during
 migration and retain their base-hash and inverse checks at that boundary.
 
 Each open document has one authoritative mutation loop. It serializes durable operations and owns the current revision. Network readers, presence updates, persistence, rendering, and telemetry may run concurrently, but they cannot mutate authoritative document state directly.
+
+Hosted editor publication consumes a coalesced tile delta from the network
+executor. Authoritative tiles and effective display tiles are distinct: a local
+acknowledgement can settle revision/history without changing any display object.
+Completed gestures publish their derived display through the same UI installer
+before server acknowledgement. The executor accumulates every outstanding dirty
+coordinate; queued local submissions and active gestures fence older publication.
+The editor stages fallible tile construction before mutation, retains a drained
+failed update for explicit recovery, and advances its publication sequence only
+after installation. Changed tiles update compatibility state, area borders, and
+geometry on their actual Z levels. Ordinary publications do not invalidate all
+level builds. Initial attachment and validated reconnect snapshot replacement
+retain the full-install boundary. Completion callbacks settle command history;
+they enter the same publication owner instead of installing a second snapshot.
+
+Network captures expose locally verified revision/hash metadata independently
+of heavyweight reconciliation. Full mutable snapshots remain detached copies
+for explicit consumers such as save/export. Canonical verification still reads
+the complete changed authority; incremental presentation does not imply that
+the entire acceptance path scales only with changed tiles. Large network
+publications still install their affected tile/geometry batch synchronously;
+charging frame work accounts for that cost but does not preempt a large batch.
 
 Before durable append, the server reserves wire headroom for acceptance, replay,
 duplicate delivery and actor-scoped inverse metadata. Oversized optional rejection

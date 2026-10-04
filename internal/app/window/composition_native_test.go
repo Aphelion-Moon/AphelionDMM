@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -120,6 +121,12 @@ func TestNativeInspectorAcceptedSourceConflictUndoAndSave(t *testing.T) {
 				if !shared {
 					return
 				}
+				// Network inverse preparation now returns through the UI owner.
+				deadline := time.Now().Add(3 * time.Second)
+				for len(transport.sent) == 0 && time.Now().Before(deadline) {
+					frame()
+					runtime.Gosched()
+				}
 				operation := transport.next(t)
 				kind := protocol.ServerOperationAccepted
 				var payload any
@@ -142,7 +149,19 @@ func TestNativeInspectorAcceptedSourceConflictUndoAndSave(t *testing.T) {
 				if err = network.Receive(protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "context-outcome", SessionID: "source-context", Type: kind, Payload: data}); err != nil {
 					t.Fatal(err)
 				}
-				frame()
+				// A visible backdrop can belong to the previous accepted request.
+				// Wait for the edit's UI completion before testing Save readiness.
+				deadline = time.Now().Add(3 * time.Second)
+				for {
+					frame()
+					if !e.CollaborationSynchronizing() {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatal("source outcome did not complete on the UI owner")
+					}
+					time.Sleep(time.Millisecond)
+				}
 			}
 			edit := func() {
 				instance := e.Dmm().Tiles[0].Instances()[2]

@@ -943,6 +943,12 @@ func TestSessionClientDiscardConflictResolvesConflictState(t *testing.T) {
 	if state := client.Status().State; state != collabclient.StateCaughtUp {
 		t.Fatalf("state after discard = %q, want %q", state, collabclient.StateCaughtUp)
 	}
+	// A delayed recovery completion cannot move status behind a newer receive.
+	client.revision = 10
+	client.recordConflictResolution(client.machine, network, 9)
+	if client.Status().Revision != 10 {
+		t.Fatal("delayed conflict resolution rolled back the status revision")
+	}
 }
 
 type channelSessionTransport struct {

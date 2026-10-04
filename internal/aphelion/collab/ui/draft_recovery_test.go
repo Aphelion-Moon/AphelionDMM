@@ -109,7 +109,7 @@ func TestDraftPreviewPreservesStackOrderAndRedactsValues(t *testing.T) {
 		{StableID: "a", Path: "/turf/example"},
 	}}
 	conflict := collabclient.Conflict{Draft: model.Operation{Changes: []model.TileChange{{Coord: model.Coord{X: 1, Y: 1, Z: 1}, Before: state, After: state}}}}
-	view := BuildViewModel(SessionStatus{SessionID: "session", State: collabclient.StateDisconnected, Conflicts: []collabclient.Conflict{conflict}, SensitiveValues: []string{"secret"}})
+	view := BuildViewModel(SessionStatus{SessionID: "session", State: collabclient.StateDisconnected, ConflictPreviews: []collabclient.ConflictPreview{collabclient.PreviewConflict(conflict, conflictPreviewLimits())}, SensitiveValues: []string{"secret"}})
 	if view.CanLeave {
 		t.Fatal("leave offered with retained draft")
 	}

@@ -284,6 +284,257 @@ func TestEditorProcessesNetworkProjectionOnUIThread(t *testing.T) {
 	}
 }
 
+// Exercise the shipped executor/publication seam: accepting an already visible
+// gesture must settle history without replacing instances beneath tool readers.
+func TestEditorNetworkAcceptanceRetainsVisibleInstances(t *testing.T) {
+	dmmap.PrefabStorage.Free()
+	t.Cleanup(dmmap.PrefabStorage.Free)
+	environment := editorTestEnvironment()
+	mapState := editorTestMap(environment)
+	application := &editorTestApp{commands: command.NewStorage(), environment: environment, paths: dm.NewPathsFilterEmpty(), runLater: make(chan func(), 8)}
+	application.commands.SetStack("test")
+	editor := New(application, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
+	transport := newEditorNetworkTransport()
+	network, err := client.NewNetworkExecutor(transport, editor.authoritative, editor.actorID, "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := editor.AttachCollaborationExecutor(network); err != nil {
+		t.Fatal(err)
+	}
+	document, err := engine.NewDocument(editor.authoritative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instance := mapState.Tiles[0].Instances()[2]
+	editor.InstanceReplace(instance, dmmprefab.New(dmmprefab.IdNone, instance.Prefab().Path(), dmvars.Set(instance.Prefab().Vars(), "dir", "4")))
+	editor.CommitOperation("Network change")
+	if stats := editor.CollaborationPublicationStats(); stats.DirtyTiles != 1 || editor.authoritative.Revision != 0 {
+		t.Fatalf("gesture did not publish locally before acknowledgement: %+v", stats)
+	}
+	visible := mapState.Tiles[0].Instances()[2]
+	decoded, err := protocol.DecodeClient(mustEditorJSON(t, transport.next(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := decoded.Payload.(*protocol.OperationSubmitPayload).Operation
+	editor.ProcessCollaborationUpdates()
+	if mapState.Tiles[0].Instances()[2] != visible {
+		t.Fatal("speculative publication reconstructed an unchanged visible tile")
+	}
+	// Recovery-panel refresh must not replace another unacknowledged edit
+	// with the older acknowledged snapshot, even with no queued publication.
+	if err := editor.RefreshCollaborationSnapshot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	assertEditorDirection(t, mapState, "4")
+	if mapState.Tiles[0].Instances()[2] != visible {
+		t.Fatal("recovery refresh replaced pending visible instances")
+	}
+	beforeAck := editor.CollaborationPublicationStats()
+	accepted, err := document.Apply(operation, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := document.Snapshot().Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := network.Receive(protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "accepted", SessionID: "session-1", Type: protocol.ServerOperationAccepted, Payload: mustEditorJSON(t, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: hash})}); err != nil {
+		t.Fatal(err)
+	}
+	application.runScheduled(t)
+	editor.ProcessCollaborationUpdates()
+	if mapState.Tiles[0].Instances()[2] != visible {
+		t.Fatal("unchanged acknowledgement reconstructed the visible tile")
+	}
+	if editor.authoritative.Revision != accepted.Revision || !application.commands.HasUndoV("test") {
+		t.Fatal("acceptance did not settle authority/history")
+	}
+	afterAck := editor.CollaborationPublicationStats()
+	if afterAck.ReconstructedTiles != beforeAck.ReconstructedTiles || afterAck.DirtyTiles != beforeAck.DirtyTiles || afterAck.FullReplacements != 0 {
+		t.Fatalf("unchanged acknowledgement performed display work: before=%+v after=%+v", beforeAck, afterAck)
+	}
+}
+
+func TestEditorNetworkCoalescesChangesAcrossLevelsAndDefersGesture(t *testing.T) {
+	dmmap.PrefabStorage.Free()
+	t.Cleanup(dmmap.PrefabStorage.Free)
+	environment := editorTestEnvironment()
+	mapState := editorTestMap(environment)
+	mapState.MaxX, mapState.MaxZ = 2, 2
+	mapState.Tiles = nil
+	for z := 1; z <= 2; z++ {
+		for x := 1; x <= 2; x++ {
+			tile := &dmmap.Tile{Coord: util.Point{X: x, Y: 1, Z: z}}
+			for _, instance := range editorTestMap(environment).Tiles[0].Instances() {
+				tile.InstancesAdd(instance.Prefab())
+			}
+			mapState.Tiles = append(mapState.Tiles, tile)
+		}
+	}
+	application := &editorTestApp{commands: command.NewStorage(), environment: environment, paths: dm.NewPathsFilterEmpty(), runLater: make(chan func(), 8)}
+	application.commands.SetStack("test")
+	editor := New(application, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
+	network, err := client.NewNetworkExecutor(newEditorNetworkTransport(), editor.authoritative, editor.actorID, "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := editor.AttachCollaborationExecutor(network); err != nil {
+		t.Fatal(err)
+	}
+	document, err := engine.NewDocument(editor.authoritative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	untouchedTile, untouchedInstance := mapState.Tiles[0], mapState.Tiles[0].Instances()[2]
+	editor.BeginTileChange(untouchedTile.Coord)
+	for _, index := range []int{1, 3} {
+		tile := document.Snapshot().Tiles[index]
+		after := model.CloneTileState(tile.State)
+		after.Prefabs[2].Vars["dir"] = "8"
+		operation, err := editor.forwardOperation(document.Snapshot(), []model.TileChange{{Coord: tile.Coord, Before: tile.State, After: after}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		accepted, err := document.Apply(operation, time.Now().UTC())
+		if err != nil {
+			t.Fatal(err)
+		}
+		hash, err := document.Snapshot().Hash()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := network.Receive(protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "accepted", SessionID: "session-1", Type: protocol.ServerOperationAccepted, Payload: mustEditorJSON(t, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: hash})}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	editor.ProcessCollaborationUpdates()
+	if editor.authoritative.Revision != 0 {
+		t.Fatal("incoming publication crossed an active gesture")
+	}
+	// End the unchanged gesture. Both accepted changes must survive coalescing.
+	editor.CommitOperation("Unchanged gesture")
+	editor.ProcessCollaborationUpdates()
+	for _, index := range []int{1, 3} {
+		if got := mapState.Tiles[index].Instances()[2].Prefab().Vars().ValueV("dir", ""); got != "8" {
+			t.Fatalf("tile %d direction=%s", index, got)
+		}
+	}
+	if mapState.Tiles[0] != untouchedTile || mapState.Tiles[0].Instances()[2] != untouchedInstance {
+		t.Fatal("disjoint publication replaced untouched map objects")
+	}
+	if stats := editor.CollaborationPublicationStats(); stats.FullReplacements != 0 || stats.ReconstructedTiles != 2 {
+		t.Fatalf("unexpected publication work: %+v", stats)
+	}
+	if editor.authoritative.Revision != 2 {
+		t.Fatal("coalesced publication lost authority revisions")
+	}
+	actual, err := editor.authoritative.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := document.Snapshot().Hash()
+	if err != nil || actual != want {
+		t.Fatalf("authority diverged: actual=%s want=%s err=%v", actual, want, err)
+	}
+}
+
+type retainedPresentationExecutor struct {
+	executor.Executor
+	update *client.PresentationUpdate
+	drains int
+}
+
+func TestEditorRecoveryReplacementCoalescesFollowingAcceptance(t *testing.T) {
+	e := selectionEditor(t)
+	network, err := client.NewNetworkExecutor(newEditorNetworkTransport(), e.authoritative, e.actorID, "recovery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.AttachCollaborationExecutor(network); err != nil {
+		t.Fatal(err)
+	}
+	replacement := model.CloneSnapshot(e.authoritative)
+	replacement.Revision = 7
+	replacement.Tiles[0].State.Prefabs[2].Vars["dir"] = "4"
+	if err := network.ReplaceAcknowledgedSnapshot(context.Background(), replacement); err != nil {
+		t.Fatal(err)
+	}
+	document, err := engine.NewDocument(replacement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := model.CloneTileState(replacement.Tiles[0].State)
+	after.Prefabs[2].Vars["dir"] = "8"
+	operation, err := e.forwardOperation(replacement, []model.TileChange{{Coord: replacement.Tiles[0].Coord, Before: replacement.Tiles[0].State, After: after}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := document.Apply(operation, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, err := document.Snapshot().Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := network.Receive(protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "accepted-after-recovery", SessionID: "recovery", Type: protocol.ServerOperationAccepted, Payload: mustEditorJSON(t, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: hash})}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.RefreshCollaborationSnapshot(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := e.authoritative.Hash()
+	if err != nil || actual != hash || e.authoritative.Revision != 8 {
+		t.Fatalf("recovery publication lost following acceptance: %v", err)
+	}
+	assertEditorDirection(t, e.dmm, "8")
+	if stats := e.CollaborationPublicationStats(); stats.FullReplacements != 1 {
+		t.Fatalf("recovery replacements=%d, want exactly one", stats.FullReplacements)
+	}
+}
+
+type publicationFailureApp struct{ *editorTestApp }
+
+func (*publicationFailureApp) ReportCollaborationError(string, error) {}
+
+func (execution *retainedPresentationExecutor) TakePresentationUpdate() *client.PresentationUpdate {
+	execution.drains++
+	update := execution.update
+	execution.update = nil
+	return update
+}
+
+func TestEditorFailedPublicationPreservesMapAndPendingUpdate(t *testing.T) {
+	dmmap.PrefabStorage.Free()
+	t.Cleanup(dmmap.PrefabStorage.Free)
+	environment := editorTestEnvironment()
+	mapState := editorTestMap(environment)
+	application := &editorTestApp{commands: command.NewStorage(), environment: environment, paths: dm.NewPathsFilterEmpty()}
+	application.commands.SetStack("test")
+	editor := New(&publicationFailureApp{application}, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
+	before := mapState.Tiles[0].Instances()[2]
+	after := model.CloneTileState(editor.authoritative.Tiles[0].State)
+	after.Prefabs[2].Vars["dir"] = "8"
+	update := &client.PresentationUpdate{Sequence: 1, DocumentID: editor.documentID, EnvironmentHash: editor.authoritative.EnvironmentHash, Revision: 1, Display: []model.Tile{{Coord: model.Coord{X: 1, Y: 1, Z: 1}, State: after}, {Coord: model.Coord{X: 2, Y: 1, Z: 1}, State: after}}}
+	execution := &retainedPresentationExecutor{Executor: editor.executor, update: update}
+	editor.executor = execution
+	if err := editor.RefreshCollaborationSnapshot(context.Background()); err == nil {
+		t.Fatal("recovery refresh hid an installation failure")
+	}
+	if editor.collaborationErr == nil || editor.presentationUpdate != update || editor.presentationSequence != 0 {
+		t.Fatal("failed publication discarded its update or advanced the display cursor")
+	}
+	if mapState.Tiles[0].Instances()[2] != before || editor.authoritative.Revision != 0 {
+		t.Fatal("failed publication partially installed the logical operation")
+	}
+	editor.ProcessCollaborationUpdates()
+	if execution.drains != 1 {
+		t.Fatal("failed publication drained newer work")
+	}
+}
+
 func TestEditorPendingNetworkEditUsesVisibleTileAsPrecondition(t *testing.T) {
 	dmmap.PrefabStorage.Free()
 	t.Cleanup(dmmap.PrefabStorage.Free)
@@ -409,7 +660,7 @@ func TestEditorReconnectsToRealServiceAfterPendingEditAndUndoesFreshEdit(t *test
 		runLater:    make(chan func(), 8),
 	}
 	application.commands.SetStack("test")
-	editor := New(application, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
+	editor := New(&publicationFailureApp{application}, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
 	if editor.collaborationErr != nil {
 		t.Fatalf("initialize collaboration: %v", editor.collaborationErr)
 	}
@@ -464,7 +715,7 @@ func TestEditorReconnectsToRealServiceAfterPendingEditAndUndoesFreshEdit(t *test
 		t.Fatal(err)
 	}
 	close(blocked.release)
-	application.discardScheduled(t)
+	application.runScheduled(t)
 	select {
 	case <-reconnectTransportCreated:
 	case <-time.After(time.Second):
@@ -493,9 +744,159 @@ func TestEditorReconnectsToRealServiceAfterPendingEditAndUndoesFreshEdit(t *test
 	if !application.commands.UndoAsyncV("test", nil) {
 		t.Fatal("fresh acknowledged edit did not enter undo history")
 	}
+	application.runScheduled(t) // Publish the asynchronously prepared inverse.
 	application.runScheduled(t)
 	editor.ProcessCollaborationUpdates()
 	assertEditorDirection(t, mapState, "2")
+
+	drafts := session.NetworkExecutor().Conflicts()
+	if len(drafts) != 1 {
+		t.Fatalf("retained interrupted drafts = %d, want 1", len(drafts))
+	}
+	if err := editor.RebuildCollaborationConflict(context.Background(), session, drafts[0].OperationID); err != nil {
+		t.Fatal(err)
+	}
+	application.runScheduled(t)
+	editor.ProcessCollaborationUpdates()
+	assertEditorDirection(t, mapState, "4")
+	if len(session.NetworkExecutor().Conflicts()) != 0 {
+		t.Fatal("successful rebuild retained the original draft")
+	}
+	if !application.commands.UndoAsyncV("test", nil) {
+		t.Fatal("rebuilt draft did not enter undo history")
+	}
+	application.runScheduled(t)
+	application.runScheduled(t)
+	editor.ProcessCollaborationUpdates()
+	assertEditorDirection(t, mapState, "2")
+	if !application.commands.RedoAsyncV("test", nil) {
+		t.Fatal("rebuilt draft could not be redone")
+	}
+	application.runScheduled(t)
+	editor.ProcessCollaborationUpdates()
+	assertEditorDirection(t, mapState, "4")
+}
+
+type heldConflictRebuilder struct {
+	execution executor.Executor
+	complete  func(model.AcceptedOperation, error)
+	err       error
+}
+
+func (source *heldConflictRebuilder) CollaborationExecutor() executor.Executor {
+	return source.execution
+}
+func (source *heldConflictRebuilder) RebuildConflict(_ context.Context, _ model.OperationID, complete func(model.AcceptedOperation, error)) error {
+	source.complete = complete
+	return source.err
+}
+
+func TestRecoveryHistoryCompletionKeepsItsEditorOwner(t *testing.T) {
+	for _, outcome := range []string{"submission error", "rejected", "reattached", "closed"} {
+		t.Run(outcome, func(t *testing.T) {
+			dmmap.PrefabStorage.Free()
+			t.Cleanup(dmmap.PrefabStorage.Free)
+			environment := editorTestEnvironment()
+			mapState := editorTestMap(environment)
+			app := &editorTestApp{commands: command.NewStorage(), environment: environment, paths: dm.NewPathsFilterEmpty(), runLater: make(chan func(), 8)}
+			app.commands.SetStack("test")
+			editor := New(&publicationFailureApp{app}, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
+			source := &heldConflictRebuilder{execution: editor.executor}
+			cause := errors.New("rebuild failed")
+			if outcome == "submission error" {
+				source.err = cause
+			}
+			err := editor.RebuildCollaborationConflict(context.Background(), source, "draft")
+			if outcome == "submission error" {
+				if !errors.Is(err, cause) || len(editor.unresolvedSubmissions) != 0 {
+					t.Fatal("submission failure retained a pending recovery", err)
+				}
+				return
+			}
+			if err != nil || len(editor.unresolvedSubmissions) != 1 {
+				t.Fatal("recovery did not retain pending completion ownership", err)
+			}
+			if err := editor.RebuildCollaborationConflict(context.Background(), source, "draft"); err == nil {
+				t.Fatal("duplicate rebuild click submitted the draft twice")
+			}
+			switch outcome {
+			case "rejected":
+				source.complete(model.AcceptedOperation{}, cause)
+			case "reattached":
+				if err := editor.AttachCollaborationExecutor(source.execution); err != nil {
+					t.Fatal(err)
+				}
+				source.complete(model.AcceptedOperation{}, nil)
+			case "closed":
+				editor.Close()
+				source.complete(model.AcceptedOperation{}, nil)
+			}
+			app.runScheduled(t)
+			if len(editor.unresolvedSubmissions) != 0 || app.commands.HasUndoV("test") {
+				t.Fatal("failed or stale recovery changed editor history")
+			}
+		})
+	}
+}
+
+func TestPreparedAttachmentPreservesEditsMadeDuringConnection(t *testing.T) {
+	for _, change := range []string{"committed", "undone", "closed", "unchanged"} {
+		t.Run(change, func(t *testing.T) {
+			dmmap.PrefabStorage.Free()
+			t.Cleanup(dmmap.PrefabStorage.Free)
+			environment := editorTestEnvironment()
+			mapState := editorTestMap(environment)
+			application := &editorTestApp{commands: command.NewStorage(), environment: environment, paths: dm.NewPathsFilterEmpty()}
+			application.commands.SetStack("test")
+			editor := New(application, &editorTestAttachedMap{snapshot: dmmsnap.New(mapState)}, mapState)
+			snapshot, err := editor.CollaborationSnapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			document, err := engine.NewDocument(snapshot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			prepared, err := executor.NewLocal(document, editor.actorID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			generation, ready := editor.MapViewVersion()
+			if !ready {
+				t.Fatal("initial attachment target is not ready")
+			}
+			switch change {
+			case "committed", "undone":
+				instance := mapState.Tiles[0].Instances()[2]
+				editor.InstanceReplace(instance, dmmprefab.New(dmmprefab.IdNone, instance.Prefab().Path(), dmvars.Set(instance.Prefab().Vars(), "dir", "4")))
+				editor.CommitOperation("Edit during connection setup")
+				if change == "undone" {
+					application.commands.UndoV("test")
+				}
+			case "closed":
+				editor.Close()
+			}
+			err = collabui.AttachPreparedSession(prepared, editor, generation, true)
+			if change == "unchanged" {
+				if err != nil || editor.executor != prepared {
+					t.Fatal("unchanged target refused attachment", err)
+				}
+				return
+			}
+			if !errors.Is(err, collabui.ErrAttachmentTargetChanged) || editor.executor == prepared {
+				t.Fatal("delayed attachment replaced a changed target", err)
+			}
+			switch change {
+			case "committed":
+				assertEditorDirection(t, mapState, "4")
+				application.commands.UndoV("test")
+				assertEditorDirection(t, mapState, "2")
+			case "undone":
+				application.commands.RedoV("test")
+				assertEditorDirection(t, mapState, "4")
+			}
+		})
+	}
 }
 
 func TestEditorAttachesRemoteExecutorAndAppliesSnapshot(t *testing.T) {

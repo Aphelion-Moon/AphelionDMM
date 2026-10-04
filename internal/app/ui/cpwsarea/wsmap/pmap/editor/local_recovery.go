@@ -81,6 +81,7 @@ func (e *Editor) DiscardLocalRecovery(draft *LocalRecovery) error {
 	}
 	e.pendingChanges = make(map[model.Coord]model.TileState)
 	e.collaborationErr = nil
+	e.presentationUpdate = nil
 	e.setAuthoritative(snapshot)
 	e.refreshCollaborationView(e.pMap.ActiveLevel(), nil, snapshot)
 	return nil

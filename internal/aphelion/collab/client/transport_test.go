@@ -51,6 +51,9 @@ func TestWebSocketTransportConnectSendAndClose(t *testing.T) {
 	if err := transport.Wait(waitContext); err != nil && websocket.CloseStatus(err) != websocket.StatusNormalClosure {
 		t.Fatalf("Wait() error = %v after explicit close", err)
 	}
+	if err := transport.Send(context.Background(), protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "late-ping", SessionID: sessionID, Type: protocol.ClientPing, Payload: payload}); err == nil {
+		t.Fatal("closed WebSocket accepted another queued send")
+	}
 }
 
 func TestWebSocketTransportRejectsMalformedServerEnvelope(t *testing.T) {

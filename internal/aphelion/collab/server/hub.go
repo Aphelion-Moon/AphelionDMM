@@ -103,6 +103,12 @@ func (hub *Hub) Create(sessionID string, owner *DocumentOwner, creator Principal
 	return nil
 }
 
+func (hub *Hub) endSession(sessionID string) {
+	hub.mutex.Lock()
+	defer hub.mutex.Unlock()
+	delete(hub.sessions, sessionID)
+}
+
 func (hub *Hub) Join(sessionID string, principal Principal) error {
 	hub.mutex.Lock()
 	defer hub.mutex.Unlock()

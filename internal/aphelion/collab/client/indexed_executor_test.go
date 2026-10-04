@@ -66,6 +66,7 @@ func TestIndexedNetworkProjectionMixedTransitionsMatchReference(t *testing.T) {
 		if !reflect.DeepEqual(network.projection, reference) {
 			t.Fatalf("projection diverged at step %d", step)
 		}
+		network.publishLocked()
 		capture, _ := network.CaptureProjection(context.Background())
 		gotVisible, _ := capture.VisibleSnapshot()
 		wantVisible, _ := reference.Visible()
@@ -98,6 +99,7 @@ func TestIndexedNetworkProjectionMatchesReconciliationAndPinsCaptures(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
+	network.publishLocked()
 	capture, err := network.CaptureProjection(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -171,6 +173,7 @@ func TestNetworkProjectionSubmitRejectAllocationsStaySparse(t *testing.T) {
 
 func TestAcceptedTileCaptureSurvivesSparseAppendAndReturnedMutation(t *testing.T) {
 	network := indexedNetwork(t, 10)
+	network.publishLocked()
 	capture, err := network.CaptureProjection(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -207,6 +210,7 @@ func TestAcceptedTileCaptureSurvivesSparseAppendAndReturnedMutation(t *testing.T
 	if err := <-readDone; err != nil {
 		t.Fatal(err)
 	}
+	network.publishLocked()
 	next, _ := network.CaptureProjection(context.Background())
 	if state, found := next.AcceptedTile(operation.Changes[0].Coord); !found || !state.Equal(operation.Changes[0].After) {
 		t.Fatal("new capture lost appended state")

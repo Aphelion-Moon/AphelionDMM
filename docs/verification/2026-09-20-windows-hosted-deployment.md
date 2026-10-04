@@ -1,5 +1,8 @@
 # Native Windows hosted deployment
 
+See the [September 27 cutover and follow-up](2026-09-27-hosted-and-ci-followup.md)
+for the current Discord deployment, restore/rollback evidence and remaining gates.
+
 Historical observations as of September 20. The September 26 Discord/Community
 implementation supersedes the provider policy after an independently verified
 operator cutover; this report does not establish current configuration or data.

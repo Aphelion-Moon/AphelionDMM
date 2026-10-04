@@ -185,13 +185,23 @@ func TestSnapshotHelperProcess(t *testing.T) {
 }
 
 func TestRelativeSnapshotPreservesSourceLocationSpelling(t *testing.T) {
-	root := t.TempDir()
-	abs := filepath.Join(root, "relative.dme")
-	if err := os.WriteFile(abs, []byte("/obj/relative\n\tname = \"relative\"\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
+	// Keep the fixture on the checkout volume: Windows runners may place
+	// the checkout on D: and the system temporary directory on C:.
 	cwd, err := os.Getwd()
 	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.MkdirTemp(cwd, "relative-snapshot-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Error(err)
+		}
+	})
+	abs := filepath.Join(root, "relative.dme")
+	if err := os.WriteFile(abs, []byte("/obj/relative\n\tname = \"relative\"\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	path, err := filepath.Rel(cwd, abs)

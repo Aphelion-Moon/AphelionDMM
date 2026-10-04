@@ -11,6 +11,10 @@ import (
 
 const presenceStyleSlotCount = 8
 
+// PresenceTimeout is the desktop lifetime of an observed cursor or participant.
+// Presence is lossy and is not an authoritative connected-member roster.
+const PresenceTimeout = 30 * time.Second
+
 type ObservedPresence struct {
 	Presence   protocol.ParticipantPresence
 	ObservedAt time.Time
@@ -30,6 +34,14 @@ type PresenceSelectionOverlay struct {
 	PixelY1 int
 	PixelX2 int
 	PixelY2 int
+}
+
+func (client *SessionClient) expirePresenceLocked(now time.Time) {
+	for actorID, observed := range client.participants {
+		if now.Sub(observed.ObservedAt) > PresenceTimeout {
+			delete(client.participants, actorID)
+		}
+	}
 }
 
 func BuildPresenceOverlays(entries []ObservedPresence, activeLevel, iconSize, participantCap int, timeout time.Duration, now time.Time) []PresenceOverlay {

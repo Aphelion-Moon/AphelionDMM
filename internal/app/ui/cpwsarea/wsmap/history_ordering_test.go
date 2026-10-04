@@ -94,7 +94,7 @@ func TestHistoryNewSelectionEditDuringAcknowledgement(t *testing.T) {
 			}
 			// Accept the independent new edit while the inverse/redo is in flight.
 			acceptSelection(t, network, document, transport.next(t))
-			runSelectionJob(t, app)
+			// Authority can advance while admission-ordered callbacks wait for history.
 			e.ProcessCollaborationUpdates()
 			if _, err := e.SaveSnapshot(context.Background()); err == nil || !ws.HasUnsavedChanges() {
 				t.Fatal("pending history allowed Save or appeared clean")
@@ -108,6 +108,8 @@ func TestHistoryNewSelectionEditDuringAcknowledgement(t *testing.T) {
 			} else {
 				acceptSelection(t, network, document, pending)
 			}
+			// Settle history first, then the independent edit admitted afterward.
+			runSelectionJob(t, app)
 			runSelectionJob(t, app)
 			e.ProcessCollaborationUpdates()
 			if !app.commands.UndoAsyncV(ws.CommandStackId(), nil) {

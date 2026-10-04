@@ -43,14 +43,22 @@ func TestHostedBrowserPostgresClientLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
-		database.Exec(context.Background(), "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE")
-		database.Close(context.Background())
+		if _, err := database.Exec(context.Background(), "DROP SCHEMA "+pgx.Identifier{schema}.Sanitize()+" CASCADE"); err != nil {
+			t.Error(err)
+		}
+		if err := database.Close(context.Background()); err != nil {
+			t.Error(err)
+		}
 	}()
 	registry, err := postgres.Open(ctx, postgres.Config{DSN: dsn, Schema: schema})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer registry.Close()
+	defer func() {
+		if err := registry.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	directory := auth.NewRegistryDirectory(registry)
 	login := auth.NewManager(browserIdentityFlow{}, directory, auth.ManagerConfig{SessionDirectory: directory})
 	host := httptest.NewUnstartedServer(nil)
@@ -59,7 +67,7 @@ func TestHostedBrowserPostgresClientLifecycle(t *testing.T) {
 	host.Config.Handler = service.Handler()
 	host.Start()
 	defer host.Close()
-	defer service.Shutdown(context.Background())
+	defer func() { _ = service.Shutdown(context.Background()) }()
 	signedIn := func(name string) *SessionClient {
 		begin, err := login.Begin(ctx)
 		if err != nil {
@@ -75,7 +83,7 @@ func TestHostedBrowserPostgresClientLifecycle(t *testing.T) {
 		client.hostedActorID = session.ActorID
 		client.hostedBaseURL = origin
 		client.hostedDisplayName = name
-		t.Cleanup(func() { client.Leave(context.Background()) })
+		t.Cleanup(func() { _ = client.Leave(context.Background()) })
 		return client
 	}
 	owner, guest := signedIn("Owner"), signedIn("Guest")
@@ -149,5 +157,7 @@ func TestHostedBrowserPostgresClientLifecycle(t *testing.T) {
 	if guest.Status().Role != "editor" {
 		t.Fatal("reopening changed role")
 	}
-	guestController.Leave(ctx)
+	if err = guestController.Leave(ctx); err != nil {
+		t.Fatal(err)
+	}
 }

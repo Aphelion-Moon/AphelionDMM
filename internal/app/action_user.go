@@ -42,7 +42,7 @@ import (
 
 const (
 	collaborationActionTimeout         = 15 * time.Second
-	hostedCollaborationActionTimeout   = 2 * time.Minute
+	hostedCollaborationActionTimeout   = 5 * time.Minute
 	hostedCollaborationSignInTimeout   = 5 * time.Minute
 	hostedCollaborationSignInPollDelay = time.Second
 )
@@ -248,12 +248,12 @@ func (a *app) DoBrowseHostedSessions() {
 	if a.collaborationClient == nil || a.hostedBrowser != nil {
 		return
 	}
-	browser := &collabui.Browser{Client: a.collaborationClient, Schedule: window.RunLater, SignIn: a.DoSignInHostedCollaboration, CanJoin: a.hostedJoinBlocker, Join: a.joinBrowsedHostedSession, Closed: func() { a.hostedBrowser = nil }}
+	browser := &collabui.Browser{Client: a.collaborationClient, Schedule: window.RunLater, SignIn: a.DoSignInHostedCollaboration, CanJoin: a.collaborationJoinBlocker, Join: a.joinBrowsedHostedSession, Closed: func() { a.hostedBrowser = nil }}
 	a.hostedBrowser = browser
 	dial.Open(browser)
 }
 
-func (a *app) hostedJoinBlocker() string {
+func (a *app) collaborationJoinBlocker() string {
 	if a.HasActiveCollaboration() {
 		return "Leave the current session before opening another."
 	}
@@ -271,7 +271,7 @@ func (a *app) hostedJoinBlocker() string {
 }
 
 func (a *app) joinBrowsedHostedSession(ctx context.Context, id string, done func(error)) {
-	if reason := a.hostedJoinBlocker(); reason != "" {
+	if reason := a.collaborationJoinBlocker(); reason != "" {
 		done(fmt.Errorf("%s", reason))
 		return
 	}
@@ -290,12 +290,11 @@ func (a *app) joinBrowsedHostedSession(ctx context.Context, id string, done func
 				done(err)
 				return
 			}
-			currentGeneration, ready := selectedEditor.MapViewVersion()
-			current := ctx.Err() == nil && a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && ready && currentGeneration == generation && a.collaborationClient.HostedAccountCurrent(account)
+			current := ctx.Err() == nil && a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && a.collaborationClient.HostedAccountCurrent(account)
 			if ws, ok := a.activeWsMap(); !ok || ws.HasUnsavedChanges() {
 				current = false
 			}
-			err = collabui.AttachPreparedSession(execution, selectedEditor, current)
+			err = collabui.AttachPreparedSession(execution, selectedEditor, generation, current)
 			if err != nil {
 				go a.leaveCollaborationAfterAttachmentFailure()
 			} else {
@@ -341,8 +340,7 @@ func (a *app) DoCreateHostedCollaborationSession() {
 					util.ShowErrorDialog("Unable to start hosted session: " + prepareErr.Error())
 					return
 				}
-				currentGeneration, ready := selectedEditor.MapViewVersion()
-				err := collabui.AttachPreparedSession(execution, selectedEditor, a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && ready && currentGeneration == generation && a.collaborationClient.HostedAccountCurrent(account))
+				err := collabui.AttachPreparedSession(execution, selectedEditor, generation, a.CurrentEditor() == selectedEditor && a.LoadedEnvironment() == environment && a.collaborationClient.HostedAccountCurrent(account))
 				if err != nil {
 					util.ShowErrorDialog(err.Error())
 					go a.leaveCollaborationAfterAttachmentFailure()
@@ -380,6 +378,7 @@ func (a *app) createLocalCollaborationSession(selectedEditor *editor.Editor, dis
 		util.ShowErrorDialog("Unable to start collaboration: " + err.Error())
 		return
 	}
+	generation, _ := selectedEditor.MapViewVersion()
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), collaborationActionTimeout)
 		defer cancel()
@@ -390,7 +389,7 @@ func (a *app) createLocalCollaborationSession(selectedEditor *editor.Editor, dis
 				util.ShowErrorDialog("Unable to start collaboration: " + prepareErr.Error())
 				return
 			}
-			attachErr := collabui.AttachPreparedSession(execution, selectedEditor, a.CurrentEditor() == selectedEditor)
+			attachErr := collabui.AttachPreparedSession(execution, selectedEditor, generation, a.CurrentEditor() == selectedEditor)
 			if attachErr == nil {
 				a.collaborationEditor = selectedEditor
 				return
@@ -416,24 +415,31 @@ func (a *app) DoJoinCollaborationSession() {
 			w.Text("Paste the invitation shared by the session owner."),
 			w.InputTextWithHint("##collaboration-invitation", "Invitation", &encodedInvitation).Width(-1),
 			w.Button("Join Session", func() {
-				if a.CurrentEditor() != selectedEditor || a.HasActiveCollaboration() {
-					util.ShowErrorDialog("Unable to join collaboration: the active map or session changed")
-					return
-				}
-				invitation, err := collabui.ParseInvitation(strings.TrimSpace(encodedInvitation))
+				invitation, err := a.validateCollaborationInvitation(selectedEditor, encodedInvitation)
 				encodedInvitation = ""
 				if err != nil {
 					util.ShowErrorDialog("Unable to join collaboration: " + err.Error())
 					return
 				}
 				imgui.CloseCurrentPopup()
-				go a.joinCollaborationSession(invitation, selectedEditor)
+				generation, _ := selectedEditor.MapViewVersion()
+				go a.joinCollaborationSession(invitation, selectedEditor, generation)
 			}),
 		},
 	})
 }
 
-func (a *app) joinCollaborationSession(invitation collabui.Invitation, selectedEditor *editor.Editor) {
+func (a *app) validateCollaborationInvitation(selectedEditor *editor.Editor, encoded string) (collabui.Invitation, error) {
+	if selectedEditor == nil || a.CurrentEditor() != selectedEditor {
+		return collabui.Invitation{}, fmt.Errorf("the active map or session changed")
+	}
+	if reason := a.collaborationJoinBlocker(); reason != "" {
+		return collabui.Invitation{}, fmt.Errorf("%s", reason)
+	}
+	return collabui.ParseInvitation(strings.TrimSpace(encoded))
+}
+
+func (a *app) joinCollaborationSession(invitation collabui.Invitation, selectedEditor *editor.Editor, generation uint64) {
 	timeout := collaborationActionTimeout
 	if invitation.Hosted {
 		timeout = hostedCollaborationActionTimeout
@@ -454,7 +460,7 @@ func (a *app) joinCollaborationSession(invitation collabui.Invitation, selectedE
 			util.ShowErrorDialog("Unable to join collaboration: " + prepareErr.Error())
 			return
 		}
-		attachErr := collabui.AttachPreparedSession(execution, selectedEditor, a.CurrentEditor() == selectedEditor)
+		attachErr := collabui.AttachPreparedSession(execution, selectedEditor, generation, a.CurrentEditor() == selectedEditor)
 		if attachErr == nil {
 			a.collaborationEditor = selectedEditor
 			return
@@ -602,16 +608,7 @@ func (a *app) DoResolveCollaborationConflict(operationID model.OperationID, acti
 		refresh()
 	case collabui.ConflictActionRebuild:
 		cancel()
-		err := client.RebuildConflict(context.Background(), operationID, func(_ model.AcceptedOperation, rebuildErr error) {
-			window.RunLater(func() {
-				if rebuildErr != nil {
-					log.Error().Err(rebuildErr).Msg("Unable to rebuild conflict")
-					util.ShowErrorDialog("Unable to rebuild conflict: " + rebuildErr.Error())
-					return
-				}
-				refresh()
-			})
-		})
+		err := editor.RebuildCollaborationConflict(context.Background(), client, operationID)
 		if err != nil {
 			util.ShowErrorDialog("Unable to rebuild conflict: " + err.Error())
 		}

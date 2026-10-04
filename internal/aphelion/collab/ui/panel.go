@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"strconv"
 	"strings"
 
 	"sdmm/internal/aphelion/collab/model"
@@ -19,7 +18,7 @@ const (
 )
 
 type PanelApp interface {
-	CollaborationViewModel() ViewModel
+	CollaborationViewModel(int) ViewModel
 	HasActiveCollaboration() bool
 	DoLeaveCollaborationSession()
 	DoRetryCollaborationSession()
@@ -31,9 +30,11 @@ type PanelApp interface {
 type Panel struct {
 	component.Component
 
-	app         PanelApp
-	inviteeName string
-	displayName string
+	app          PanelApp
+	inviteeName  string
+	displayName  string
+	conflictPage int
+	sessionID    string
 }
 
 func (panel *Panel) Init(app PanelApp) {
@@ -44,10 +45,18 @@ func (panel *Panel) Init(app PanelApp) {
 
 func (panel *Panel) Process(int32) {
 	if !panel.app.HasActiveCollaboration() {
+		panel.conflictPage, panel.sessionID = 0, ""
 		imgui.TextDisabled("No active collaboration session")
 		return
 	}
-	view := panel.app.CollaborationViewModel()
+	view := panel.app.CollaborationViewModel(panel.conflictPage)
+	if view.SessionLabel != panel.sessionID {
+		panel.sessionID = view.SessionLabel
+		if panel.conflictPage != 0 {
+			view = panel.app.CollaborationViewModel(0)
+		}
+	}
+	panel.conflictPage = view.ConflictPage
 	sessionLabel := view.SessionLabel
 	if sessionLabel == "" {
 		sessionLabel = "Pending"
@@ -99,21 +108,20 @@ func (panel *Panel) Process(int32) {
 		imgui.Separator()
 		imgui.Text("Conflicts")
 		imgui.TextWrapped("Inspect or export retained drafts before rebuilding or discarding them. Export saves a recovery reference; it does not apply the edit.")
+		panel.renderConflictNavigation(view)
 		for index, conflict := range view.Conflicts {
+			imgui.PushID(string(conflict.OperationID))
 			imgui.TextWrapped(view.ConflictSummaries[index])
 			imgui.TextDisabled(fmt.Sprintf("Recorded at revision %d", conflict.Revision))
-			panel.renderConflictValues(conflict, index)
-			buttonSuffix := "##conflict-" + strconv.Itoa(index)
-			w.Button("Refresh"+buttonSuffix, func() { panel.app.DoResolveCollaborationConflict(conflict.OperationID, ConflictActionRefresh) }).Build()
+			panel.renderConflictValues(conflict)
+			w.Button("Refresh", func() { panel.app.DoResolveCollaborationConflict(conflict.OperationID, ConflictActionRefresh) }).Build()
 			imgui.SameLine()
-			w.Button("Discard"+buttonSuffix, func() { panel.app.DoResolveCollaborationConflict(conflict.OperationID, ConflictActionDiscard) }).Build()
+			w.Button("Discard", func() { panel.app.DoResolveCollaborationConflict(conflict.OperationID, ConflictActionDiscard) }).Build()
 			imgui.SameLine()
-			w.Button("Rebuild"+buttonSuffix, func() { panel.app.DoResolveCollaborationConflict(conflict.OperationID, ConflictActionRebuild) }).Build()
+			w.Button("Rebuild", func() { panel.app.DoResolveCollaborationConflict(conflict.OperationID, ConflictActionRebuild) }).Build()
 			imgui.SameLine()
-			w.Button("Export Draft"+buttonSuffix, func() { panel.app.DoResolveCollaborationConflict(conflict.OperationID, ConflictActionExport) }).Build()
-		}
-		if view.HiddenConflictCount != 0 {
-			imgui.TextDisabled(fmt.Sprintf("%d additional conflicts hidden", view.HiddenConflictCount))
+			w.Button("Export Draft", func() { panel.app.DoResolveCollaborationConflict(conflict.OperationID, ConflictActionExport) }).Build()
+			imgui.PopID()
 		}
 	}
 
@@ -128,14 +136,24 @@ func (panel *Panel) Process(int32) {
 	}
 }
 
-func (panel *Panel) renderConflictValues(conflict ConflictView, conflictIndex int) {
-	panel.renderTileValues("Draft before", conflict.DraftBefore, conflictIndex)
-	panel.renderTileValues("Draft intended values", conflict.DraftAfter, conflictIndex)
-	panel.renderTileValues("Authoritative values", conflict.Values, conflictIndex)
+func (panel *Panel) renderConflictNavigation(view ViewModel) {
+	if view.ConflictPageCount <= 1 {
+		return
+	}
+	imgui.TextDisabled(fmt.Sprintf("Drafts %d–%d of %d", view.ConflictPage*maxVisibleConflicts+1, view.ConflictPage*maxVisibleConflicts+len(view.Conflicts), view.ConflictCount))
+	w.Disabled(view.ConflictPage == 0, w.Button("Previous##conflict-page", func() { panel.conflictPage = view.ConflictPage - 1 })).Build()
+	imgui.SameLine()
+	w.Disabled(view.ConflictPage+1 >= view.ConflictPageCount, w.Button("Next##conflict-page", func() { panel.conflictPage = view.ConflictPage + 1 })).Build()
 }
 
-func (panel *Panel) renderTileValues(title string, values []AuthoritativeTileView, conflictIndex int) {
-	label := fmt.Sprintf("%s (%d tiles)##conflict-values-%d-%s", title, len(values), conflictIndex, title)
+func (panel *Panel) renderConflictValues(conflict ConflictView) {
+	panel.renderTileValues("Draft before", conflict.DraftBefore, conflict.DraftTileCount)
+	panel.renderTileValues("Draft intended values", conflict.DraftAfter, conflict.DraftTileCount)
+	panel.renderTileValues("Authoritative values", conflict.Values, conflict.AuthoritativeTileCount)
+}
+
+func (panel *Panel) renderTileValues(title string, values []AuthoritativeTileView, totalTiles int) {
+	label := fmt.Sprintf("%s (%d tiles)##conflict-values-%s", title, totalTiles, title)
 	if !imgui.CollapsingHeader(label) {
 		return
 	}
@@ -164,15 +182,15 @@ func (panel *Panel) renderTileValues(title string, values []AuthoritativeTileVie
 				variable := prefab.Variables[variableIndex]
 				imgui.TextWrapped(fmt.Sprintf("    %s = %s", conflictPreviewText(variable.Name), conflictPreviewText(variable.Value)))
 			}
-			if hidden := len(prefab.Variables) - visibleVariables; hidden != 0 {
+			if hidden := prefab.VariableCount - visibleVariables; hidden != 0 {
 				imgui.TextDisabled(fmt.Sprintf("    %d additional variables hidden", hidden))
 			}
 		}
-		if hidden := len(tile.Prefabs) - visiblePrefabs; hidden != 0 {
+		if hidden := tile.PrefabCount - visiblePrefabs; hidden != 0 {
 			imgui.TextDisabled(fmt.Sprintf("  %d additional prefabs hidden", hidden))
 		}
 	}
-	if hidden := len(values) - visibleTiles; hidden != 0 {
+	if hidden := totalTiles - visibleTiles; hidden != 0 {
 		imgui.TextDisabled(fmt.Sprintf("%d additional tiles hidden; export the draft for complete before and intended values", hidden))
 	}
 }

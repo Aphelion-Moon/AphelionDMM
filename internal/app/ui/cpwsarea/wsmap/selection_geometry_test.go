@@ -98,7 +98,7 @@ func TestSelectionNetworkRejectedTransformRestoresBounds(t *testing.T) {
 
 func TestSelectionNetworkConsecutiveRejectedTransformsRestoreOrigin(t *testing.T) {
 	for _, reverse := range []bool{false, true} {
-		t.Run(map[bool]string{false: "in order", true: "reversed callbacks"}[reverse], func(t *testing.T) {
+		t.Run(map[bool]string{false: "in order", true: "reversed replies"}[reverse], func(t *testing.T) {
 			ws, app := newSelectionWorkspace(t)
 			grab := activateSelectionWorkspace(t, ws)
 			grab.Reset()
@@ -125,14 +125,30 @@ func TestSelectionNetworkConsecutiveRejectedTransformsRestoreOrigin(t *testing.T
 			}
 			for index, operation := range order {
 				receiveSelection(t, network, protocol.ServerOperationRejected, protocol.OperationRejectedPayload{OperationID: operation.OperationID, Code: "precondition_failed", Message: "controlled conflict", Revision: 0, MapHash: hash})
+				if reverse && index == 0 {
+					// Completion is admission-ordered even when replies arrive reversed.
+					// The newer rejection cannot settle selection history ahead of the first.
+					e.ProcessCollaborationUpdates()
+					if grab.Bounds() != latest || len(app.jobs) != 0 {
+						t.Fatal("newer rejection settled before the older transform")
+					}
+					continue
+				}
 				runSelectionJob(t, app)
 				e.ProcessCollaborationUpdates()
-				if index == 0 && !reverse && grab.Bounds() != latest {
+				if (index == 0 || reverse) && grab.Bounds() != latest {
 					t.Fatal("older rejection replaced the newer pending transform geometry")
+				}
+				if reverse {
+					runSelectionJob(t, app)
+					e.ProcessCollaborationUpdates()
 				}
 			}
 			if grab.Bounds() != origin {
 				t.Fatalf("rejections restored %v, want original %v", grab.Bounds(), origin)
+			}
+			if resizeHash(t, resizeSnapshot(t, e)) != hash || app.commands.HasUndoV(ws.CommandStackId()) {
+				t.Fatal("rejected transforms changed authority or created undo history")
 			}
 		})
 	}

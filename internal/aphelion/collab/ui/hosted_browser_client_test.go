@@ -6,12 +6,37 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 )
+
+func TestHostedBrowserExplainsKnownConflictsWithoutEchoingServerText(t *testing.T) {
+	for code, want := range map[string]string{
+		"transaction_upgrade_required": "upgrade transaction storage",
+		"session_exists":               "My sessions",
+		"unknown":                      "HTTP 409",
+	} {
+		t.Run(code, func(t *testing.T) {
+			service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"code":"` + code + `","message":"secret-server-detail"}`))
+			}))
+			defer service.Close()
+			client := NewSessionClient(SessionClientConfig{})
+			client.hostedBaseURL = service.URL
+			client.hostedCredential = "secret"
+			client.hostedCredentialExpires = time.Now().Add(time.Hour)
+			err := client.hostedBrowserRequest(context.Background(), client.HostedAccount(), "POST", "/v1/hosted/sessions", nil, nil, nil)
+			if err == nil || !strings.Contains(err.Error(), want) || strings.Contains(err.Error(), "secret-server-detail") {
+				t.Fatalf("unexpected conflict explanation: %v", err)
+			}
+		})
+	}
+}
 
 func TestHostedBrowserPreservesOriginAndRejectsStalePage(t *testing.T) {
 	entered := make(chan struct{})
@@ -22,7 +47,9 @@ func TestHostedBrowserPreservesOriginAndRejectsStalePage(t *testing.T) {
 		}
 		close(entered)
 		<-release
-		json.NewEncoder(w).Encode(protocol.HostedSessionsPage{Sessions: []protocol.HostedSessionSummary{{SessionID: "old"}}})
+		if err := json.NewEncoder(w).Encode(protocol.HostedSessionsPage{Sessions: []protocol.HostedSessionSummary{{SessionID: "old"}}}); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer server.Close()
 	client := NewSessionClient(SessionClientConfig{})
@@ -73,10 +100,14 @@ func TestHostedDelayedSignInCannotReplaceNewerAccount(t *testing.T) {
 	actor, _ := model.NewActorID()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/auth/desktop/begin" {
-			json.NewEncoder(w).Encode(map[string]string{"authorization_url": "https://provider.example/auth", "handoff_id": "id"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"authorization_url": "https://provider.example/auth", "handoff_id": "id"}); err != nil {
+				t.Error(err)
+			}
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"actor_id": actor, "token": "secret", "display_name": "Mapper", "expires_at": time.Now().Add(time.Hour)})
+		if err := json.NewEncoder(w).Encode(map[string]any{"actor_id": actor, "token": "secret", "display_name": "Mapper", "expires_at": time.Now().Add(time.Hour)}); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer server.Close()
 	client := NewSessionClient(SessionClientConfig{})
@@ -101,10 +132,14 @@ func TestHostedReauthenticationRejectsDifferentActor(t *testing.T) {
 	otherActor, _ := model.NewActorID()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/auth/desktop/begin" {
-			json.NewEncoder(w).Encode(map[string]string{"authorization_url": "https://provider.example/auth", "handoff_id": "id"})
+			if err := json.NewEncoder(w).Encode(map[string]string{"authorization_url": "https://provider.example/auth", "handoff_id": "id"}); err != nil {
+				t.Error(err)
+			}
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"actor_id": otherActor, "token": "wrong-account", "display_name": "Other", "expires_at": time.Now().Add(time.Hour)})
+		if err := json.NewEncoder(w).Encode(map[string]any{"actor_id": otherActor, "token": "wrong-account", "display_name": "Other", "expires_at": time.Now().Add(time.Hour)}); err != nil {
+			t.Error(err)
+		}
 	}))
 	defer server.Close()
 	client := NewSessionClient(SessionClientConfig{})

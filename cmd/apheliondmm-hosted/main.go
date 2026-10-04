@@ -84,6 +84,16 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		}
 	}
 	limits := server.DefaultLimits()
+	var notificationToken string
+	if config.DiscordNotifications != nil {
+		notificationToken, err = config.DiscordNotifications.BotToken.Resolve(os.LookupEnv)
+		if err != nil {
+			_ = store.Close()
+			shutdownTelemetryNow(shutdownTelemetry)
+			_, _ = fmt.Fprintf(stderr, "resolve Discord notification secret: %v\n", err)
+			return 1
+		}
+	}
 	limits.MaxConnections = config.Limits.MaxConnections
 	limits.MaxOperationChanges = config.Limits.MaxOperationChanges
 	limits.MaxWebSocketMessageBytes = config.Limits.MaxWebSocketMessageBytes
@@ -115,6 +125,17 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second,
 	}
 	serveErrors := make(chan error, 1)
+	stopNotifications := func() {}
+	if config.DiscordNotifications != nil {
+		notificationContext, cancelNotifications := context.WithCancel(ctx)
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			service.RunDiscordNotifications(notificationContext, *config.DiscordNotifications, notificationToken, func(err error) { _, _ = fmt.Fprintf(stderr, "session notifications: %v\n", err) })
+		}()
+		stopNotifications = func() { cancelNotifications(); <-done }
+		defer stopNotifications()
+	}
 	go func() { serveErrors <- httpServer.ListenAndServe() }()
 	_, _ = fmt.Fprintf(stdout, "listening=%q build=%q revision=%q\n", config.BindAddress, build, revision)
 	select {
@@ -122,11 +143,13 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 	case err := <-serveErrors:
 		if err != nil && err != http.ErrServerClosed {
 			_, _ = fmt.Fprintf(stderr, "serve hosted collaboration: %v\n", err)
+			stopNotifications()
 			_ = service.Shutdown(context.Background())
 			shutdownTelemetryNow(shutdownTelemetry)
 			return 1
 		}
 	}
+	stopNotifications()
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	if err := httpServer.Shutdown(shutdownContext); err != nil {

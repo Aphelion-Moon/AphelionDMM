@@ -72,13 +72,13 @@ func TestAttachPreparedSessionRefusesChangedTarget(t *testing.T) {
 
 	execution := attachmentExecutor(t, controllerSnapshot(t))
 	target := &fakeAttachmentTarget{}
-	if err := AttachPreparedSession(execution, target, false); err == nil {
+	if err := AttachPreparedSession(execution, target, 0, false); err == nil {
 		t.Fatal("attachment accepted a changed editor target")
 	}
 	if target.execution != nil {
 		t.Fatal("changed editor target received the collaboration executor")
 	}
-	if err := AttachPreparedSession(execution, target, true); err != nil {
+	if err := AttachPreparedSession(execution, target, 0, true); err != nil {
 		t.Fatal(err)
 	}
 	if target.execution != execution {
@@ -146,6 +146,8 @@ func (provider fakeExecutorProvider) CollaborationExecutor() executor.Executor {
 type fakeAttachmentTarget struct {
 	execution executor.Executor
 }
+
+func (*fakeAttachmentTarget) MapViewVersion() (uint64, bool) { return 0, true }
 
 func (target *fakeAttachmentTarget) AttachCollaborationExecutor(execution executor.Executor) error {
 	target.execution = execution

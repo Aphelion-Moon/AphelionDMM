@@ -107,7 +107,8 @@ func (e *Editor) AttachCollaborationExecutor(execution executor.Executor) error 
 		return fmt.Errorf("attach collaboration executor: %w", err)
 	}
 	if snapshot.EnvironmentHash != environmentHash {
-		return fmt.Errorf("attach collaboration executor: environment hash does not match the loaded project")
+		log.Warn().Str("local_environment_hash", environmentHash).Str("session_environment_hash", snapshot.EnvironmentHash).Str("dme", e.app.LoadedEnvironment().RootFile).Msg("Collaboration environment mismatch")
+		return fmt.Errorf("the loaded DME does not match this session (local %.12s, session %.12s). Reopen the same DME after updating both checkouts and use the same AphelionDMM version", environmentHash, snapshot.EnvironmentHash)
 	}
 	if err := mapadapter.ApplyWithEnvironment(e.dmm, snapshot, e.app.LoadedEnvironment()); err != nil {
 		return fmt.Errorf("attach collaboration executor: %w", err)
@@ -169,6 +170,10 @@ func (e *Editor) ProcessCollaborationUpdates() {
 	if e.localWork != nil || e.selectionMove != nil || e.selectionMovePreviewResolving() || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
 		return
 	}
+	if execution, ok := e.executor.(presentationExecutor); ok {
+		e.processPresentationUpdate(execution)
+		return
+	}
 	if execution, ok := e.executor.(incrementalProjectionExecutor); ok {
 		e.processProjectionChanges(execution)
 		return
@@ -204,7 +209,8 @@ func (e *Editor) ProcessCollaborationUpdates() {
 	}
 }
 
-// RefreshCollaborationSnapshot applies the executor's authoritative snapshot on the UI thread.
+// RefreshCollaborationSnapshot consumes network publications, preserving pending
+// display edits, or applies a snapshot for executors without incremental updates.
 func (e *Editor) RefreshCollaborationSnapshot(ctx context.Context) error {
 	if e.collaborationErr != nil {
 		return fmt.Errorf("inspect and explicitly discard the retained local edit before refreshing")
@@ -214,6 +220,13 @@ func (e *Editor) RefreshCollaborationSnapshot(ctx context.Context) error {
 	}
 	if e.executor == nil {
 		return fmt.Errorf("refresh collaboration snapshot: executor is unavailable")
+	}
+	if _, ok := e.executor.(presentationExecutor); ok {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		e.ProcessCollaborationUpdates()
+		return e.collaborationErr
 	}
 	snapshot, err := e.executor.Snapshot(ctx)
 	if err != nil {
@@ -332,13 +345,31 @@ func (e *Editor) commitOperation(commitMessage string) {
 		e.commitLocal(local, commitMessage, changes, selectionOutcome, repeatAccepted)
 		return
 	}
-	e.pendingChanges = make(map[model.Coord]model.TileState)
-	operation, err := forwardOperationForExecutor(execution, e.actorID, changes)
+	operation, err := e.operationForChanges(execution, changes)
 	if err != nil {
 		selectionApplied(selectionOutcome, false)
-		e.rejectSpeculation(execution, err)
+		// Keep captured intent available for retry or explicit recovery.
+		e.reportCollaborationError("Unable to prepare map change", err)
 		return
 	}
+	if _, incremental := execution.(presentationExecutor); incremental {
+		// The gesture is already in the UI-owned model. Publish its derived
+		// display through the same installer now, without waiting for queued
+		// canonical verification or a server round trip. Rejection deltas restore
+		// the effective network view without taking ownership of a newer gesture.
+		display := make([]model.Tile, len(changes))
+		for i, change := range changes {
+			display[i] = model.Tile{Coord: change.Coord, State: change.After}
+		}
+		if err := e.installPresentationUpdate(&client.PresentationUpdate{DocumentID: e.documentID, EnvironmentHash: e.authoritative.EnvironmentHash, Revision: e.authoritative.Revision, Display: display}); err != nil {
+			e.collaborationErr = err
+			selectionApplied(selectionOutcome, false)
+			e.reportCollaborationError("Unable to display pending map change", err)
+			return
+		}
+		e.presentationStats.Publications++
+	}
+	e.pendingChanges = make(map[model.Coord]model.TileState)
 	acceptedChanges := model.CloneOperation(operation).Changes
 	activeLevel := e.pMap.ActiveLevel()
 	e.submitOperation(execution, operation, func(accepted model.AcceptedOperation) {
@@ -389,6 +420,47 @@ func (e *Editor) submitOperation(execution executor.Executor, operation model.Op
 	accepted(result)
 }
 
+type conflictRebuilder interface {
+	CollaborationExecutor() executor.Executor
+	RebuildConflict(context.Context, model.OperationID, func(model.AcceptedOperation, error)) error
+}
+
+// RebuildCollaborationConflict binds recovered intent to this editor's history
+// just like an ordinary edit. The session still owns draft resolution and send.
+func (e *Editor) RebuildCollaborationConflict(ctx context.Context, source conflictRebuilder, operationID model.OperationID) error {
+	execution := source.CollaborationExecutor()
+	if execution == nil || execution != e.executor || !e.history.Valid() {
+		return fmt.Errorf("conflict recovery belongs to another editor attachment")
+	}
+	if _, pending := e.unresolvedSubmissions[operationID]; pending {
+		return fmt.Errorf("this draft is already being rebuilt")
+	}
+	generation, activeLevel := e.attachmentGeneration, e.pMap.ActiveLevel()
+	e.unresolvedSubmissions[operationID] = struct{}{}
+	err := source.RebuildConflict(ctx, operationID, func(accepted model.AcceptedOperation, rebuildErr error) {
+		accepted.Operation = model.CloneOperation(accepted.Operation)
+		e.app.RunLater(func() {
+			if generation != e.attachmentGeneration || execution != e.executor {
+				return
+			}
+			if _, pending := e.unresolvedSubmissions[operationID]; !pending {
+				return
+			}
+			delete(e.unresolvedSubmissions, operationID)
+			if rebuildErr != nil {
+				e.reportCollaborationError("Unable to rebuild conflict", rebuildErr)
+				return
+			}
+			e.ProcessCollaborationUpdates()
+			e.pushAcceptedCommand(execution, "Recover Collaboration Draft", accepted, accepted.Changes, activeLevel, nil, nil)
+		})
+	})
+	if err != nil {
+		delete(e.unresolvedSubmissions, operationID)
+	}
+	return err
+}
+
 func (e *Editor) pushAcceptedCommand(execution executor.Executor, commitMessage string, accepted model.AcceptedOperation, acceptedChanges []model.TileChange, activeLevel int, coords []model.Coord, selectionOutcome func(bool)) {
 	forwardID := accepted.OperationID
 	generation := e.historyGeneration
@@ -397,28 +469,33 @@ func (e *Editor) pushAcceptedCommand(execution executor.Executor, commitMessage 
 			complete(fmt.Errorf("editor attachment changed"))
 			return
 		}
-		inverse, inverseErr := execution.BuildInverse(context.Background(), forwardID)
-		if inverseErr != nil {
-			e.reportCollaborationError("Unable to undo map change", inverseErr)
-			complete(inverseErr)
-			return
-		}
-		e.executeHistoryOperation(execution, inverse, func(_ model.AcceptedOperation, executeErr error) {
-			if executeErr != nil {
-				e.reportCollaborationError("Unable to undo map change", executeErr)
-				complete(executeErr)
+		e.prepareHistoryInverse(execution, forwardID, generation, func(inverse model.Operation, inverseErr error) {
+			if generation != e.historyGeneration {
+				complete(fmt.Errorf("editor attachment changed"))
 				return
 			}
-			e.syncFromExecutor(execution, true, activeLevel, coords)
-			selectionApplied(selectionOutcome, false)
-			complete(nil)
+			if inverseErr != nil {
+				e.reportCollaborationError("Unable to undo map change", inverseErr)
+				complete(inverseErr)
+				return
+			}
+			e.executeHistoryOperation(execution, inverse, func(_ model.AcceptedOperation, executeErr error) {
+				if executeErr != nil {
+					e.reportCollaborationError("Unable to undo map change", executeErr)
+					complete(executeErr)
+					return
+				}
+				e.syncFromExecutor(execution, true, activeLevel, coords)
+				selectionApplied(selectionOutcome, false)
+				complete(nil)
+			})
 		})
 	}, func(complete func(error)) {
 		if generation != e.historyGeneration {
 			complete(fmt.Errorf("editor attachment changed"))
 			return
 		}
-		redo, redoErr := forwardOperationForExecutor(execution, e.actorID, acceptedChanges)
+		redo, redoErr := e.operationForChanges(execution, acceptedChanges)
 		if redoErr != nil {
 			e.reportCollaborationError("Unable to redo map change", redoErr)
 			complete(redoErr)
@@ -470,6 +547,9 @@ func (e *Editor) executeHistoryOperation(execution executor.Executor, operation 
 	complete(result, err)
 }
 
+func (e *Editor) forwardOperation(snapshot model.Snapshot, changes []model.TileChange) (model.Operation, error) {
+	return placementWireOperation(snapshot, e.actorID, changes)
+}
 func forwardOperationForExecutor(execution executor.Executor, actor model.ActorID, changes []model.TileChange) (model.Operation, error) {
 	if capturer, ok := execution.(projectionCapturer); ok {
 		capture, err := capturer.CaptureProjection(context.Background())
@@ -490,7 +570,9 @@ func (e *Editor) rejectSpeculation(execution executor.Executor, cause error) {
 }
 
 func (e *Editor) syncFromExecutor(execution executor.Executor, apply bool, activeLevel int, coords []model.Coord) {
-	if _, ok := execution.(incrementalProjectionExecutor); ok && execution == e.executor && len(coords) != 0 && e.collaborationErr == nil {
+	if _, ok := execution.(presentationExecutor); ok {
+		// Outcomes settle history/status; the one publication owner installs
+		// accumulated authority and effective display changes, including rollback.
 		e.ProcessCollaborationUpdates()
 		return
 	}
@@ -550,6 +632,8 @@ func (e *Editor) setAuthoritative(snapshot model.Snapshot) {
 }
 
 func (e *Editor) resetAttachment() {
+	e.presentationUpdate = nil
+	e.presentationSequence = 0
 	e.CancelSelectionMovePreview()
 	e.PreviewHeldPrefab(nil, util.Point{}, false)
 	if e.localWork != nil {

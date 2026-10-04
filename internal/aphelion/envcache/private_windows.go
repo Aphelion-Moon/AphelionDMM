@@ -35,8 +35,10 @@ func privateStorage(path string, directory bool) error {
 		return err
 	}
 	owner, _, err := descriptor.Owner()
-	if err != nil || owner == nil || !owner.Equals(user.User.Sid) {
-		return fmt.Errorf("cache path is not owned by the current user")
+	// Elevated Windows processes can create Administrator-owned profile files.
+	// Administrators already share the DACL trust boundary checked below.
+	if err != nil || owner == nil || (!owner.Equals(user.User.Sid) && !owner.IsWellKnown(windows.WinBuiltinAdministratorsSid)) {
+		return fmt.Errorf("cache path is not owned by the current user or local administrators")
 	}
 	acl, _, err := descriptor.DACL()
 	if err != nil || acl == nil {

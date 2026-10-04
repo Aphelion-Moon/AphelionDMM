@@ -120,7 +120,10 @@ fn records_consumed_bytes_and_ordered_include_and_fexists_probes() {
         .expect("enabled trace is available");
     assert!(trace.complete, "all fixture paths should be traceable");
     assert_eq!(trace.schema_version, 1);
-    let expected_working_dir = path_text(fixture.path());
+    // macOS resolves /var to /private/var when reporting the process directory.
+    // Source paths retain their spelling, but the trace records the OS cwd.
+    let expected_working_dir =
+        path_text(&std::env::current_dir().expect("read fixture working directory"));
     assert_eq!(
         trace.working_dir.as_deref(),
         Some(expected_working_dir.as_str())

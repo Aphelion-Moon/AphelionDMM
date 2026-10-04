@@ -36,7 +36,7 @@ func completeBoundHostedLogin(t *testing.T, service *Service, baseURL, query str
 func TestHostedCallbackRequiresBrowserBinding(t *testing.T) {
 	login := &stubHostedLogin{session: auth.Session{Token: "secret", DisplayName: "Mapper", ExpiresAt: time.Now().Add(time.Hour)}}
 	service := NewService(ServiceConfig{HostedLogin: login})
-	defer service.Shutdown(context.Background())
+	defer func() { _ = service.Shutdown(context.Background()) }()
 	challenge := sha256.Sum256([]byte("verifier"))
 	begin := httptest.NewRecorder()
 	service.Handler().ServeHTTP(begin, httptest.NewRequest("POST", "/v1/auth/desktop/begin", strings.NewReader(`{"verifier_challenge":"`+base64.RawURLEncoding.EncodeToString(challenge[:])+`"}`)))

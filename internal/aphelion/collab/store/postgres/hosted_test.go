@@ -75,6 +75,20 @@ func TestHostedRegistryPersistsSessionMembershipAndOneUseInvitation(t *testing.T
 	if _, err := value.RedeemHostedInvitation(context.Background(), owner.SessionID, tokenHash, collabstore.HostedIdentity{Issuer: "https://issuer.example", Subject: "reused", ActorID: joinedActor, DisplayName: "Reused"}, createdAt.Add(2*time.Second)); !errors.Is(err, collabstore.ErrHostedInvitationInvalid) {
 		t.Fatalf("reused invitation error = %v", err)
 	}
+	for range 2 {
+		if err := value.EndHostedSession(context.Background(), owner.SessionID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if sessions, err := value.ListHostedSessions(context.Background()); err != nil || len(sessions) != 0 {
+		t.Fatalf("ended session still listed: %v %v", sessions, err)
+	}
+	if _, found, err := value.ResolveHostedMember(context.Background(), owner.SessionID, owner.Issuer, owner.Subject); err != nil || found {
+		t.Fatalf("ended session membership retained: %v %v", found, err)
+	}
+	if _, err := value.LoadRecovery(context.Background(), fixture.Initial.DocumentID); err != nil {
+		t.Fatalf("ending session deleted document: %v", err)
+	}
 }
 
 func TestHostedRegistryRejectsExpiredInvitationWithoutCreatingMember(t *testing.T) {

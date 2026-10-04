@@ -32,16 +32,17 @@ type SecretSource struct {
 }
 
 type HostedConfig struct {
-	BindAddress       string          `yaml:"bind_address"`
-	PublicOrigin      string          `yaml:"public_origin"`
-	TrustedProxyCIDRs []string        `yaml:"trusted_proxy_cidrs"`
-	Database          HostedDatabase  `yaml:"database"`
-	AuthProvider      *string         `yaml:"auth_provider,omitempty"`
-	OIDC              HostedOIDC      `yaml:"oidc"`
-	Discord           HostedDiscord   `yaml:"discord"`
-	Limits            HostedLimits    `yaml:"limits"`
-	Telemetry         HostedTelemetry `yaml:"telemetry"`
-	trustedProxies    []*net.IPNet
+	BindAddress          string                      `yaml:"bind_address"`
+	PublicOrigin         string                      `yaml:"public_origin"`
+	TrustedProxyCIDRs    []string                    `yaml:"trusted_proxy_cidrs"`
+	Database             HostedDatabase              `yaml:"database"`
+	AuthProvider         *string                     `yaml:"auth_provider,omitempty"`
+	OIDC                 HostedOIDC                  `yaml:"oidc"`
+	Discord              HostedDiscord               `yaml:"discord"`
+	DiscordNotifications *HostedDiscordNotifications `yaml:"discord_notifications,omitempty"`
+	Limits               HostedLimits                `yaml:"limits"`
+	Telemetry            HostedTelemetry             `yaml:"telemetry"`
+	trustedProxies       []*net.IPNet
 }
 
 type HostedDatabase struct {
@@ -76,7 +77,7 @@ func (config HostedDiscord) SessionLifetime() (time.Duration, error) {
 	}
 	lifetime, err := time.ParseDuration(strings.TrimSpace(*config.SessionTTL))
 	if err != nil || lifetime <= 0 || lifetime > 24*time.Hour {
-		return 0, fmt.Errorf("Discord session_ttl must be a positive duration of at most 24h")
+		return 0, fmt.Errorf("the Discord session_ttl must be a positive duration of at most 24h")
 	}
 	return lifetime, nil
 }
@@ -162,6 +163,14 @@ func (config *HostedConfig) validate() error {
 			return err
 		}
 	}
+	if config.DiscordNotifications != nil {
+		if !validHostedDecimalID(config.DiscordNotifications.GuildID) || !validHostedDecimalID(config.DiscordNotifications.ChannelID) {
+			return fmt.Errorf("discord notification guild_id and channel_id must be decimal IDs of at most 20 digits")
+		}
+		if err := config.DiscordNotifications.BotToken.validate("Discord notification bot token"); err != nil {
+			return err
+		}
+	}
 	if config.Limits.MaxConnections <= 0 || config.Limits.MaxOperationChanges <= 0 || config.Limits.MaxOperationChanges > protocol.MaxOperationChanges {
 		return fmt.Errorf("hosted connection and operation limits are invalid")
 	}
@@ -182,10 +191,10 @@ func (config *HostedConfig) validate() error {
 
 func (config HostedConfig) validateDiscord() error {
 	if !validHostedDecimalID(config.Discord.ClientID) {
-		return fmt.Errorf("Discord client_id must be a decimal ID of at most 20 digits")
+		return fmt.Errorf("the Discord client_id must be a decimal ID of at most 20 digits")
 	}
 	if !validHostedDecimalID(config.Discord.GuildID) {
-		return fmt.Errorf("Discord guild_id must be a decimal ID of at most 20 digits")
+		return fmt.Errorf("the Discord guild_id must be a decimal ID of at most 20 digits")
 	}
 	if err := validateDiscordHostedRedirect(config.PublicOrigin, config.Discord.RedirectURL); err != nil {
 		return err
@@ -214,11 +223,11 @@ func validHostedDecimalID(value string) bool {
 func validateDiscordHostedRedirect(publicOrigin, value string) error {
 	redirect, err := url.Parse(value)
 	if err != nil || redirect.Scheme != "https" || redirect.Host == "" || redirect.User != nil || redirect.RawQuery != "" || redirect.ForceQuery || redirect.Fragment != "" || redirect.Path != "/v1/auth/complete" {
-		return fmt.Errorf("Discord redirect URL must be HTTPS /v1/auth/complete without credentials, query, or fragment")
+		return fmt.Errorf("the Discord redirect URL must be HTTPS /v1/auth/complete without credentials, query, or fragment")
 	}
 	public, err := url.Parse(publicOrigin)
 	if err != nil || !strings.EqualFold(redirect.Scheme, public.Scheme) || !strings.EqualFold(redirect.Host, public.Host) {
-		return fmt.Errorf("Discord redirect URL must use the public origin")
+		return fmt.Errorf("the Discord redirect URL must use the public origin")
 	}
 	return nil
 }

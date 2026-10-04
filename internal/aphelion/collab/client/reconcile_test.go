@@ -122,6 +122,21 @@ func TestProjectionRefusesOutOfOrderAndHashMismatch(t *testing.T) {
 	}
 }
 
+func TestPublicProjectionMutationCannotReuseCachedAcknowledgedHash(t *testing.T) {
+	snapshot := projectionSnapshot(t)
+	projection := NewProjection(snapshot)
+	baseHash, err := snapshot.Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	projection.Acknowledged.MaxX++
+	operation := projectionOperation(t, snapshot, 1)
+	operation.BaseMapHash = baseHash
+	if _, err := projection.Submit(operation); err == nil {
+		t.Fatal("public projection accepted a stale cached acknowledged hash")
+	}
+}
+
 func projectionSnapshot(t *testing.T) model.Snapshot {
 	t.Helper()
 	documentID, err := model.NewDocumentID()

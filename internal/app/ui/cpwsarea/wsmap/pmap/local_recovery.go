@@ -14,14 +14,6 @@ import (
 	"sdmm/internal/util"
 )
 
-func (p *PaneMap) showLocalRecoveryControls() {
-	if !p.editor.HasLocalRecovery() {
-		return
-	}
-	w.TextWrapped("An unsubmitted edit or capture error is blocking Save.").Build()
-	w.Button("Inspect retained edit", p.OpenLocalRecovery).Build()
-}
-
 // OpenLocalRecovery captures exactly what the user can export or explicitly
 // discard. Opening or closing this modal never finishes a gesture or submits it.
 func (p *PaneMap) OpenLocalRecovery() {

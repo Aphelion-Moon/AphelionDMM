@@ -201,7 +201,7 @@ On Linux or macOS, use a terminal:
 
 Download updates from Releases. Read the release notes for information about the in-app updater.
 
-The [v.a.1 release](docs/releases/v.a.1.md) requires manual updates. Its release configuration does not include production signing for the in-app updater.
+The [v.a.2 release](docs/releases/v.a.2.md) requires manual updates. Its release configuration does not include production signing for the in-app updater.
 
 ### Default controls
 

@@ -10,7 +10,7 @@ import (
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/app/command"
-	"sdmm/internal/dmapi/dm"
+
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/util"
 )
@@ -171,25 +171,19 @@ func (e *Editor) installLocalTile(change model.TileChange, applyDisplay bool) er
 		}
 	}
 	e.updateAreaDelta(change)
-	state := model.CloneTileState(change.After)
-	e.authoritativeTiles[change.Coord] = state
-	if index, exists := e.authoritativePositions[change.Coord]; exists {
-		e.authoritative.Tiles[index].State = state
-	} else {
-		e.authoritativePositions[change.Coord] = len(e.authoritative.Tiles)
-		e.authoritative.Tiles = append(e.authoritative.Tiles, model.Tile{Coord: change.Coord, State: state})
-	}
+	e.setAuthoritativeTile(change.Coord, change.After)
 	return nil
 }
 
-func areaState(state model.TileState) model.TileState {
-	var result model.TileState
-	for _, prefab := range state.Prefabs {
-		if dm.IsPath(prefab.Path, "/area") {
-			result.Prefabs = append(result.Prefabs, prefab)
-		}
+func (e *Editor) setAuthoritativeTile(coord model.Coord, after model.TileState) {
+	state := model.CloneTileState(after)
+	e.authoritativeTiles[coord] = state
+	if index, exists := e.authoritativePositions[coord]; exists {
+		e.authoritative.Tiles[index].State = state
+	} else {
+		e.authoritativePositions[coord] = len(e.authoritative.Tiles)
+		e.authoritative.Tiles = append(e.authoritative.Tiles, model.Tile{Coord: coord, State: state})
 	}
-	return result
 }
 
 // APHELION EDIT ADDITION END

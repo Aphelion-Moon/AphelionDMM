@@ -1,5 +1,9 @@
 # Public hosting readiness
 
+September 27 update: the Windows reference service is deployed with Discord and
+Community/Private browsing. See [current evidence and remaining gates](2026-09-27-hosted-and-ci-followup.md).
+The August observations below are historical, including the discovery limitation.
+
 Status date: 2026-08-31
 
 Decision: not ready for public hosting or a general production claim.

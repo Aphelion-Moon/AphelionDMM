@@ -71,7 +71,7 @@ func (policy PastePolicy) Writes(channel Channel, intent ChannelIntent) bool {
 func (policy PastePolicy) Suppresses(path string, source TileIntent, visible func(string) bool) bool {
 	channel := ChannelForPath(path)
 	return visible(path) && policy.Writes(channel, source[channel]) &&
-		!(policy.Mode == ApplyOver && channel >= Objects && source[channel].Action == Set)
+		(policy.Mode != ApplyOver || channel < Objects || source[channel].Action != Set)
 }
 
 func CheckComposition(before model.TileState, source TileIntent, policy PastePolicy, visible func(string) bool) error {

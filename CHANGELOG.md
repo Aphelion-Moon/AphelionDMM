@@ -1,3 +1,12 @@
+# v.a.5 — Collaboration reliability and performance
+
+* Fix large collaborative area moves and independent undo/redo histories, including recovered drafts.
+* Preserve queued and uncertain edits across interruptions and make all retained drafts accessible for recovery or export.
+* Reduce large-map copying, recovery preview allocation, reconnect overhead, and time spent holding reconciliation locks.
+* Protect unsaved maps and edits made while joining; cancel unfinished connections when leaving and reserve the client until cleanup finishes.
+* Keep hosted browsing and session controls responsive, expire stale participant indicators, and fence callbacks from old sessions.
+* Fix selection-stamp capture ownership and screenshot worker state.
+
 # v.a.1 — AphelionDMM alpha
 
 * Apply AphelionDMM branding and the approved dog astronaut icon; credit and link the original StrongDMM project prominently.

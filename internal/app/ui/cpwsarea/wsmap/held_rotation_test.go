@@ -16,7 +16,7 @@ import (
 
 func TestHeldRotationRegistryTargetsPasteAndRespectsText(t *testing.T) {
 	ws, app := newSelectionWorkspace(t)
-	grab := activateSelectionWorkspace(t, ws)
+	activateSelectionWorkspace(t, ws)
 	e := ws.Map().Editor()
 
 	app.Clipboard().Copy(dm.NewPathsFilterEmpty(), e.Dmm(), []util.Point{{X: 1, Y: 1, Z: 1}})
@@ -56,7 +56,7 @@ func TestHeldRotationRegistryTargetsPasteAndRespectsText(t *testing.T) {
 	if resizeSnapshot(t, e).Revision != 0 {
 		t.Fatal("held rotation committed before placement")
 	}
-	grab = tools.Selected().(*tools.ToolGrab)
+	grab := tools.Selected().(*tools.ToolGrab)
 	if !grab.ConfirmPlacement() {
 		t.Fatal("rotated paste not confirmed")
 	}

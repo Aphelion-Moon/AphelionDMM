@@ -13,15 +13,12 @@ import (
 // once captured; only appending a previously absent coordinate detaches them.
 // Identity owners never escape the mutex. Published tile payloads stay immutable.
 func (network *NetworkExecutor) indexAcknowledgedLocked(hash string) {
-	network.acknowledgedHash = hash
+	network.projection.acknowledgedHash = hash
 	network.tileIndexes = make(map[model.Coord]int, len(network.projection.Acknowledged.Tiles))
-	network.identityOwners = make(map[model.StableID]model.Coord)
 	for index, tile := range network.projection.Acknowledged.Tiles {
 		network.tileIndexes[tile.Coord] = index
-		for _, prefab := range tile.State.Prefabs {
-			network.identityOwners[prefab.StableID] = tile.Coord
-		}
 	}
+	network.authorityTiles, network.authorityOwners = buildAuthorityIndex(network.projection.Acknowledged)
 }
 
 func (network *NetworkExecutor) acknowledgedTileLocked(coord model.Coord) model.TileState {
@@ -80,7 +77,7 @@ func (overlay *projectionOverlay) apply(operation model.Operation) error {
 			afterIDs[prefab.StableID] = struct{}{}
 			owner, overridden := overlay.owners[prefab.StableID]
 			if !overridden {
-				owner = overlay.network.identityOwners[prefab.StableID]
+				owner = overlay.network.authorityOwners[prefab.StableID]
 			}
 			if owner != (model.Coord{}) {
 				if _, moving := affected[owner]; !moving {
@@ -111,23 +108,19 @@ func (overlay *projectionOverlay) apply(operation model.Operation) error {
 }
 
 func (network *NetworkExecutor) submitProjectionLocked(operation model.Operation) error {
-	base := network.projection.Acknowledged
-	if operation.ProtocolVersion != model.ProtocolVersion || operation.DocumentID != base.DocumentID || operation.EnvironmentHash != base.EnvironmentHash {
-		return fmt.Errorf("operation is incompatible with acknowledged document")
+	verifiedHash, hashErr := network.projection.verifiedMapHash()
+	baseHash := network.verifiedHistory[operation.BaseRevision]
+	if operation.BaseRevision == network.projection.Acknowledged.Revision {
+		baseHash = verifiedHash
 	}
-	if operation.BaseRevision != base.Revision || operation.BaseMapHash != network.acknowledgedHash {
-		return fmt.Errorf("operation base does not match acknowledged revision")
+	if operation.BaseRevision > network.projection.Acknowledged.Revision || baseHash != operation.BaseMapHash {
+		return fmt.Errorf("operation base does not match a locally verified acknowledged revision")
 	}
-	overlay := projectionOverlay{network: network}
-	for _, pending := range network.projection.Pending {
-		// Competing authority may hide a pending draft without resolving it.
-		// Keep the original submitted bytes and skip its invalid visible overlay.
-		_ = overlay.apply(pending)
+	projection, err := network.projection.submitWithVerifiedOverlay(operation, verifiedHash, hashErr, network.authorityTiles, network.authorityOwners)
+	if err != nil {
+		return err
 	}
-	if err := overlay.apply(operation); err != nil {
-		return fmt.Errorf("apply speculative operation: %w", err)
-	}
-	network.projection.Pending = append(slices.Clone(network.projection.Pending), model.CloneOperation(operation))
+	network.projection = projection
 	network.rebuildVisibleLocked()
 	return nil
 }
@@ -174,48 +167,26 @@ func (network *NetworkExecutor) acceptProjectionLocked(accepted model.AcceptedOp
 	}
 	// Nothing above mutates authority or indexes: even a bad digest leaves all
 	// captures, pending drafts, and identity ownership at the previous revision.
-	for _, change := range accepted.Changes {
-		for _, prefab := range network.acknowledgedTileLocked(change.Coord).Prefabs {
-			delete(network.identityOwners, prefab.StableID)
-		}
-	}
-	for _, change := range accepted.Changes {
-		for _, prefab := range change.After.Prefabs {
-			network.identityOwners[prefab.StableID] = change.Coord
-		}
-	}
 	remaining := make([]model.Operation, 0, len(network.projection.Pending))
 	for _, pending := range network.projection.Pending {
 		if pending.OperationID != accepted.OperationID {
 			remaining = append(remaining, pending)
 		}
 	}
-	network.projection = Projection{Acknowledged: next, Pending: remaining}
-	network.tileIndexes, network.acknowledgedHash = indexes, hash
+	network.projection = Projection{Acknowledged: next, Pending: remaining, acknowledgedHash: hash}
+	network.tileIndexes = indexes
+	network.applyAuthorityChanges(accepted.Changes)
 	network.rebuildVisibleLocked()
 	return nil
 }
 
 func (network *NetworkExecutor) rejectProjectionLocked(rejected protocol.OperationRejectedPayload) (Conflict, error) {
-	if rejected.Revision != network.projection.Acknowledged.Revision || rejected.MapHash != network.acknowledgedHash {
-		return Conflict{}, fmt.Errorf("rejection authority does not match acknowledged revision")
+	verifiedHash, hashErr := network.projection.verifiedMapHash()
+	projection, conflict, err := network.projection.rejectWithVerifiedHash(rejected, verifiedHash, hashErr)
+	if err != nil {
+		return Conflict{}, err
 	}
-	remaining := make([]model.Operation, 0, len(network.projection.Pending))
-	var draft model.Operation
-	found := false
-	for _, pending := range network.projection.Pending {
-		if pending.OperationID == rejected.OperationID {
-			draft = pending
-			found = true
-		} else {
-			remaining = append(remaining, pending)
-		}
-	}
-	if !found {
-		return Conflict{}, fmt.Errorf("rejected operation %q is not pending", rejected.OperationID)
-	}
-	network.projection.Pending = remaining
+	network.projection = projection
 	network.rebuildVisibleLocked()
-	return Conflict{OperationID: rejected.OperationID, Draft: model.CloneOperation(draft), Code: rejected.Code, Message: rejected.Message,
-		Revision: rejected.Revision, MapHash: rejected.MapHash, AuthoritativeValues: cloneTiles(rejected.AuthoritativeValues)}, nil
+	return conflict, nil
 }

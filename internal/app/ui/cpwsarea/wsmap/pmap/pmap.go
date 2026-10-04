@@ -138,7 +138,7 @@ type PaneMap struct {
 	// The value of the Z-level with which the user is currently working.
 	activeLevel int
 
-	tmpLastHoveredInstance *dmminstance.Instance
+	// APHELION EDIT REMOVAL - CURRENT FRAME INPUT: tmpLastHoveredInstance *dmminstance.Instance
 }
 
 func (p *PaneMap) Canvas() *canvas.Canvas {
@@ -451,10 +451,12 @@ func (p *PaneMap) openTileMenu() {
 	}
 }
 
+/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
 func (p *PaneMap) processCanvasHoveredInstance() {
 	p.canvasState.SetHoveredInstance(p.tmpLastHoveredInstance)
 	p.tmpLastHoveredInstance = nil
 }
+APHELION EDIT REMOVAL END */
 
 func (p *PaneMap) updateShortcutsState() {
 	if imgui.IsWindowFocusedV(imgui.FocusedFlagsRootAndChildWindows) {

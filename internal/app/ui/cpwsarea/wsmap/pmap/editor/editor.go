@@ -86,6 +86,10 @@ type Editor struct {
 	historyGeneration      uint64 // Resumable local history; callback generation never rewinds.
 	history                command.Target
 	unresolvedSubmissions  map[model.OperationID]struct{}
+	// The UI owns a drained update until complete installation succeeds.
+	presentationUpdate   *client.PresentationUpdate
+	presentationSequence uint64
+	presentationStats    CollaborationPublicationStats
 	// APHELION EDIT ADDITION END
 }
 

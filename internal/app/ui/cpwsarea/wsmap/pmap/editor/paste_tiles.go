@@ -16,9 +16,20 @@ import (
 )
 
 func (e *Editor) applyPasteTileState(coord model.Coord, state model.TileState) error {
+	instances, err := e.preparePasteTileState(coord, state)
+	if err != nil {
+		return err
+	}
+	e.dmm.GetTile(util.Point{X: coord.X, Y: coord.Y, Z: coord.Z}).Set(instances)
+	return nil
+}
+
+// Prepare every tile in a network publication before changing the live model.
+// Prefab interning and environment links remain on the editor owner.
+func (e *Editor) preparePasteTileState(coord model.Coord, state model.TileState) (dmmap.Instances, error) {
 	point := util.Point{X: coord.X, Y: coord.Y, Z: coord.Z}
 	if !e.dmm.HasTile(point) {
-		return fmt.Errorf("accepted coordinate (%d,%d,%d) is outside the map", coord.X, coord.Y, coord.Z)
+		return nil, fmt.Errorf("accepted coordinate (%d,%d,%d) is outside the map", coord.X, coord.Y, coord.Z)
 	}
 	instances := make(dmmap.Instances, 0, len(state.Prefabs))
 	for _, saved := range state.Prefabs {
@@ -37,8 +48,7 @@ func (e *Editor) applyPasteTileState(coord model.Coord, state model.TileState) e
 		instance.SetStableID(string(saved.StableID))
 		instances = append(instances, instance)
 	}
-	e.dmm.GetTile(point).Set(instances)
-	return nil
+	return instances, nil
 }
 
 func (e *Editor) editWorkBudget() *resources.Budget {
