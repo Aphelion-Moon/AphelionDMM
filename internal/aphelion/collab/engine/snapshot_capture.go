@@ -65,7 +65,8 @@ type TileCapture struct {
 }
 
 func (document *Document) CaptureTiles() TileCapture {
-	document.sharedIndexes = true
+	// Captures read coordinates and immutable payloads, never identity owners.
+	document.sharedTileIndexes = true
 	return TileCapture{SnapshotCapture: document.CaptureSnapshot(), indexes: document.tileIndexes}
 }
 func (capture TileCapture) Tile(coord model.Coord) (model.TileState, bool) {

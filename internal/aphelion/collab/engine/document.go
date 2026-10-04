@@ -18,16 +18,17 @@ type Document struct {
 	// Snapshot payloads and accepted records are immutable after validation.
 	// Public inputs/results are deep copies; branches own their metadata maps
 	// and validation copies the tile table before replacing or appending states.
-	snapshot       model.Snapshot
-	mapHash        string
-	hashes         map[model.Revision]string
-	accepted       map[model.OperationID]model.AcceptedOperation
-	inverted       map[model.OperationID]model.OperationID
-	tileIndexes    map[model.Coord]int
-	identityOwners map[model.StableID]model.Coord
-	sharedTiles    bool
-	sharedIndexes  bool
-	unshared       bool
+	snapshot             model.Snapshot
+	mapHash              string
+	hashes               map[model.Revision]string
+	accepted             map[model.OperationID]model.AcceptedOperation
+	inverted             map[model.OperationID]model.OperationID
+	tileIndexes          map[model.Coord]int
+	identityOwners       map[model.StableID]model.Coord
+	sharedTiles          bool
+	sharedTileIndexes    bool
+	sharedIdentityOwners bool
+	unshared             bool
 }
 
 func NewDocument(snapshot model.Snapshot) (*Document, error) {
@@ -83,10 +84,10 @@ func (document *Document) ApplyContext(ctx context.Context, operation model.Oper
 		Revision:   candidate.Revision,
 		AcceptedAt: acceptedAt,
 	}
-	document.ownIndexes()
 	nextIndex := len(document.snapshot.Tiles)
 	for _, change := range normalized.Changes {
 		if _, exists := document.tileIndexes[change.Coord]; !exists {
+			document.ownTileIndexes()
 			document.tileIndexes[change.Coord] = nextIndex
 			nextIndex++
 		}
@@ -111,18 +112,20 @@ func (document *Document) Snapshot() model.Snapshot {
 
 func (document *Document) Clone() *Document {
 	document.sharedTiles = true
-	document.sharedIndexes = true
+	document.sharedTileIndexes = true
+	document.sharedIdentityOwners = true
 	clone := &Document{
-		snapshot:       document.snapshot,
-		mapHash:        document.mapHash,
-		hashes:         make(map[model.Revision]string, len(document.hashes)),
-		accepted:       make(map[model.OperationID]model.AcceptedOperation, len(document.accepted)),
-		inverted:       make(map[model.OperationID]model.OperationID, len(document.inverted)),
-		tileIndexes:    document.tileIndexes,
-		identityOwners: document.identityOwners,
-		sharedTiles:    true,
-		sharedIndexes:  true,
-		unshared:       document.unshared,
+		snapshot:             document.snapshot,
+		mapHash:              document.mapHash,
+		hashes:               make(map[model.Revision]string, len(document.hashes)),
+		accepted:             make(map[model.OperationID]model.AcceptedOperation, len(document.accepted)),
+		inverted:             make(map[model.OperationID]model.OperationID, len(document.inverted)),
+		tileIndexes:          document.tileIndexes,
+		identityOwners:       document.identityOwners,
+		sharedTiles:          true,
+		sharedTileIndexes:    true,
+		sharedIdentityOwners: true,
+		unshared:             document.unshared,
 	}
 	for revision, hash := range document.hashes {
 		clone.hashes[revision] = hash

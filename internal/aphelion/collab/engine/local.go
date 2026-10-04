@@ -173,27 +173,32 @@ func (document *Document) validateChanges(ctx context.Context, changes []model.T
 
 // installChanges cannot fail: validation and cancellation precede publication.
 func (document *Document) installChanges(changes []model.TileChange) {
-	document.ownIndexes()
 	document.updateIdentityOwners(changes)
 	for _, change := range changes {
 		if index, exists := document.tileIndexes[change.Coord]; exists {
 			document.snapshot.Tiles[index].State = change.After
 		} else {
+			document.ownTileIndexes()
 			document.tileIndexes[change.Coord] = len(document.snapshot.Tiles)
 			document.snapshot.Tiles = append(document.snapshot.Tiles, model.Tile{Coord: change.Coord, State: change.After})
 		}
 	}
 }
 
-func (document *Document) ownIndexes() {
-	if document.sharedIndexes {
+// Coordinate indexes change only on append. Replacing an existing tile leaves
+// pinned lookups valid, so those edits need no coordinate-index copy.
+func (document *Document) ownTileIndexes() {
+	if document.sharedTileIndexes {
 		document.tileIndexes = maps.Clone(document.tileIndexes)
-		document.identityOwners = maps.Clone(document.identityOwners)
-		document.sharedIndexes = false
+		document.sharedTileIndexes = false
 	}
 }
 
 func (document *Document) updateIdentityOwners(changes []model.TileChange) {
+	if document.sharedIdentityOwners {
+		document.identityOwners = maps.Clone(document.identityOwners)
+		document.sharedIdentityOwners = false
+	}
 	for _, change := range changes {
 		for _, prefab := range change.Before.Prefabs {
 			delete(document.identityOwners, prefab.StableID)
