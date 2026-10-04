@@ -25,26 +25,34 @@ func channel(a Atom) string {
 	}
 	return "objects"
 }
-func atomsFor(atoms []Atom, c string) []Atom {
-	var result []Atom
-	for _, a := range atoms {
-		if channel(a) == c {
-			result = append(result, a)
-		}
-	}
-	return result
+
+// CompareCell compares immutable source content without copying or exposing it.
+func (s *Source) CompareCell(point util.Point, other *Source, otherPoint util.Point) ChannelDiff {
+	return CompareCell(s.atomsAt(point), other.atomsAt(otherPoint))
 }
+
 func CompareCell(a, b []Atom) ChannelDiff {
-	equal := func(a, b []Atom) bool {
-		if len(a) != len(b) {
+	return ChannelDiff{
+		Turf:    !equalChannel(a, b, "turf"),
+		Area:    !equalChannel(a, b, "area"),
+		Objects: !equalChannel(a, b, "objects"),
+	}
+}
+
+func equalChannel(a, b []Atom, c string) bool {
+	// Walk each channel in its authored order without allocating filtered slices.
+	for i, j := 0, 0; ; i, j = i+1, j+1 {
+		for i < len(a) && channel(a[i]) != c {
+			i++
+		}
+		for j < len(b) && channel(b[j]) != c {
+			j++
+		}
+		if i == len(a) || j == len(b) {
+			return i == len(a) && j == len(b)
+		}
+		if a[i].Path != b[j].Path || !maps.Equal(a[i].Vars, b[j].Vars) {
 			return false
 		}
-		for i := range a {
-			if a[i].Path != b[i].Path || !maps.Equal(a[i].Vars, b[i].Vars) {
-				return false
-			}
-		}
-		return true
 	}
-	return ChannelDiff{Turf: !equal(atomsFor(a, "turf"), atomsFor(b, "turf")), Area: !equal(atomsFor(a, "area"), atomsFor(b, "area")), Objects: !equal(atomsFor(a, "objects"), atomsFor(b, "objects"))}
 }

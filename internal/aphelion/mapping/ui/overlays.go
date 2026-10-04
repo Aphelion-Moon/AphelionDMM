@@ -106,7 +106,7 @@ func (p *Panel) drawDifferences(start, end imgui.Vec2) {
 				draw.AddText(start, 0xffffffff, "Zoom in to inspect all cell differences")
 				return
 			}
-			diff := mapping.CompareCell(base.Cell(point), reference.Cell(local))
+			diff := base.CompareCell(point, reference, local)
 			if !diff.Turf && !diff.Area && !diff.Objects {
 				continue
 			}
