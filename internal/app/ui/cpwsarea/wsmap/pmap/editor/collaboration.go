@@ -87,7 +87,7 @@ func (e *Editor) CollaborationSnapshot(ctx context.Context) (model.Snapshot, err
 	if err != nil {
 		return model.Snapshot{}, fmt.Errorf("read collaboration snapshot: %w", err)
 	}
-	return model.CloneSnapshot(snapshot), nil
+	return snapshot, nil
 }
 
 // AttachCollaborationExecutor replaces local compatibility mode with a synchronized executor.
@@ -552,8 +552,10 @@ func (e *Editor) setAuthoritative(snapshot model.Snapshot) {
 	e.authoritative = model.CloneSnapshot(snapshot)
 	e.authoritativeTiles = make(map[model.Coord]model.TileState, len(snapshot.Tiles))
 	e.authoritativePositions = make(map[model.Coord]int, len(snapshot.Tiles))
-	for index, tile := range snapshot.Tiles {
-		e.authoritativeTiles[tile.Coord] = model.CloneTileState(tile.State)
+	// Payloads are already detached above. Each publication replaces both
+	// indexes so workers retaining the previous authority keep an immutable view.
+	for index, tile := range e.authoritative.Tiles {
+		e.authoritativeTiles[tile.Coord] = tile.State
 		e.authoritativePositions[tile.Coord] = index
 	}
 }
