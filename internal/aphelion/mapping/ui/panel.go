@@ -472,9 +472,9 @@ func (p *Panel) advance() {
 				}
 			}
 			if out.err == nil && out.sources[0] != nil {
-				var rootDiagnostics []mapping.Diagnostic
-				out.roots, rootDiagnostics = out.catalog.Roots(ctx, out.sources[0], mapping.Transform{}, "")
 				if !r.compose {
+					var rootDiagnostics []mapping.Diagnostic
+					out.roots, rootDiagnostics = out.catalog.Roots(ctx, out.sources[0], mapping.Transform{}, "")
 					out.diagnostics = append(out.diagnostics, rootDiagnostics...)
 				}
 				if r.compose {

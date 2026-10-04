@@ -7,6 +7,7 @@ import (
 	"time"
 	// APHELION EDIT ADDITION START - PERSISTENT SELECTION
 	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/app/render"
 	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
@@ -110,7 +111,14 @@ func (p *Panel) createScreenshot() {
 	c.Render().Camera.Translate(boundX, boundY)
 	// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: c.Render().SetUnitProcessor(p)
 	c.Render().SetUnitProcessor(screenshotPolicy{selection: selection, filter: p.app.PathsFilter().Copy()})
-	for level := 1; level <= p.editor.ActiveLevel(); level++ {
+	// APHELION EDIT ADDITION START - SCREENSHOT LEVEL PREPARATION
+	firstLevel := 1
+	if selection.Len() != 0 || !render.MultiZRendering {
+		firstLevel = p.editor.ActiveLevel()
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - SCREENSHOT LEVEL PREPARATION - ORIGINAL: for level := 1; level <= p.editor.ActiveLevel(); level++ {
+	for level := firstLevel; level <= p.editor.ActiveLevel(); level++ {
 		c.Render().UpdateBucket(p.editor.Dmm(), level) // Prepare for render all available levels
 	}
 	c.Process(imgui.Vec2{X: float32(width), Y: float32(height)})
