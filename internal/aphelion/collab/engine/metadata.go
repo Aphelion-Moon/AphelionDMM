@@ -1,6 +1,9 @@
 package engine
 
-import "sdmm/internal/aphelion/collab/model"
+import (
+	"reflect"
+	"sdmm/internal/aphelion/collab/model"
+)
 
 // Metadata is a coherent authority header without tile payloads. Like other
 // Document methods, reads belong to its serialized owner. The canonical hash
@@ -27,6 +30,16 @@ func (document *Document) Metadata() (Metadata, error) {
 }
 
 func (document *Document) Revision() model.Revision { return document.snapshot.Revision }
+
+// EqualSnapshot compares borrowed input without disposable payload copies.
+// Preserve CloneSnapshot's normalization of a nil tile table; prefab ordering
+// and nil versus empty variable maps still compare exactly.
+func (document *Document) EqualSnapshot(snapshot model.Snapshot) bool {
+	if snapshot.Tiles == nil {
+		snapshot.Tiles = []model.Tile{}
+	}
+	return reflect.DeepEqual(document.snapshot, snapshot)
+}
 
 // Tile returns detached state, including an empty state for a missing tile.
 func (document *Document) Tile(coord model.Coord) model.TileState {

@@ -7,6 +7,32 @@ import (
 	"sdmm/internal/aphelion/collab/model"
 )
 
+func TestDocumentSnapshotComparisonPreservesCloneSemantics(t *testing.T) {
+	empty := initialSnapshot()
+	empty.Tiles = nil
+	for _, fixture := range []model.Snapshot{initialSnapshot(), empty} {
+		document, err := NewDocument(fixture)
+		if err != nil {
+			t.Fatal(err)
+		}
+		variants := []model.Snapshot{fixture, model.CloneSnapshot(fixture)}
+		changed := model.CloneSnapshot(fixture)
+		changed.Revision++
+		variants = append(variants, changed)
+		if len(fixture.Tiles) != 0 {
+			changed = model.CloneSnapshot(fixture)
+			changed.Tiles[0].State.Prefabs[0].Vars["dir"] = "99"
+			variants = append(variants, changed)
+		}
+		for index, candidate := range variants {
+			want := index < 2
+			if got := document.EqualSnapshot(candidate); got != want {
+				t.Fatalf("snapshot equality=%v, want %v", got, want)
+			}
+		}
+	}
+}
+
 func TestDocumentMetadataTracksLocalHashInvalidation(t *testing.T) {
 	document, err := NewUnsharedDocument(initialSnapshot())
 	if err != nil {

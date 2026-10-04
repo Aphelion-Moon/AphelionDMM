@@ -192,10 +192,11 @@ func (store *Store) append(ctx context.Context, accepted model.AcceptedOperation
 	if !reflect.DeepEqual(verified, accepted) {
 		return fmt.Errorf("accepted operation does not match verified operation")
 	}
-	mapHash, err := document.Snapshot().Hash()
+	metadata, err := document.Metadata()
 	if err != nil {
 		return fmt.Errorf("hash accepted revision: %w", err)
 	}
+	mapHash := metadata.MapHash
 	if expectedMapHash != nil && mapHash != *expectedMapHash {
 		return fmt.Errorf("transaction body map hash differs from verified accepted map")
 	}
@@ -305,7 +306,7 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) e
 	if err != nil {
 		return err
 	}
-	if !reflect.DeepEqual(retained.Snapshot(), model.CloneSnapshot(snapshot)) {
+	if !retained.EqualSnapshot(snapshot) {
 		return fmt.Errorf("snapshot does not match retained revision")
 	}
 	mapHash, err := snapshot.Hash()

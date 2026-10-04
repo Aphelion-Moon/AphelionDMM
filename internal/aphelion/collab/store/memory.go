@@ -145,7 +145,7 @@ func (store *MemoryStore) Append(ctx context.Context, accepted model.AcceptedOpe
 	if !reflect.DeepEqual(verified, accepted) {
 		return fmt.Errorf("accepted operation does not match verified operation")
 	}
-	mapHash, err := candidate.Snapshot().Hash()
+	metadata, err := candidate.Metadata()
 	if err != nil {
 		return fmt.Errorf("hash accepted revision: %w", err)
 	}
@@ -153,7 +153,7 @@ func (store *MemoryStore) Append(ctx context.Context, accepted model.AcceptedOpe
 	store.operations[accepted.DocumentID] = append(store.operations[accepted.DocumentID], cloned)
 	store.accepted[accepted.DocumentID][accepted.OperationID] = cloned
 	store.documents[accepted.DocumentID] = candidate
-	store.hashes[accepted.DocumentID][accepted.Revision] = mapHash
+	store.hashes[accepted.DocumentID][accepted.Revision] = metadata.MapHash
 	store.revisionHeads[accepted.DocumentID] = accepted.Revision
 	return nil
 }
@@ -190,9 +190,6 @@ func (store *MemoryStore) SaveSnapshot(ctx context.Context, snapshot model.Snaps
 	if _, exists := store.sessions[snapshot.DocumentID]; !exists {
 		return ErrSessionMissing
 	}
-	if _, err := engine.NewDocument(snapshot); err != nil {
-		return err
-	}
 	mapHash, err := snapshot.Hash()
 	if err != nil {
 		return err
@@ -202,9 +199,9 @@ func (store *MemoryStore) SaveSnapshot(ctx context.Context, snapshot model.Snaps
 		return fmt.Errorf("snapshot revision %d is not retained with the supplied hash", snapshot.Revision)
 	}
 	base := store.sessions[snapshot.DocumentID]
-	current := store.documents[snapshot.DocumentID].Snapshot()
-	if snapshot.Revision < base.Revision || snapshot.Revision > current.Revision {
-		return fmt.Errorf("snapshot revision %d is outside retained range %d through %d", snapshot.Revision, base.Revision, current.Revision)
+	current := store.documents[snapshot.DocumentID].Revision()
+	if snapshot.Revision < base.Revision || snapshot.Revision > current {
+		return fmt.Errorf("snapshot revision %d is outside retained range %d through %d", snapshot.Revision, base.Revision, current)
 	}
 	store.sessions[snapshot.DocumentID] = model.CloneSnapshot(snapshot)
 	retained := store.operations[snapshot.DocumentID][:0]

@@ -21,7 +21,7 @@ func (store *MemoryStore) LoadRecovery(ctx context.Context, documentID model.Doc
 	if !exists {
 		return engine.RecoveryState{}, ErrSessionMissing
 	}
-	head := store.documents[documentID].Snapshot().Revision
+	head := store.documents[documentID].Revision()
 	state := engine.RecoveryState{Snapshot: model.CloneSnapshot(snapshot), SnapshotHash: store.hashes[documentID][snapshot.Revision], HeadRevision: head, HeadHash: store.hashes[documentID][head], Hashes: make(map[model.Revision]string)}
 	for revision, hash := range store.hashes[documentID] {
 		state.Hashes[revision] = hash
