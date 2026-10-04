@@ -10,7 +10,6 @@ import (
 	"sdmm/internal/aphelion/mapping"
 	mappingui "sdmm/internal/aphelion/mapping/ui"
 	"sdmm/internal/aphelion/mapview"
-	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/app/render"
 	"sdmm/internal/app/ui/cpwsarea/wsmap"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
@@ -50,17 +49,16 @@ func (a *app) PrepareMappingExport(target string, connector *util.Point) (func(c
 	if sourceKey := filepath.Clean(ws.Map().Dmm().Path.Absolute); strings.EqualFold(sourceKey, filepath.Clean(target)) {
 		return nil, nil, fmt.Errorf("export to a separate source file")
 	}
-	handle, version, err := e.CaptureSaveSnapshot(context.Background())
+	handle, version, err := e.CaptureAcceptedTiles(context.Background())
 	if err != nil {
 		return nil, nil, err
 	}
+	if connector != nil {
+		value := *connector
+		connector = &value
+	}
 	return func(ctx context.Context) (*mapping.AuthoringProposal, error) {
-		lease, err := resources.DefaultBudget().Reserve(handle.EstimatedBytes())
-		if err != nil {
-			return nil, err
-		}
-		defer lease.Release()
-		return mapping.PrepareTemplateExport(ctx, target, handle.Snapshot(), selection, connector)
+		return mapping.PrepareTemplateExportTiles(ctx, target, handle, selection, connector)
 	}, func() bool { return e.SaveCaptureReady(version) }, nil
 }
 

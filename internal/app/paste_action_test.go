@@ -16,6 +16,8 @@ import (
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 	collabui "sdmm/internal/aphelion/collab/ui"
+	"sdmm/internal/aphelion/editing"
+	mappingui "sdmm/internal/aphelion/mapping/ui"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/prefs"
@@ -133,6 +135,7 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 	defer brush.Dispose()
 	a := &pasteActionUI{app: &app{loadedEnvironment: environment, pathsFilter: dm.NewPathsFilterEmpty(), configs: map[string]config.Config{}, commandStorage: command.NewStorage(), clipboard: dmmclip.New(), layout: &layout.Layout{WsArea: &cpwsarea.WsArea{}}}}
 	a.jobs = make(chan func(), 128)
+	a.layout.Composition = mappingui.NewHub(a)
 	a.layout.WsArea.Init(a)
 	a.menu = menu.New(a)
 	openMap := func(name string) *wsmap.WsMap {
@@ -163,6 +166,60 @@ func TestPasteApplicationShortcutAndWorkspaceRouting(t *testing.T) {
 	}
 	first := openMap("first")
 	defer first.Map().Editor().Close()
+	t.Run("selected template export", func(t *testing.T) {
+		e := first.Map().Editor()
+		selection, err := editing.MaskSelection([]util.Point{{X: 1, Y: 1, Z: 1}, {X: 3, Y: 1, Z: 1}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.WorkingSelection().Set(selection)
+		defer e.WorkingSelection().Clear(1)
+		before, err := e.SaveSnapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		beforeHash, _ := before.Hash()
+		target := filepath.Join(dir, "selected-export.dmm")
+		connector := util.Point{X: 1, Y: 1, Z: 1}
+		prepare, current, err := a.PrepareMappingExport(target, &connector)
+		if err != nil {
+			t.Fatal(err)
+		}
+		connector = util.Point{X: 4, Y: 4, Z: 1}
+		proposal, err := prepare(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer proposal.Close()
+		if !current() || proposal.Width != 3 || proposal.Height != 1 || proposal.Connector == nil || *proposal.Connector != (util.Point{X: 1, Y: 1, Z: 1}) {
+			t.Fatal("export capture lost selection, connector ownership, or readiness")
+		}
+		if _, err := os.Stat(target); !os.IsNotExist(err) {
+			t.Fatal("preparation wrote the export")
+		}
+		if result := proposal.Apply(context.Background()); result.Err != nil || !result.SourceWritten {
+			t.Fatal(result.Err)
+		}
+		exported, err := dmmdata.New(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hole := exported.Dictionary[exported.Grid[util.Point{X: 2, Y: 1, Z: 1}]]
+		if len(hole) != 2 || hole[0].Path() != "/turf/template_noop" || hole[1].Path() != "/area/template_noop" {
+			t.Fatal("application export widened selected membership")
+		}
+		after, err := e.SaveSnapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		afterHash, _ := after.Hash()
+		if beforeHash != afterHash || before.Revision != after.Revision {
+			t.Fatal("export modified source authority")
+		}
+		if _, _, err := a.PrepareMappingExport(e.Dmm().Path.Absolute, nil); err == nil {
+			t.Fatal("export accepted overwriting the source map")
+		}
+	})
 	g := tools.SetSelected(tools.TNGrab).(*tools.ToolGrab)
 	g.Reset()
 	g.SelectArea([]util.Point{{X: 1, Y: 1, Z: 1}})

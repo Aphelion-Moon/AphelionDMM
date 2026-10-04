@@ -111,5 +111,13 @@ func (e *Editor) SaveCaptureReady(capture SaveCapture) bool {
 	if pending, ok := e.executor.(pendingExecutor); ok && pending.HasUnacknowledgedOperations() {
 		return false
 	}
+	if capturer, ok := e.executor.(projectionCapturer); ok {
+		current, err := capturer.CaptureProjection(context.Background())
+		return err == nil && !current.HasPending() && current.DocumentID() == capture.DocumentID && current.BaseRevision() == capture.Revision
+	}
+	if local, ok := e.executor.(localEditExecutor); ok && !e.sessionOwned {
+		current, err := local.LocalVersion(context.Background())
+		return err == nil && current.DocumentID == capture.DocumentID && current.Revision == capture.Revision
+	}
 	return true
 }

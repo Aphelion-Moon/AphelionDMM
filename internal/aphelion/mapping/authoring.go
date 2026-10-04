@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/mapadapter"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/diskversion"
@@ -146,9 +145,11 @@ func (p *AuthoringProposal) Close() {
 	}
 }
 
-// PrepareTemplateExport copies accepted selected cells. Holes preserve both
+// PrepareTemplateExportTiles copies only accepted selected cells. Holes preserve both
 // channels with explicit noops. It never removes or modifies the source room.
-func PrepareTemplateExport(ctx context.Context, path string, snapshot model.Snapshot, selection editing.Selection, connector *util.Point) (*AuthoringProposal, error) {
+func PrepareTemplateExportTiles(ctx context.Context, path string, source TemplateExportSource, selection editing.Selection, connector *util.Point) (*AuthoringProposal, error) {
+	snapshot := source.Header()
+	snapshot.Tiles = nil
 	if selection.Len() == 0 {
 		return nil, fmt.Errorf("select source cells first")
 	}
@@ -167,7 +168,7 @@ func PrepareTemplateExport(ctx context.Context, path string, snapshot model.Snap
 	if connector != nil && !selection.Contains(*connector) {
 		return nil, fmt.Errorf("connector must be on a selected source cell")
 	}
-	lease, err := resources.DefaultBudget().Reserve(uint64(w*h)*1024 + uint64(len(snapshot.Tiles))*128)
+	lease, err := resources.DefaultBudget().Reserve(uint64(w*h) * 1024)
 	if err != nil {
 		return nil, err
 	}
@@ -185,17 +186,24 @@ func PrepareTemplateExport(ctx context.Context, path string, snapshot model.Snap
 	if err != nil {
 		return nil, err
 	}
-	lookup := make(map[model.Coord]model.TileState, len(snapshot.Tiles))
 	estimate := lease.Bytes()
-	for _, tile := range snapshot.Tiles {
-		lookup[tile.Coord] = tile.State
-		if selection.Contains(util.Point{X: tile.Coord.X, Y: tile.Coord.Y, Z: tile.Coord.Z}) {
-			bytes := engine.EstimateTileStateBytes(tile.State)
-			if bytes > (^uint64(0)-estimate)/8 {
-				return nil, fmt.Errorf("export estimate exceeds addressable memory")
-			}
-			estimate += bytes * 8
+	var estimateErr error
+	selection.Visit(func(point util.Point) {
+		if estimateErr != nil {
+			return
 		}
+		if estimateErr = ctx.Err(); estimateErr != nil {
+			return
+		}
+		bytes, _ := source.EstimatedTileBytes(model.Coord{X: point.X, Y: point.Y, Z: point.Z})
+		if bytes > (^uint64(0)-estimate)/8 {
+			estimateErr = fmt.Errorf("export estimate exceeds addressable memory")
+			return
+		}
+		estimate += bytes * 8
+	})
+	if estimateErr != nil {
+		return nil, estimateErr
 	}
 	if err := lease.Resize(estimate); err != nil {
 		return nil, err
@@ -217,7 +225,7 @@ func PrepareTemplateExport(ctx context.Context, path string, snapshot model.Snap
 			point := util.Point{X: origin.X + x, Y: origin.Y + y, Z: origin.Z}
 			state := model.TileState{}
 			if selection.Contains(point) {
-				state = model.CloneTileState(lookup[model.Coord{X: point.X, Y: point.Y, Z: point.Z}])
+				state, _ = source.Tile(model.Coord{X: point.X, Y: point.Y, Z: point.Z})
 			} else {
 				state.Prefabs = []model.PrefabState{newAtom("/turf/template_noop"), newAtom("/area/template_noop")}
 			}
