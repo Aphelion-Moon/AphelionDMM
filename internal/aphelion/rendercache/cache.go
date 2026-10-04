@@ -26,6 +26,7 @@ type Versions struct{ Chunk, Policy, Appearance uint64 }
 type Stats struct {
 	Hits, Misses, Invalidations, Builds uint64
 	UploadBytes                         uint64
+	Reuses                              uint64
 }
 
 type Entry struct {
@@ -41,12 +42,21 @@ func (e *Entry) Matches(v Versions) bool { return e != nil && e.Versions == v }
 
 // IntersectsUnitIDs returns true when a selected ID is in this submission. An
 // incomplete index conservatively requests the dynamic path for that layer.
-func (e *Entry) IntersectsUnitIDs(ids map[uint64]struct{}) bool {
+// Values are ignored so callers can borrow their highlight map without copying it.
+func IntersectsUnitIDs[T any](e *Entry, ids map[uint64]T) bool {
 	if e == nil || len(ids) == 0 {
 		return false
 	}
 	if !e.indexComplete {
 		return true
+	}
+	if len(e.unitIDs) < len(ids) {
+		for _, id := range e.unitIDs {
+			if _, selected := ids[id]; selected {
+				return true
+			}
+		}
+		return false
 	}
 	for id := range ids {
 		index := sort.Search(len(e.unitIDs), func(index int) bool { return e.unitIDs[index] >= id })
@@ -135,15 +145,34 @@ func (c *Cache) remove(key Key, element *list.Element) {
 	}
 }
 
-// DisposeRetiredStep releases one GL allocation on the shared visual scheduler.
-func (c *Cache) DisposeRetiredStep() bool {
+func (c *Cache) takeRetired() *brush.Submission {
 	if c == nil || len(c.retired) == 0 {
-		return false
+		return nil
 	}
 	last := len(c.retired) - 1
 	submission := c.retired[last]
 	c.retired[last] = nil
 	c.retired = c.retired[:last]
+	return submission
+}
+
+// CaptureAdmittedSubmission transfers a retired allocation to a replacement on
+// the GL owner. It cannot be drawn or disposed by the cache during capture.
+func (c *Cache) CaptureAdmittedSubmission(estimate uint64, build func()) (*brush.Submission, error) {
+	retired := c.takeRetired()
+	submission, err := brush.CaptureAdmittedReplacement(retired, estimate, build)
+	if submission != nil && submission == retired {
+		c.stats.Reuses++
+	}
+	return submission, err
+}
+
+// DisposeRetiredStep releases one GL allocation on the shared visual scheduler.
+func (c *Cache) DisposeRetiredStep() bool {
+	submission := c.takeRetired()
+	if submission == nil {
+		return false
+	}
 	submission.Dispose()
 	return true
 }

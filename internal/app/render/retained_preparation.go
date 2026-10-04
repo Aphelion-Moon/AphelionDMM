@@ -51,31 +51,31 @@ func (r *Render) reprioritizeRetained() {
 }
 
 func (r *Render) processRetainedPreparation(b *LevelBuildBudget) bool {
-	if r.retained != nil && r.retained.HasRetired() && (r.retainedRetireNext || len(r.retainedPending) == 0) {
-		if !b.consume() {
+	if len(r.retainedPending) == 0 {
+		if !r.retained.HasRetired() || !b.consume() {
 			return false
 		}
-		r.retainedRetireNext = false
 		return r.retained.DisposeRetiredStep()
 	}
-	if len(r.retainedPending) == 0 || !b.consume() {
+	if !b.consume() {
 		return false
 	}
 	job := r.retainedPending[0]
-	r.retainedRetireNext = true
 	r.retainedPending[0] = retainedPreparation{}
 	r.retainedPending = r.retainedPending[1:]
 	versions := r.retainedQueued[job.key]
 	delete(r.retainedQueued, job.key)
 	policy, cacheable := r.retainedPolicyRevision()
 	current := rendercache.Versions{Chunk: job.key.Chunk.Revision(), Policy: policy, Appearance: dmicon.Cache.Revision()}
-	if !cacheable || versions != current || r.viewportWidth <= 0 || r.viewportHeight <= 0 {
-		return true
-	}
-	if !dmicon.Cache.ExpandPendingBounds(job.key.Chunk.ViewBounds).ContainsV(r.viewportBounds(r.viewportWidth, r.viewportHeight)) {
+	if !cacheable || versions != current || r.viewportWidth <= 0 || r.viewportHeight <= 0 ||
+		!dmicon.Cache.ExpandPendingBounds(job.key.Chunk.ViewBounds).ContainsV(r.viewportBounds(r.viewportWidth, r.viewportHeight)) {
+		// A valid job consumes one retired owner through replacement. Discarded
+		// jobs must also drain retirement so stale queues cannot retain resources.
+		r.retained.DisposeRetiredStep()
 		return true
 	}
 	if _, found := r.retained.Get(job.key, current); found {
+		r.retained.DisposeRetiredStep()
 		return true
 	}
 	region := uistage.Begin("aphelion.retained.prepare_upload")

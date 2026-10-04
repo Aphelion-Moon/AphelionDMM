@@ -11,7 +11,7 @@ import (
 )
 
 // APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
-// Submission stores ordered immutable brush geometry in static GPU buffers.
+// Submission stores ordered brush geometry, immutable while retained for drawing.
 type Submission struct {
 	vao, vbo, ebo uint32
 	calls         []batchCall
@@ -23,14 +23,28 @@ type Submission struct {
 // and selection metadata before graphics allocation. The owner supplies a
 // conservative estimate and keeps it charged until graphics disposal.
 func CaptureAdmittedSubmission(estimate uint64, build func()) (*Submission, error) {
+	return CaptureAdmittedReplacement(nil, estimate, build)
+}
+
+// CaptureAdmittedReplacement takes exclusive ownership of a retired submission
+// and reuses its graphics objects. Both estimates stay charged through upload.
+// Empty, denied, or interrupted captures dispose the retired owner.
+func CaptureAdmittedReplacement(retired *Submission, estimate uint64, build func()) (*Submission, error) {
 	reservation, err := resources.DefaultBudget().Reserve(estimate)
 	if err != nil {
+		retired.Dispose()
 		return nil, err
 	}
-	submission := CaptureSubmission(build)
-	if submission == nil {
-		reservation.Release()
-	} else {
+	var submission *Submission
+	defer func() {
+		if submission == nil {
+			reservation.Release()
+			retired.Dispose()
+		}
+	}()
+	submission = captureSubmission(retired, build)
+	if submission != nil {
+		submission.reservation.Release()
 		submission.reservation = reservation
 	}
 	return submission, nil
@@ -38,6 +52,10 @@ func CaptureAdmittedSubmission(estimate uint64, build func()) (*Submission, erro
 
 // CaptureSubmission records brush primitives while leaving the frame batch intact.
 func CaptureSubmission(build func()) *Submission {
+	return captureSubmission(nil, build)
+}
+
+func captureSubmission(submission *Submission, build func()) *Submission {
 	previous := batching
 	captured := &Batching{}
 	batching = captured
@@ -49,17 +67,29 @@ func CaptureSubmission(build func()) *Submission {
 		return nil
 	}
 
-	submission := &Submission{calls: append([]batchCall(nil), captured.calls...)}
+	if submission == nil {
+		submission = &Submission{}
+	}
+	submission.calls = append([]batchCall(nil), captured.calls...)
 	submission.bytes = len(captured.data)*platform.FloatSize + len(captured.indices)*4
-	gl.GenVertexArrays(1, &submission.vao)
-	gl.GenBuffers(1, &submission.vbo)
-	gl.GenBuffers(1, &submission.ebo)
+	fresh := submission.vao == 0
+	if fresh {
+		gl.GenVertexArrays(1, &submission.vao)
+		gl.GenBuffers(1, &submission.vbo)
+		gl.GenBuffers(1, &submission.ebo)
+	}
 	gl.BindVertexArray(submission.vao)
 	gl.BindBuffer(gl.ARRAY_BUFFER, submission.vbo)
 	gl.BufferData(gl.ARRAY_BUFFER, len(captured.data)*platform.FloatSize, gl.Ptr(captured.data), gl.STATIC_DRAW)
 	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, submission.ebo)
 	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(captured.indices)*4, gl.Ptr(captured.indices), gl.STATIC_DRAW)
-	initAttributesFor(submission.vao, submission.vbo)
+	if fresh {
+		initAttributesFor(submission.vao, submission.vbo)
+	} else {
+		// Attribute pointers and the index-buffer binding belong to this VAO.
+		gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+		gl.BindVertexArray(0)
+	}
 	return submission
 }
 

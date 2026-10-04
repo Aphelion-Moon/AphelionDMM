@@ -50,15 +50,10 @@ func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight
 	// Retained map-space submissions remain valid across camera movement; the
 	// current viewport culls chunks and the current camera matrix transforms them.
 	policyRevision, cacheable := r.retainedPolicyRevision()
-	var highlightedUnitIDs map[uint64]struct{}
+	var highlightedUnits map[uint64]HighlightUnit
 	if withUnitHighlight && r.overlay != nil {
-		units := r.overlay.Units()
-		if len(units) > 0 {
-			highlightedUnitIDs = make(map[uint64]struct{}, len(units))
-			for id := range units {
-				highlightedUnitIDs[id] = struct{}{}
-			}
-		}
+		// The UI owns this map and flushes it after all levels finish drawing.
+		highlightedUnits = r.overlay.Units()
 	}
 	// APHELION EDIT ADDITION END
 	// Iterate through every layer to render.
@@ -83,7 +78,7 @@ func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight
 			// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
 			// Ghost suppression changes base membership. A selected unit changes
 			// painter order only in its own chunk-layer, so keep other layers retained.
-			if cacheable && ghost == nil && !r.retainedChunkLayerHasHighlight(chunk, layer, policyRevision, highlightedUnitIDs, viewBounds) {
+			if cacheable && ghost == nil && !r.retainedChunkLayerHasHighlight(chunk, layer, policyRevision, highlightedUnits, viewBounds) {
 				if r.drawRetainedChunkLayer(chunk, layer, policyRevision) {
 					continue
 				}
@@ -163,7 +158,7 @@ func (r *Render) retainedPolicyRevision() (uint64, bool) {
 	}
 	return versioned.RenderPolicyRevision(), true
 }
-func (r *Render) retainedChunkLayerHasHighlight(c *chunk.Chunk, layer float32, policyRevision uint64, ids map[uint64]struct{}, viewBounds util.Bounds) bool {
+func (r *Render) retainedChunkLayerHasHighlight(c *chunk.Chunk, layer float32, policyRevision uint64, ids map[uint64]HighlightUnit, viewBounds util.Bounds) bool {
 	if len(ids) == 0 {
 		return false
 	}
@@ -171,7 +166,7 @@ func (r *Render) retainedChunkLayerHasHighlight(c *chunk.Chunk, layer float32, p
 		key := rendercache.Key{Chunk: c, Layer: rendercache.LayerKey(layer)}
 		versions := rendercache.Versions{Chunk: c.Revision(), Policy: policyRevision, Appearance: dmicon.Cache.Revision()}
 		if entry, found := r.retained.Get(key, versions); found {
-			return entry.IntersectsUnitIDs(ids)
+			return rendercache.IntersectsUnitIDs(entry, ids)
 		}
 	}
 	// A first highlighted frame has no retained index yet. Check only this
@@ -209,7 +204,7 @@ func (r *Render) prepareRetainedChunkLayer(c *chunk.Chunk, layer float32, key re
 	indexComplete := true
 	// One rectangle uses 152 GPU bytes. This upper estimate also admits
 	// transient staging, worst-case draw calls, and retained unit IDs.
-	submission, err := brush.CaptureAdmittedSubmission(uint64(len(c.UnitsByLayers[layer]))*512+4096, func() {
+	submission, err := r.retained.CaptureAdmittedSubmission(uint64(len(c.UnitsByLayers[layer]))*512+4096, func() {
 		for _, u := range c.UnitsByLayers[layer] {
 			if r.unitProcessor != nil && !r.unitProcessor.ProcessUnit(u) {
 				continue

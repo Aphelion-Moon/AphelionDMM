@@ -1,10 +1,71 @@
 package rendercache
 
 import (
+	"fmt"
 	"math"
 	"sdmm/internal/app/render/bucket/level/chunk"
 	"testing"
 )
+
+func TestCacheHighlightIntersection(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		units    []uint64
+		selected map[uint64]struct{}
+		complete bool
+		want     bool
+	}{
+		{name: "no highlights", units: []uint64{3}, complete: true},
+		{name: "empty submission", selected: map[uint64]struct{}{3: {}}, complete: true},
+		{name: "small highlight hit", units: []uint64{9, 3, 7, 5}, selected: map[uint64]struct{}{5: {}}, complete: true, want: true},
+		{name: "small highlight miss", units: []uint64{9, 3, 7, 5}, selected: map[uint64]struct{}{8: {}}, complete: true},
+		{name: "large highlight hit", units: []uint64{7}, selected: map[uint64]struct{}{3: {}, 5: {}, 7: {}, 9: {}}, complete: true, want: true},
+		{name: "large highlight miss", units: []uint64{8}, selected: map[uint64]struct{}{3: {}, 5: {}, 7: {}, 9: {}}, complete: true},
+		{name: "incomplete index", selected: map[uint64]struct{}{3: {}}, want: true},
+		{name: "incomplete without highlights"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := New()
+			key := Key{}
+			if !cache.PutWithUnitIDs(key, Versions{}, nil, tc.units, tc.complete) {
+				t.Fatal("entry rejected")
+			}
+			entry, _ := cache.Get(key, Versions{})
+			if got := IntersectsUnitIDs(entry, tc.selected); got != tc.want {
+				t.Fatalf("intersection=%t, want %t", got, tc.want)
+			}
+		})
+	}
+	var absent *Entry
+	if IntersectsUnitIDs(absent, map[uint64]struct{}{3: {}}) {
+		t.Fatal("absent entry matched a highlight")
+	}
+}
+
+func BenchmarkCacheHighlightIntersection(b *testing.B) {
+	for _, count := range []int{1, 10000} {
+		b.Run(fmt.Sprintf("highlights=%d", count), func(b *testing.B) {
+			cache := New()
+			units := make([]uint64, 625)
+			for i := range units {
+				units[i] = uint64(i + 1)
+			}
+			cache.PutWithUnitIDs(Key{}, Versions{}, nil, units, true)
+			entry, _ := cache.Get(Key{}, Versions{})
+			ids := make(map[uint64]struct{}, count)
+			for i := 0; i < count; i++ {
+				ids[uint64(i+10000)] = struct{}{}
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if IntersectsUnitIDs(entry, ids) {
+					b.Fatal("unrelated highlights matched")
+				}
+			}
+		})
+	}
+}
 
 func TestCacheRebuildsForChunkPolicyAndAppearanceChanges(t *testing.T) {
 	key := Key{Chunk: chunk.New(1, 1, 1, 1, 32), Layer: LayerKey(2.5)}
@@ -38,7 +99,7 @@ func TestCacheBoundsSelectionIndexAndIncompleteFallback(t *testing.T) {
 		t.Fatal("incomplete bounded index entry was rejected")
 	}
 	entry, ok := cache.Get(key, Versions{})
-	if !ok || !entry.IntersectsUnitIDs(map[uint64]struct{}{42: {}}) {
+	if !ok || !IntersectsUnitIDs(entry, map[uint64]struct{}{42: {}}) {
 		t.Fatal("incomplete selection index did not conservatively request streaming")
 	}
 }

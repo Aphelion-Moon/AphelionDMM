@@ -252,8 +252,9 @@ func TestRetainedRenderCacheWarmReuseAndInvalidation(t *testing.T) {
 	warmRetained := func() {
 		for step := 0; step < 8; step++ {
 			r.ProcessLevelBuild()
+			// A rebuilt level queues its retained submissions during drawing.
+			c.Process(size)
 		}
-		c.Process(size)
 	}
 
 	c.Process(size)
@@ -320,6 +321,9 @@ func TestRetainedRenderCacheWarmReuseAndInvalidation(t *testing.T) {
 	if editChanged.Invalidations != editWarm.Invalidations+1 || editChanged.Builds != editWarm.Builds+1 {
 		t.Fatalf("chunk revision did not invalidate and rebuild one chunk-layer: before=%+v after=%+v", editWarm, editChanged)
 	}
+	if editChanged.Reuses != editWarm.Reuses+1 {
+		t.Fatalf("chunk rebuild discarded its reusable submission: before=%+v after=%+v", editWarm, editChanged)
+	}
 }
 
 // APHELION EDIT ADDITION END - RETAINED RENDER CACHE COUNTERS
@@ -332,10 +336,12 @@ func TestRetainedMissDefersUploadToVisualScheduler(t *testing.T) {
 	r := c.Render()
 	defer r.ReleaseRetainedSubmissions()
 	dmm, _ := retainedTestMap()
-	r.SetActiveLevel(dmm, 1)
-	r.UpdateBucketV(dmm, 1, nil)
 	policy := &retainedTestPolicy{revision: 1, visible: true}
 	r.SetUnitProcessor(policy)
+	// Establish the policy before warming geometry so this probes only a
+	// retained-submission miss, not the processor's separate level invalidation.
+	r.SetActiveLevel(dmm, 1)
+	r.UpdateBucketV(dmm, 1, nil)
 	size := imgui.Vec2{X: 96, Y: 96}
 	c.Process(size)
 	fallback := c.ReadPixels()

@@ -54,14 +54,18 @@ func retainedHighlightMap() (*dmmap.Dmm, []*dmminstance.Instance) {
 	return &dmmap.Dmm{MaxX: maxX, MaxY: 1, MaxZ: 1, Tiles: tiles}, instances
 }
 
-func TestRetainedHighlightBypassesOnlyMatchingChunkLayer(t *testing.T) {
-	resizeContext(t)
+func warmRetainedHighlightCanvas(tb testing.TB) (*Canvas, []*dmminstance.Instance, imgui.Vec2) {
+	tb.Helper()
+	resizeContext(tb)
 	previousIconSize := dmmap.WorldIconSize
 	dmmap.WorldIconSize = 32
-	t.Cleanup(func() { dmmap.WorldIconSize = previousIconSize })
-	c := resizeCanvas(t)
+	tb.Cleanup(func() { dmmap.WorldIconSize = previousIconSize })
+	c := resizeCanvas(tb)
 	r := c.Render()
-	defer r.ReleaseRetainedSubmissions()
+	tb.Cleanup(func() {
+		r.CancelLevelBuilds()
+		r.ReleaseRetainedSubmissions()
+	})
 
 	dmm, instances := retainedHighlightMap()
 	r.SetActiveLevel(dmm, 1)
@@ -74,12 +78,27 @@ func TestRetainedHighlightBypassesOnlyMatchingChunkLayer(t *testing.T) {
 	c.Process(size)
 	warm := r.RetainedCacheStats()
 	if warm.Builds != 2 || warm.UploadBytes == 0 {
-		t.Fatalf("expected two warm chunk-layer submissions, got %+v", warm)
+		tb.Fatalf("expected two warm chunk-layer submissions, got %+v", warm)
 	}
+	return c, instances, size
+}
 
-	r.SetOverlay(&retainedHighlightOverlay{units: map[uint64]render.HighlightUnit{
-		instances[0].Id(): retainedHighlight{color: util.MakeColor(0, 1, 0, 0.5)},
-	}})
+func unrelatedHighlights(count int) map[uint64]render.HighlightUnit {
+	units := make(map[uint64]render.HighlightUnit, count)
+	for i := 0; i < count; i++ {
+		units[uint64(1)<<63+uint64(i)] = retainedHighlight{color: util.MakeColor(0, 1, 0, 0.5)}
+	}
+	return units
+}
+
+func TestRetainedHighlightBypassesOnlyMatchingChunkLayer(t *testing.T) {
+	c, instances, size := warmRetainedHighlightCanvas(t)
+	r := c.Render()
+	warm := r.RetainedCacheStats()
+
+	units := unrelatedHighlights(10000)
+	units[instances[0].Id()] = retainedHighlight{color: util.MakeColor(0, 1, 0, 0.5)}
+	r.SetOverlay(&retainedHighlightOverlay{units: units})
 	r.SetPresentation(&render.Presentation{Anchor: util.Point{Z: 1}, Ready: true})
 	c.Process(size)
 	streamPixels := c.ReadPixels()
@@ -93,4 +112,44 @@ func TestRetainedHighlightBypassesOnlyMatchingChunkLayer(t *testing.T) {
 		t.Fatalf("one highlighted chunk-layer disabled or rebuilt the whole level: warm=%+v after=%+v", warm, retained)
 	}
 	r.SetOverlay(nil)
+}
+
+func TestRetainedHighlightLookupDoesNotAllocatePerHighlight(t *testing.T) {
+	c, _, size := warmRetainedHighlightCanvas(t)
+	overlay := &retainedHighlightOverlay{}
+	c.Render().SetOverlay(overlay)
+	empty := testing.AllocsPerRun(10, func() { c.Process(size) })
+	overlay.units = unrelatedHighlights(10000)
+	populated := testing.AllocsPerRun(10, func() { c.Process(size) })
+	if populated > empty {
+		t.Fatalf("unrelated highlights add %.0f allocations per frame (empty=%.0f, populated=%.0f)", populated-empty, empty, populated)
+	}
+}
+
+func BenchmarkRetainedHighlightFrame(b *testing.B) {
+	for _, tc := range []struct {
+		name    string
+		count   int
+		visible bool
+	}{
+		{name: "none"},
+		{name: "hover", visible: true},
+		{name: "flashes", count: 10000, visible: true},
+		{name: "offscreen_flashes", count: 10000},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			c, instances, size := warmRetainedHighlightCanvas(b)
+			units := unrelatedHighlights(tc.count)
+			if tc.visible {
+				units[instances[0].Id()] = retainedHighlight{color: util.MakeColor(0, 1, 0, 0.5)}
+			}
+			c.Render().SetOverlay(&retainedHighlightOverlay{units: units})
+			c.Process(size)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				c.Process(size)
+			}
+		})
+	}
 }

@@ -36,11 +36,10 @@ type Render struct {
 	viewportWidth        float32
 	viewportHeight       float32
 	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
-	retained           *rendercache.Cache
-	retainedPending    []retainedPreparation
-	retainedQueued     map[rendercache.Key]rendercache.Versions
-	retainedRetireNext bool
-	retainedView       util.Bounds
+	retained        *rendercache.Cache
+	retainedPending []retainedPreparation
+	retainedQueued  map[rendercache.Key]rendercache.Versions
+	retainedView    util.Bounds
 	// APHELION EDIT ADDITION END
 	geometry        map[int]*geometryAllocation
 	geometryWaiting bool
