@@ -142,6 +142,13 @@ func (capture ProjectionCapture) VisibleTile(coord model.Coord) (model.TileState
 	return capture.AcceptedTile(coord)
 }
 
+func (capture ProjectionCapture) EstimatedVisibleTileBytes(coord model.Coord) (uint64, bool) {
+	if state, found := capture.visibleTiles[coord]; found {
+		return estimateCaptureState(state), true
+	}
+	return capture.EstimatedTileBytes(coord)
+}
+
 // OperationBase returns the metadata needed to build an operation against the
 // captured acknowledged revision without exposing executor-owned tile data.
 func (capture ProjectionCapture) OperationBase() (model.DocumentID, model.Revision, string, string, error) {
@@ -173,6 +180,8 @@ type NetworkExecutor struct {
 	acceptedHashes   map[model.OperationID]string
 	conflicts        []Conflict
 	updates          chan Projection
+	changes          chan ProjectionUpdate
+	published        ProjectionCapture
 	terminal         error
 	suspended        error
 }
@@ -199,9 +208,11 @@ func NewNetworkExecutor(transport Transport, snapshot model.Snapshot, actor mode
 		pending:        make(map[model.OperationID]chan operationResult),
 		accepted:       make(map[model.OperationID]model.AcceptedOperation),
 		acceptedHashes: make(map[model.OperationID]string),
-		updates:        make(chan Projection, 1),
+		changes:        make(chan ProjectionUpdate, 1),
 	}
 	network.indexAcknowledgedLocked(hash)
+	network.published = network.captureProjectionLocked()
+	network.changes <- ProjectionUpdate{capture: network.published, full: true}
 	return network, nil
 }
 
@@ -333,10 +344,18 @@ func (network *NetworkExecutor) CaptureProjection(ctx context.Context) (Projecti
 	}
 	network.mutex.Lock()
 	defer network.mutex.Unlock()
-	return ProjectionCapture{projection: network.projection, tileIndexes: network.tileIndexes, mapHash: network.acknowledgedHash, visibleTiles: network.visibleTiles, visibleCoords: network.visibleCoords}, nil
+	return network.captureProjectionLocked(), nil
 }
 
 func (network *NetworkExecutor) ProjectionUpdates() <-chan Projection {
+	network.mutex.Lock()
+	defer network.mutex.Unlock()
+	// Legacy callers receive mutable, detached values. Allocate that boundary
+	// only when requested; the editor uses immutable ProjectionChanges.
+	if network.updates == nil {
+		network.updates = make(chan Projection, 1)
+		network.updates <- cloneProjection(network.projection)
+	}
 	return network.updates
 }
 
@@ -589,7 +608,7 @@ func (network *NetworkExecutor) Receive(envelope protocol.ServerEnvelope) error 
 			delete(network.pending, payload.Operation.OperationID)
 			waiter <- operationResult{accepted: model.CloneAcceptedOperation(payload.Operation)}
 		}
-		network.publishLocked()
+		network.publishLocked(payload.Operation.Changes...)
 	case protocol.ServerOperationRejected:
 		payload := decoded.Payload.(*protocol.OperationRejectedPayload)
 		conflict, rejectErr := network.rejectProjectionLocked(*payload)
@@ -685,7 +704,11 @@ func (network *NetworkExecutor) failAllLocked(cause error) {
 	network.clearPendingLocked(cause)
 }
 
-func (network *NetworkExecutor) publishLocked() {
+func (network *NetworkExecutor) publishLocked(changes ...model.TileChange) {
+	network.publishChangesLocked(changes)
+	if network.updates == nil {
+		return
+	}
 	update := cloneProjection(network.projection)
 	select {
 	case network.updates <- update:

@@ -169,6 +169,10 @@ func (e *Editor) ProcessCollaborationUpdates() {
 	if e.localWork != nil || e.selectionMove != nil || e.selectionMovePreviewResolving() || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 {
 		return
 	}
+	if execution, ok := e.executor.(incrementalProjectionExecutor); ok {
+		e.processProjectionChanges(execution)
+		return
+	}
 	execution, ok := e.executor.(projectionExecutor)
 	if !ok {
 		return
@@ -328,14 +332,8 @@ func (e *Editor) commitOperation(commitMessage string) {
 		e.commitLocal(local, commitMessage, changes, selectionOutcome, repeatAccepted)
 		return
 	}
-	base, err := execution.Snapshot(context.Background())
-	if err != nil {
-		selectionApplied(selectionOutcome, false)
-		e.rejectSpeculation(execution, fmt.Errorf("read authoritative snapshot: %w", err))
-		return
-	}
 	e.pendingChanges = make(map[model.Coord]model.TileState)
-	operation, err := e.forwardOperation(base, changes)
+	operation, err := forwardOperationForExecutor(execution, e.actorID, changes)
 	if err != nil {
 		selectionApplied(selectionOutcome, false)
 		e.rejectSpeculation(execution, err)
@@ -420,13 +418,7 @@ func (e *Editor) pushAcceptedCommand(execution executor.Executor, commitMessage 
 			complete(fmt.Errorf("editor attachment changed"))
 			return
 		}
-		current, redoErr := execution.Snapshot(context.Background())
-		if redoErr != nil {
-			e.reportCollaborationError("Unable to redo map change", redoErr)
-			complete(redoErr)
-			return
-		}
-		redo, redoErr := e.forwardOperation(current, acceptedChanges)
+		redo, redoErr := forwardOperationForExecutor(execution, e.actorID, acceptedChanges)
 		if redoErr != nil {
 			e.reportCollaborationError("Unable to redo map change", redoErr)
 			complete(redoErr)
@@ -478,34 +470,30 @@ func (e *Editor) executeHistoryOperation(execution executor.Executor, operation 
 	complete(result, err)
 }
 
-func (e *Editor) forwardOperation(snapshot model.Snapshot, changes []model.TileChange) (model.Operation, error) {
-	operationID, err := model.NewOperationID()
-	if err != nil {
-		return model.Operation{}, fmt.Errorf("create operation id: %w", err)
+func forwardOperationForExecutor(execution executor.Executor, actor model.ActorID, changes []model.TileChange) (model.Operation, error) {
+	if capturer, ok := execution.(projectionCapturer); ok {
+		capture, err := capturer.CaptureProjection(context.Background())
+		if err != nil {
+			return model.Operation{}, err
+		}
+		return selectionMoveOperationFromProjection(capture, changes, actor)
 	}
-	baseHash, err := snapshot.Hash()
+	snapshot, err := execution.Snapshot(context.Background())
 	if err != nil {
-		return model.Operation{}, fmt.Errorf("hash operation base: %w", err)
+		return model.Operation{}, fmt.Errorf("read operation base: %w", err)
 	}
-	return model.Operation{
-		ProtocolVersion: model.ProtocolVersion,
-		DocumentID:      snapshot.DocumentID,
-		ActorID:         e.actorID,
-		OperationID:     operationID,
-		BaseRevision:    snapshot.Revision,
-		EnvironmentHash: snapshot.EnvironmentHash,
-		BaseMapHash:     baseHash,
-		Kind:            model.OperationKindTileChange,
-		Changes:         changes,
-	}, nil
+	return placementWireOperation(snapshot, actor, changes)
 }
-
 func (e *Editor) rejectSpeculation(execution executor.Executor, cause error) {
 	e.syncFromExecutor(execution, true, e.pMap.ActiveLevel(), nil)
 	e.reportCollaborationError("Unable to apply map change", cause)
 }
 
 func (e *Editor) syncFromExecutor(execution executor.Executor, apply bool, activeLevel int, coords []model.Coord) {
+	if _, ok := execution.(incrementalProjectionExecutor); ok && execution == e.executor && len(coords) != 0 && e.collaborationErr == nil {
+		e.ProcessCollaborationUpdates()
+		return
+	}
 	snapshot, err := execution.Snapshot(context.Background())
 	if err != nil {
 		e.reportCollaborationError("Unable to synchronize map", err)
@@ -548,6 +536,7 @@ func (e *Editor) refreshCollaborationView(activeLevel int, coords []model.Coord,
 }
 
 func (e *Editor) setAuthoritative(snapshot model.Snapshot) {
+	e.networkView = nil
 	e.mapViewGeneration++
 	e.authoritative = model.CloneSnapshot(snapshot)
 	e.authoritativeTiles = make(map[model.Coord]model.TileState, len(snapshot.Tiles))

@@ -106,7 +106,8 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 			reservation.Release()
 			return nil, fmt.Errorf("local executor cannot pin selection source tiles")
 		}
-	} else if capturer, ok := e.executor.(projectionCapturer); ok {
+	}
+	if capturer, ok := e.executor.(projectionCapturer); ok {
 		projectionCapture, err = capturer.CaptureProjection(context.Background())
 		if err != nil {
 			reservation.Release()
@@ -132,41 +133,13 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 		sourceProjection: projectionCapture,
 	}
 	e.selectionMovePreview = session
-	// Shared projections replace authoritativeTiles as a whole; local edits use
-	// an engine-owned immutable tile capture because they update that map in place.
+	// Native executors pin immutable tiles. Only the legacy full-install
+	// fallback lends its replace-only authority map to this worker.
 	base := e.authoritativeTiles
 	ctx, cancel := context.WithCancel(context.Background())
 	session.workerCancel = cancel
 	go func() {
-		projectionTiles := map[model.Coord]model.TileState(nil)
-		var projectionBytes uint64
-		if hasProjectionCapture && projectionCapture.HasPending() {
-			projectionBytes = projectionCapture.EstimatedBytes()
-			need := saturatingMoveBytes(editing.EstimateMovePreparationMemory(selection.Len()), projectionBytes)
-			if err := reservation.Resize(need); err != nil {
-				result := selectionMoveWorkResult{reservation: reservation, err: err}
-				session.resultMu.Lock()
-				defer session.resultMu.Unlock()
-				if session.discarded {
-					result.reservation.Release()
-					return
-				}
-				session.results <- result
-				return
-			}
-			visibleSnapshot, snapshotErr := projectionCapture.VisibleSnapshot()
-			if snapshotErr != nil {
-				result := selectionMoveWorkResult{reservation: reservation, err: snapshotErr}
-				session.resultMu.Lock()
-				defer session.resultMu.Unlock()
-				if session.discarded {
-					result.reservation.Release()
-					return
-				}
-				session.results <- result
-				return
-			}
-			projectionTiles = makeSnapshotTileIndex(visibleSnapshot)
+		if hasProjectionCapture {
 			session.revision = projectionCapture.BaseRevision()
 		}
 		var sourceBytes uint64
@@ -185,17 +158,18 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 				}
 				return sourceCapture.Tile(coord)
 			}
-			if projectionTiles != nil {
-				state, ok := projectionTiles[coord]
-				if ok {
-					sourceBytes = saturatingMoveBytes(sourceBytes, editing.EstimateMoveTileMemory(state))
-					if err := reservation.Resize(saturatingMoveBytes(projectionBytes, editing.EstimateMovePreparationMemoryForSource(selection.Len(), sourceBytes))); err != nil {
-						captureErr = err
-						cancel()
-						return model.TileState{}, false
-					}
+			if hasProjectionCapture {
+				size, ok := projectionCapture.EstimatedVisibleTileBytes(coord)
+				if !ok {
+					return model.TileState{}, false
 				}
-				return state, ok
+				sourceBytes = saturatingMoveBytes(sourceBytes, size)
+				if err := reservation.Resize(editing.EstimateMovePreparationMemoryForSource(selection.Len(), sourceBytes)); err != nil {
+					captureErr = err
+					cancel()
+					return model.TileState{}, false
+				}
+				return projectionCapture.VisibleTile(coord)
 			}
 			state, ok := base[coord]
 			if ok {
@@ -211,7 +185,6 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 		if captureErr != nil {
 			compileErr = captureErr
 		}
-		projectionTiles = nil
 		if compileErr == nil {
 			compileErr = reservation.Resize(editing.EstimateMovePayloadMemory(payload))
 		}

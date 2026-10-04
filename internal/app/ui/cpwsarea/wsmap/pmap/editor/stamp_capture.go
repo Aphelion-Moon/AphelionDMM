@@ -39,7 +39,16 @@ func (e *Editor) PrepareStampCapture(name string, selection editing.Selection) (
 	}
 	base := e.authoritativeTiles
 	read := func(c model.Coord) (model.TileState, bool) { state, ok := base[c]; return state, ok }
-	if !e.sessionOwned {
+	if capturer, ok := e.executor.(projectionCapturer); ok {
+		capture, err := capturer.CaptureProjection(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		if capture.HasPending() || capture.DocumentID() != e.documentID || capture.BaseRevision() != e.authoritative.Revision {
+			return nil, fmt.Errorf("wait for acknowledged source projection")
+		}
+		read = capture.AcceptedTile
+	} else if !e.sessionOwned {
 		capturer, ok := e.executor.(localTileCapturer)
 		if !ok {
 			return nil, fmt.Errorf("map executor cannot pin a selection capture")

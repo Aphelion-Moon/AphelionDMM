@@ -1,6 +1,9 @@
 package editor
 
 import (
+	// APHELION EDIT ADDITION START - SPARSE SESSION PROJECTION
+	"sdmm/internal/aphelion/collab/client"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/aphelion/collab/executor"
 	"sdmm/internal/aphelion/collab/model"
 	// APHELION EDIT ADDITION START - BYTE-BOUNDED EDIT WORK
@@ -75,6 +78,7 @@ type Editor struct {
 	authoritative          model.Snapshot
 	authoritativeTiles     map[model.Coord]model.TileState
 	authoritativePositions map[model.Coord]int
+	networkView            *client.ProjectionUpdate
 	sessionOwned           bool
 	pendingChanges         map[model.Coord]model.TileState
 	collaborationErr       error

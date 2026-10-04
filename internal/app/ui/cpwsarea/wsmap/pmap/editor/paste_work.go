@@ -599,11 +599,7 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 	e.retainPasteCommit(p)
 	actor := e.actorID
 	go func() {
-		snapshot, err := execution.Snapshot(context.Background())
-		var operation model.Operation
-		if err == nil {
-			operation, err = placementWireOperation(snapshot, actor, changes)
-		}
+		operation, err := forwardOperationForExecutor(execution, actor, changes)
 		if err != nil {
 			e.app.RunLater(func() {
 				defer e.finishPasteCommit(p)
@@ -616,11 +612,13 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 			return
 		}
 		complete := func(accepted model.AcceptedOperation, executeErr error) {
-			// A coherent snapshot includes every intervening accepted revision.
+			// Sparse publications retain all intervening accepted coordinates.
+			// Compatibility executors still materialize one coherent snapshot.
+			_, sparse := execution.(incrementalProjectionExecutor)
 			go func() {
 				var current model.Snapshot
 				var snapshotErr error
-				if executeErr == nil {
+				if executeErr == nil && !sparse {
 					current, snapshotErr = execution.Snapshot(context.Background())
 					if snapshotErr == nil && current.Revision < accepted.Revision {
 						snapshotErr = fmt.Errorf("accepted snapshot is behind acknowledgement")
@@ -642,18 +640,23 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 						e.reportCollaborationError("Unable to capture accepted paste", snapshotErr)
 						return
 					}
-					if err := mapadapter.ApplyWithEnvironment(e.dmm, current, e.app.LoadedEnvironment()); err != nil {
-						e.collaborationErr = err
-						return
+					if !sparse {
+						if err := mapadapter.ApplyWithEnvironment(e.dmm, current, e.app.LoadedEnvironment()); err != nil {
+							e.collaborationErr = err
+							return
+						}
+						e.setAuthoritative(current)
+						e.refreshCollaborationView(p.level, nil, current)
 					}
-					e.setAuthoritative(current)
-					e.refreshCollaborationView(p.level, nil, current)
 					coords := make([]model.Coord, len(accepted.Changes))
 					for i, c := range accepted.Changes {
 						coords[i] = c.Coord
 					}
 					e.pushAcceptedCommand(execution, "Paste Tiles", accepted, accepted.Changes, p.level, coords, p.selectionOutcome)
 					e.finishPaste(p, true)
+					if sparse {
+						e.ProcessCollaborationUpdates()
+					}
 				})
 			}()
 		}
