@@ -7,8 +7,8 @@ import (
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 )
 
-// PickAt follows the same layer/chunk/unit order as drawing. It deliberately
-// excludes presentation sprites and does not invoke mutating hover callbacks.
+// PickAt walks draw order backwards so the first eligible opaque hit is topmost.
+// It excludes presentation sprites and does not invoke mutating hover callbacks.
 func (r *Render) PickAt(x, y, level int, eligible func(*dmminstance.Instance) bool) *dmminstance.Instance {
 	if !r.LevelReady(level) {
 		return nil
@@ -17,20 +17,28 @@ func (r *Render) PickAt(x, y, level int, eligible func(*dmminstance.Instance) bo
 	if visible == nil {
 		return nil
 	}
-	var picked *dmminstance.Instance
-	for _, layer := range visible.Layers {
-		for _, chunk := range visible.ChunksByLayers[layer] {
+	for layerIndex := len(visible.Layers) - 1; layerIndex >= 0; layerIndex-- {
+		layer := visible.Layers[layerIndex]
+		chunks := visible.ChunksByLayers[layer]
+		for chunkIndex := len(chunks) - 1; chunkIndex >= 0; chunkIndex-- {
+			chunk := chunks[chunkIndex]
 			if !dmicon.Cache.ExpandPendingBounds(chunk.ViewBounds).Contains(float32(x), float32(y)) {
 				continue
 			}
-			for _, u := range chunk.UnitsByLayers[layer] {
+			units := chunk.UnitsByLayers[layer]
+			for unitIndex := len(units) - 1; unitIndex >= 0; unitIndex-- {
+				u := units[unitIndex]
+				// Most units in an intersecting chunk do not touch this pixel.
+				if !u.ViewBounds().Contains(float32(x), float32(y)) {
+					continue
+				}
 				if eligible(u.Instance()) && UnitContainsPixel(u, x, y) {
-					picked = u.Instance()
+					return u.Instance()
 				}
 			}
 		}
 	}
-	return picked
+	return nil
 }
 
 func UnitContainsPixel(u unit.Unit, x, y int) bool {
