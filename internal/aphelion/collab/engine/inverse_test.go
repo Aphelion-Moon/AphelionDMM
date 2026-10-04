@@ -1,11 +1,57 @@
 package engine
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
 	"sdmm/internal/aphelion/collab/model"
 )
+
+func inverseCopyFixture(tb testing.TB, cells int) (*Document, model.AcceptedOperation) {
+	tb.Helper()
+	document, operation, _ := prepareCopyWorkload(tb, copyWorkload{cells: cells, levels: 1, changes: 1})
+	accepted, err := document.Apply(operation, time.Unix(1, 0))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return document, accepted
+}
+
+func checkSparseInverse(tb testing.TB, document *Document, target model.AcceptedOperation) {
+	tb.Helper()
+	inverse, err := document.BuildInverse(testActorID, target.OperationID, "01890f3e-7b5c-7abc-8def-0123456789bc")
+	if err != nil || len(inverse.Changes) != 1 || !inverse.Changes[0].Before.Equal(target.Changes[0].After) || !inverse.Changes[0].After.Equal(target.Changes[0].Before) {
+		tb.Fatalf("sparse inverse changed accepted values: %v", err)
+	}
+}
+
+func TestBuildInverseAllocationsDoNotScaleWithUntouchedTiles(t *testing.T) {
+	var small float64
+	for _, cells := range []int{100, 10000} {
+		document, target := inverseCopyFixture(t, cells)
+		allocs := testing.AllocsPerRun(10, func() { checkSparseInverse(t, document, target) })
+		t.Logf("cells=%d sparse inverse allocations=%g", cells, allocs)
+		if small == 0 {
+			small = allocs
+		} else if allocs > small+16 {
+			t.Fatalf("sparse inverse rebuilds the full coordinate index: small=%g large=%g", small, allocs)
+		}
+	}
+}
+
+func BenchmarkBuildSparseInverse(b *testing.B) {
+	for _, cells := range []int{100, 10000} {
+		b.Run(fmt.Sprint(cells), func(b *testing.B) {
+			document, target := inverseCopyFixture(b, cells)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				checkSparseInverse(b, document, target)
+			}
+		})
+	}
+}
 
 func TestBuildInverseAndApply(t *testing.T) {
 	t.Parallel()

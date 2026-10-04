@@ -88,20 +88,11 @@ func (document *Document) BuildInverseContext(ctx context.Context, actor model.A
 	}
 
 	changes := make([]model.TileChange, len(target.Changes))
-	tileIndexes := make(map[model.Coord]int, len(document.snapshot.Tiles))
-	for index, tile := range document.snapshot.Tiles {
-		if index&255 == 0 {
-			if err := ctx.Err(); err != nil {
-				return model.Operation{}, err
-			}
-		}
-		tileIndexes[tile.Coord] = index
-	}
 	for index, targetChange := range target.Changes {
 		if err := ctx.Err(); err != nil {
 			return model.Operation{}, err
 		}
-		currentIndex, exists := tileIndexes[targetChange.Coord]
+		currentIndex, exists := document.tileIndexes[targetChange.Coord]
 		current := model.TileState{}
 		if exists {
 			current = document.snapshot.Tiles[currentIndex].State
