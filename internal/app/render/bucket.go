@@ -162,6 +162,13 @@ func (r *Render) retainedPolicyRevision() (uint64, bool) {
 	}
 	return versioned.RenderPolicyRevision(), true
 }
+func (r *Render) retainedEntry(key rendercache.Key, versions rendercache.Versions) (*rendercache.Entry, bool) {
+	var visible func(unit.Unit) bool
+	if r.unitProcessor != nil {
+		visible = r.unitProcessor.ProcessUnit
+	}
+	return r.retained.GetWithDependencies(key, versions, visible, dmicon.Cache)
+}
 func (r *Render) retainedChunkLayerHasHighlight(c *chunk.Chunk, layer float32, policyRevision uint64, ids map[uint64]HighlightUnit, viewBounds util.Bounds) bool {
 	if len(ids) == 0 {
 		return false
@@ -169,7 +176,7 @@ func (r *Render) retainedChunkLayerHasHighlight(c *chunk.Chunk, layer float32, p
 	if r.retained != nil {
 		key := rendercache.Key{Chunk: c, Layer: rendercache.LayerKey(layer)}
 		versions := rendercache.Versions{Chunk: c.Revision(), Policy: policyRevision, Appearance: dmicon.Cache.Revision()}
-		if entry, found := r.retained.Get(key, versions); found {
+		if entry, found := r.retainedEntry(key, versions); found {
 			return rendercache.IntersectsUnitIDs(entry, ids)
 		}
 	}
@@ -192,7 +199,7 @@ func (r *Render) drawRetainedChunkLayer(pass *brush.DrawPass, c *chunk.Chunk, la
 	}
 	key := rendercache.Key{Chunk: c, Layer: rendercache.LayerKey(layer)}
 	versions := rendercache.Versions{Chunk: c.Revision(), Policy: policyRevision, Appearance: dmicon.Cache.Revision()}
-	entry, found := r.retained.Get(key, versions)
+	entry, found := r.retainedEntry(key, versions)
 	if !found {
 		r.queueRetainedPreparation(key, versions, layer)
 		return false
@@ -206,6 +213,7 @@ func (r *Render) drawRetainedChunkLayer(pass *brush.DrawPass, c *chunk.Chunk, la
 func (r *Render) prepareRetainedChunkLayer(c *chunk.Chunk, layer float32, key rendercache.Key, versions rendercache.Versions) {
 	unitIDs := make([]uint64, 0, min(len(c.UnitsByLayers[layer]), rendercache.MaxIndexedUnitsPerEntry))
 	indexComplete := true
+	dependencies := rendercache.Dependencies{IconLifetime: dmicon.Cache.Lifetime(), Icons: make(map[string]uint64)}
 	// One rectangle uses 152 GPU bytes. This upper estimate also admits
 	// transient staging, worst-case draw calls, and retained unit IDs.
 	submission, err := r.retained.CaptureAdmittedSubmission(uint64(len(c.UnitsByLayers[layer]))*512+4096, func() {
@@ -221,6 +229,8 @@ func (r *Render) prepareRetainedChunkLayer(c *chunk.Chunk, layer float32, key re
 					unitIDs = append(unitIDs, u.Instance().Id())
 				}
 			}
+			icon, _ := u.Instance().Prefab().Vars().Text("icon")
+			dependencies.Icons[icon] = dmicon.Cache.IconRevision(icon)
 			bounds := u.ViewBounds()
 			brush.RectTexturedV(bounds.X1, bounds.Y1, bounds.X2, bounds.Y2, u.R(), u.G(), u.B(), u.A(), u.Sprite().Texture(), u.Sprite().U1, u.Sprite().V1, u.Sprite().U2, u.Sprite().V2)
 		}
@@ -232,7 +242,7 @@ func (r *Render) prepareRetainedChunkLayer(c *chunk.Chunk, layer float32, key re
 		return
 	}
 	r.retained.RecordBuild(submission)
-	if !r.retained.PutWithUnitIDs(key, versions, submission, unitIDs, indexComplete) {
+	if !r.retained.PutWithDependencies(key, versions, submission, unitIDs, indexComplete, dependencies) {
 		if submission != nil {
 			submission.Dispose()
 		}

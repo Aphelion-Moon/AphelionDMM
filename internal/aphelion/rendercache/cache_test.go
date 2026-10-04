@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"sdmm/internal/app/render/bucket/level/chunk"
+	"sdmm/internal/dmapi/dmicon"
 	"testing"
 )
 
@@ -134,5 +135,30 @@ func TestCacheBoundsEntriesAndLayerKeys(t *testing.T) {
 	cache.DisposeRetired()
 	if cache.Len() != 0 || cache.Bytes() != 0 {
 		t.Fatal("clear retained cache bookkeeping")
+	}
+}
+
+func TestDependencyReuseNeverCrossesChunkOrIconLifetime(t *testing.T) {
+	cache := New()
+	icons := &dmicon.IconsCache{}
+	key := Key{Chunk: chunk.New(1, 1, 1, 1, 32)}
+	versions := Versions{Chunk: 1, Appearance: icons.Revision()}
+	dependencies := Dependencies{IconLifetime: icons.Lifetime()}
+	if !cache.PutWithDependencies(key, versions, nil, nil, true, dependencies) {
+		t.Fatal("entry rejected")
+	}
+	changed := versions
+	changed.Chunk++
+	if _, reused := cache.GetWithDependencies(key, changed, nil, icons); reused {
+		t.Fatal("dependency reuse crossed a geometry change")
+	}
+	if !cache.PutWithDependencies(key, versions, nil, nil, true, dependencies) {
+		t.Fatal("entry rejected")
+	}
+	icons.Free()
+	changed = versions
+	changed.Appearance = icons.Revision()
+	if _, reused := cache.GetWithDependencies(key, changed, nil, icons); reused {
+		t.Fatal("dependency reuse crossed icon-cache disposal")
 	}
 }

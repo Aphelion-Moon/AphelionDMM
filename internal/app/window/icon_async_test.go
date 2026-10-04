@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/zlib"
 	"encoding/binary"
+	"fmt"
+	"github.com/SpaiR/imgui-go"
 	"hash/crc32"
 	"image"
 	"image/color"
@@ -11,6 +13,14 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sdmm/internal/app/render"
+	"sdmm/internal/app/render/bucket/level/chunk/unit"
+	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/canvas"
+	"sdmm/internal/dmapi/dmmap"
+	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
+	"sdmm/internal/dmapi/dmmap/dmminstance"
+	"sdmm/internal/dmapi/dmvars"
+	"sdmm/internal/util"
 	"testing"
 	"time"
 
@@ -243,4 +253,100 @@ func TestNativeIconUploadYieldsAndRestoresUnpackState(t *testing.T) {
 	if alignment != 8 || rowLength != 7 {
 		t.Fatal("unpack state not restored", alignment, rowLength)
 	}
+}
+
+type retainedDependencyPolicy struct {
+	revision uint64
+	hidden   string
+}
+
+func (p *retainedDependencyPolicy) RenderPolicyRevision() uint64 { return p.revision }
+func (p *retainedDependencyPolicy) ProcessUnit(u unit.Unit) bool {
+	return u.Instance().Prefab().Path() != p.hidden
+}
+
+func TestNativeRetainedEntriesFollowTheirOwnDependencies(t *testing.T) {
+	newMouseNetworkWorkspace(t)
+	root := t.TempDir()
+	writeIconFixture(t, root, 64)
+	dmicon.Cache.Free()
+	dmicon.Cache.SetRootDirPath(root)
+	t.Cleanup(func() { dmicon.Cache.Free(); window.DrainFrameJobsForTest() })
+
+	c := canvas.New()
+	t.Cleanup(func() { c.Dispose(); window.DrainFrameJobsForTest() })
+	r := c.Render()
+	dmm := &dmmap.Dmm{MaxX: 2, MaxY: 1, MaxZ: 1}
+	for x, path := range []string{"/obj/first", "/obj/second"} {
+		point := util.Point{X: x + 1, Y: 1, Z: 1}
+		vars := &dmvars.MutableVariables{}
+		vars.Put("layer", fmt.Sprint(x+1))
+		vars.Put("alpha", "255")
+		if x == 0 {
+			vars.Put("icon", "'fixture.dmi'")
+		}
+		instance := dmminstance.New(point, dmmprefab.New(0, path, vars.ToImmutable()))
+		tile := &dmmap.Tile{Coord: point}
+		tile.Set(dmmap.Instances{instance})
+		dmm.Tiles = append(dmm.Tiles, tile)
+	}
+	policy := &retainedDependencyPolicy{revision: 1}
+	r.SetUnitProcessor(policy)
+	r.SetActiveLevel(dmm, 1)
+	r.UpdateBucketV(dmm, 1, nil)
+	size := imgui.Vec2{X: 128, Y: 96}
+	warm := func() {
+		for i := 0; i < 8; i++ {
+			c.Process(size)
+			r.ProcessLevelBuild()
+		}
+		c.Process(size)
+	}
+	checkPixels := func() {
+		t.Helper()
+		retained := c.ReadPixels()
+		r.SetPresentation(&render.Presentation{Anchor: util.Point{Z: 1}, Ready: true})
+		c.Process(size)
+		baseline := c.ReadPixels()
+		r.SetPresentation(nil)
+		if !bytes.Equal(retained, baseline) {
+			t.Fatal("retained pixels differ from stream baseline")
+		}
+	}
+	warm()
+	if got := r.RetainedCacheStats(); got.Builds != 2 {
+		t.Fatalf("wanted two independently cached layers: %+v", got)
+	}
+	checkPixels()
+	for _, hidden := range []string{"/obj/first", ""} {
+		before := r.RetainedCacheStats()
+		policy.hidden, policy.revision = hidden, policy.revision+1
+		warm()
+		after := r.RetainedCacheStats()
+		if after.Builds != before.Builds+1 || after.Invalidations != before.Invalidations+1 {
+			t.Errorf("filter rebuilt an unaffected layer: before=%+v after=%+v", before, after)
+		}
+		checkPixels()
+	}
+	before := r.RetainedCacheStats()
+	policy.revision++
+	warm()
+	if after := r.RetainedCacheStats(); after.Builds != before.Builds {
+		t.Errorf("unchanged filter membership rebuilt geometry: before=%+v after=%+v", before, after)
+	}
+	before = r.RetainedCacheStats()
+	deadline := time.Now().Add(5 * time.Second)
+	for dmicon.Cache.Loading() && time.Now().Before(deadline) {
+		dmicon.Cache.ProcessUploads()
+		time.Sleep(time.Millisecond)
+	}
+	sprite, status := dmicon.Cache.RequestSpriteV("fixture.dmi", "", 0, dmicon.RequestVisible)
+	if status.State != dmicon.SpriteReady || sprite.IconWidth() != 64 {
+		t.Fatal("dependent icon did not resolve", status)
+	}
+	warm()
+	if after := r.RetainedCacheStats(); after.Builds != before.Builds+1 || after.Invalidations != before.Invalidations+1 {
+		t.Errorf("icon publication rebuilt an unrelated layer: before=%+v after=%+v", before, after)
+	}
+	checkPixels()
 }

@@ -492,12 +492,12 @@ func (i *IconsCache) publishIcon(current *iconBuild) {
 		current.resolved[key] = true
 		count++
 		if count == 256 {
-			i.revision++
+			i.changedIcon(current.key)
 			return
 		}
 	}
 	if count > 0 {
-		i.revision++
+		i.changedIcon(current.key)
 	}
 	if previous := i.icons[current.key]; previous != nil && previous != current.dmi {
 		previous.free()

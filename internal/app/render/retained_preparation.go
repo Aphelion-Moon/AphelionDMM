@@ -74,7 +74,7 @@ func (r *Render) processRetainedPreparation(b *LevelBuildBudget) bool {
 		r.retained.DisposeRetiredStep()
 		return true
 	}
-	if _, found := r.retained.Get(job.key, current); found {
+	if _, found := r.retainedEntry(job.key, current); found {
 		r.retained.DisposeRetiredStep()
 		return true
 	}

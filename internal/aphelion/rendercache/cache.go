@@ -2,6 +2,7 @@ package rendercache
 
 import (
 	"container/list"
+	"maps"
 	"math"
 	"sort"
 
@@ -36,6 +37,7 @@ type Entry struct {
 	unitIDs       []uint64
 	indexComplete bool
 	bytes         int
+	dependencies  *Dependencies
 }
 
 func (e *Entry) Matches(v Versions) bool { return e != nil && e.Versions == v }
@@ -78,6 +80,9 @@ type Cache struct {
 func New() *Cache                   { return &Cache{entries: make(map[Key]*list.Element)} }
 func LayerKey(layer float32) uint32 { return math.Float32bits(layer) }
 func (c *Cache) Get(key Key, versions Versions) (*Entry, bool) {
+	return c.get(key, versions, nil)
+}
+func (c *Cache) get(key Key, versions Versions, validate func(*Entry) bool) (*Entry, bool) {
 	if c == nil || c.entries == nil {
 		return nil, false
 	}
@@ -87,6 +92,9 @@ func (c *Cache) Get(key Key, versions Versions) (*Entry, bool) {
 		return nil, false
 	}
 	entry := element.Value.(*Entry)
+	if !entry.Matches(versions) && validate != nil && validate(entry) {
+		entry.Versions = versions
+	}
 	if !entry.Matches(versions) {
 		c.stats.Misses++
 		c.stats.Invalidations++
@@ -104,12 +112,30 @@ func (c *Cache) Put(key Key, versions Versions, submission *brush.Submission) bo
 // PutWithUnitIDs retains a sorted selection index alongside one chunk-layer
 // submission. The index shares the cache byte budget and has a hard per-entry cap.
 func (c *Cache) PutWithUnitIDs(key Key, versions Versions, submission *brush.Submission, unitIDs []uint64, indexComplete bool) bool {
+	return c.put(key, versions, submission, unitIDs, indexComplete, nil)
+}
+
+func (c *Cache) PutWithDependencies(key Key, versions Versions, submission *brush.Submission, unitIDs []uint64, indexComplete bool, dependencies Dependencies) bool {
+	return c.put(key, versions, submission, unitIDs, indexComplete, &dependencies)
+}
+
+func (c *Cache) put(key Key, versions Versions, submission *brush.Submission, unitIDs []uint64, indexComplete bool, dependencies *Dependencies) bool {
 	if c == nil || len(unitIDs) > MaxIndexedUnitsPerEntry {
 		return false
 	}
 	unitIDs = append([]uint64(nil), unitIDs...)
 	sort.Slice(unitIDs, func(i, j int) bool { return unitIDs[i] < unitIDs[j] })
 	bytes := len(unitIDs) * 8
+	if dependencies != nil {
+		if len(dependencies.Icons) > MaxIndexedUnitsPerEntry {
+			return false
+		}
+		dependencies.Icons = maps.Clone(dependencies.Icons)
+		bytes += 32
+		for icon := range dependencies.Icons {
+			bytes += len(icon) + 64
+		}
+	}
 	if submission != nil {
 		bytes += submission.ByteSize()
 	}
@@ -122,7 +148,7 @@ func (c *Cache) PutWithUnitIDs(key Key, versions Versions, submission *brush.Sub
 	if old := c.entries[key]; old != nil {
 		c.remove(key, old)
 	}
-	entry := &Entry{Key: key, Versions: versions, Submission: submission, unitIDs: unitIDs, indexComplete: indexComplete, bytes: bytes}
+	entry := &Entry{Key: key, Versions: versions, Submission: submission, unitIDs: unitIDs, indexComplete: indexComplete, bytes: bytes, dependencies: dependencies}
 	element := c.lru.PushFront(entry)
 	c.entries[key] = element
 	c.bytes += bytes

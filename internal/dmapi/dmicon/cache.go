@@ -19,7 +19,9 @@ type IconsCache struct {
 	asynchronous bool
 	async        asyncIcons
 	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
-	revision uint64
+	revision      uint64
+	lifetime      uint64
+	iconRevisions map[string]uint64
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION END
 }
@@ -27,6 +29,8 @@ type IconsCache struct {
 func (i *IconsCache) Free() {
 	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
 	i.revision++
+	i.lifetime++
+	i.iconRevisions = nil
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - ASYNC ICONS
 	i.cancelPending()
@@ -42,6 +46,18 @@ func (i *IconsCache) Free() {
 // APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
 // Revision changes when cached textures or pending sprite handles change.
 func (i *IconsCache) Revision() uint64 { return i.revision }
+
+// Lifetime fences texture disposal and root replacement, including reused keys.
+func (i *IconsCache) Lifetime() uint64                { return i.lifetime }
+func (i *IconsCache) IconRevision(icon string) uint64 { return i.iconRevisions[icon] }
+
+func (i *IconsCache) changedIcon(icon string) {
+	i.revision++
+	if i.iconRevisions == nil {
+		i.iconRevisions = make(map[string]uint64)
+	}
+	i.iconRevisions[icon] = i.revision
+}
 
 // APHELION EDIT ADDITION END
 
