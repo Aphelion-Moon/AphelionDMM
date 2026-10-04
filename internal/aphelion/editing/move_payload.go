@@ -15,21 +15,26 @@ import (
 // for a move. It preserves their collaboration identities; unlike clipboard
 // placement, a move does not create copies.
 type MovePayload struct {
-	selection Selection
-	origin    util.Bounds
-	level     int
-	tiles     []movePayloadTile
+	selection   Selection
+	origin      util.Bounds
+	level       int
+	tiles       []movePayloadTile
+	turns       uint8
+	base        *MovePayload
+	destination []movePayloadDestination
 }
 
 // SelectionMove owns only selection geometry and a cheap pose. It never owns or
 // mutates live map tiles; an editor separately supplies an immutable payload.
 type SelectionMove struct {
-	selection Selection
-	origin    util.Bounds
-	bounds    util.Bounds
-	level     int
-	shift     util.Point
-	closed    bool
+	selection   Selection
+	origin      util.Bounds
+	bounds      util.Bounds
+	destination Selection
+	turns       uint8
+	level       int
+	shift       util.Point
+	closed      bool
 }
 
 func NewSelectionMove(selection Selection) (*SelectionMove, error) {
@@ -37,14 +42,14 @@ func NewSelectionMove(selection Selection) (*SelectionMove, error) {
 	if selection.Len() == 0 || selection.Level() < 1 || !wholeTileBounds(area) {
 		return nil, fmt.Errorf("move requires a nonempty whole-tile selection")
 	}
-	return &SelectionMove{selection: selection, origin: area, bounds: area, level: selection.Level()}, nil
+	return &SelectionMove{selection: selection, destination: selection, origin: area, bounds: area, level: selection.Level()}, nil
 }
 
 func (move *SelectionMove) Update(shift util.Point, maxX, maxY, level int) (util.Bounds, bool, error) {
 	if move.closed {
 		return move.bounds, false, fmt.Errorf("selection move has ended")
 	}
-	next := move.origin.Plus(float32(shift.X), float32(shift.Y))
+	next := move.destination.Bounds().Plus(float32(shift.X), float32(shift.Y))
 	if shift.Z != 0 || level != move.level || next.X1 < 1 || next.Y1 < 1 || next.X2 > float32(maxX) || next.Y2 > float32(maxY) {
 		return move.bounds, false, fmt.Errorf("moved selection would leave the map or selected level")
 	}
@@ -161,11 +166,14 @@ func visiblePrefabs(state model.TileState, visible func(string) bool) (model.Til
 
 func (p *MovePayload) TileCount() int { return len(p.tiles) }
 
-// Tile returns the source-relative coordinate and visible contents of one
+// Tile returns the destination-relative coordinate and visible contents of one
 // immutable payload tile. Callers must treat returned variable maps as read-only.
 func (p *MovePayload) Tile(index int) (util.Point, []model.PrefabState) {
-	tile := p.tiles[index]
-	return tile.local, tile.state.Prefabs
+	if p.destination != nil {
+		tile := p.destination[index]
+		return tile.local, tile.state.Prefabs
+	}
+	return p.SourceTile(index)
 }
 
 // OriginalSource returns the complete immutable source state captured when the
@@ -182,7 +190,7 @@ func (p *MovePayload) OriginalSource(coord model.Coord) (model.TileState, bool) 
 }
 
 func (p *MovePayload) Bounds(shift util.Point) util.Bounds {
-	return p.origin.Plus(float32(shift.X), float32(shift.Y))
+	return rotatedMoveBounds(p.origin, p.turns).Plus(float32(shift.X), float32(shift.Y))
 }
 
 func (p *MovePayload) ValidateTarget(shift util.Point, maxX, maxY, level int) error {
@@ -196,7 +204,7 @@ func (p *MovePayload) ValidateTarget(shift util.Point, maxX, maxY, level int) er
 // Suppresses reports membership in the exact source/destination union without
 // materializing that union during pointer motion.
 func (p *MovePayload) Suppresses(coord, shift util.Point) bool {
-	return p.selection.Contains(coord) || p.selection.Contains(coord.Minus(shift))
+	return p.selection.Contains(coord) || p.DestinationContains(coord, shift)
 }
 
 // ValidateSource checks only the selected visible payload. Hidden source values
@@ -239,11 +247,12 @@ func (p *MovePayload) buildMoveChanges(ctx context.Context, shift util.Point, vi
 			}
 		}
 		source := tile.source
-		destination := model.Coord{X: source.X + shift.X, Y: source.Y + shift.Y, Z: source.Z}
+		local, prefabs := p.Tile(index)
+		destination := model.Coord{X: int(p.origin.X1) + local.X - 1 + shift.X, Y: int(p.origin.Y1) + local.Y - 1 + shift.Y, Z: p.level}
 		union[source] = struct{}{}
 		union[destination] = struct{}{}
-		if len(tile.state.Prefabs) != 0 {
-			incoming[destination] = tile.state.Prefabs
+		if len(prefabs) != 0 {
+			incoming[destination] = prefabs
 		}
 	}
 	coords := make([]model.Coord, 0, len(union))

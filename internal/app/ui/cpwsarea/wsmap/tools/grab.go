@@ -412,12 +412,12 @@ func (t *ToolGrab) onStop(util.Point) {
 		// APHELION EDIT ADDITION START - SELECTION LIFECYCLE
 		if t.previewMove != nil {
 			move := t.previewMove
-			if err := t.trackSelectionTransform(t.fillAreaInit, true, func() (util.Bounds, error) {
+			if err := t.trackSelectionMask(move.Selection(), move.Turns() == 0, func() (editing.Selection, error) {
 				owner, ok := ed.(selectionMovePreviewOwner)
 				if !ok {
-					return move.Bounds(), fmt.Errorf("selection move presentation is unavailable")
+					return move.Selection(), fmt.Errorf("selection move presentation is unavailable")
 				}
-				return move.Bounds(), owner.FinishSelectionMovePreview(move, false)
+				return move.DestinationSelection(), owner.FinishSelectionMovePreview(move, false)
 			}); err != nil {
 				util.ShowErrorDialog("Unable to move selection: " + err.Error())
 			}
@@ -495,6 +495,9 @@ func (t *ToolGrab) selectedCoordinates() []util.Point {
 func (t *ToolGrab) Selection() editing.Selection {
 	if t.selectionOwner != nil && (ed == nil || t.selectionOwner != ed.Dmm()) {
 		return editing.Selection{}
+	}
+	if t.previewMove != nil {
+		return t.previewMove.DestinationSelection()
 	}
 	if t.selection.Len() == 0 {
 		return editing.RectangleSelection(t.fillArea, t.fillStart.Z)

@@ -31,6 +31,7 @@ type ToolFill struct {
 
 	dragging bool
 	// APHELION EDIT ADDITION START - SHARED SHAPES
+	held        editing.HeldPrefab
 	shape       editing.ShapeDescriptor
 	selection   editing.Selection
 	restriction editing.Selection
@@ -81,12 +82,12 @@ func (t *ToolFill) onStart(coord util.Point) {
 	}
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - SHARED SHAPES - ORIGINAL: if _, ok := ed.SelectedPrefab(); ok {
-	if _, ok := ed.SelectedPrefab(); ok || t.random {
+	if _, ok := t.HeldPrefab(); ok || t.random {
 		// APHELION EDIT ADDITION START - SHARED SHAPES
 		t.shape = currentShape()
 		t.shape.Outline = t.actionContext.Outline
 		t.filter = brushFilter()
-		t.prefab, _ = ed.SelectedPrefab()
+		t.prefab, _ = t.HeldPrefab()
 		t.replace = t.actionContext.Alternate
 		t.border = t.actionContext.Modifiers.Ctrl
 		t.restriction = SelectionForEditor(ed)
@@ -134,7 +135,7 @@ func (t *ToolFill) onStop(util.Point) {
 	if t.random {
 		selection, anchor, palette, seed, density := t.selection, t.start, t.palette, t.seed, t.density
 		filter := t.filter
-		t.OnDeselect()
+		t.resetFill()
 		if owner, ok := ed.(interface {
 			StartRandomFillWithFilter(editing.Selection, editing.RandomPalette, uint64, float64, util.Point, dm.PathsFilter) error
 		}); ok {
@@ -162,11 +163,12 @@ func (t *ToolFill) onStop(util.Point) {
 				util.ShowErrorDialog(err.Error())
 			}
 		}
-		t.OnDeselect()
+		t.resetFill()
 		return
 	}
 	// APHELION EDIT ADDITION END
-	if prefab, ok := ed.SelectedPrefab(); ok {
+	// APHELION EDIT CHANGE - HELD ROTATION - ORIGINAL: if prefab, ok := ed.SelectedPrefab(); ok {
+	if prefab := t.prefab; prefab != nil {
 		// APHELION EDIT ADDITION START - SHARED SHAPES
 		if t.shape.Kind != editing.ShapeRectangle || t.shape.Outline || t.restrict {
 			if t.selection.Len() > 0 {
@@ -174,7 +176,7 @@ func (t *ToolFill) onStop(util.Point) {
 					util.ShowErrorDialog(err.Error())
 				}
 			}
-			t.OnDeselect()
+			t.resetFill()
 			return
 		}
 		// APHELION EDIT ADDITION END
@@ -244,6 +246,11 @@ func (t *ToolFill) active() bool {
 
 // APHELION EDIT ADDITION START - SHARED SHAPES
 func (t *ToolFill) OnDeselect() {
+	t.resetFill()
+	t.held = editing.HeldPrefab{}
+}
+func (t *ToolFill) resetFill() {
+	t.fillArea = util.Bounds{}
 	t.dragging = false
 	t.start = util.Point{}
 	t.selection = editing.Selection{}

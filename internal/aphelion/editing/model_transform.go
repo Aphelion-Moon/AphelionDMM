@@ -21,7 +21,11 @@ func TransformModelSelection(ctx context.Context, selection Selection, transform
 	w, h := int(area.X2-area.X1+1), int(area.Y2-area.Y1+1)
 	before := make(map[model.Coord]model.TileState)
 	incoming := make(map[model.Coord][]model.PrefabState)
-	cache := make(map[string]map[string]string)
+	type transformedPrefab struct {
+		path string
+		vars map[string]string
+	}
+	cache := make(map[string]transformedPrefab)
 	var failure error
 	load := func(c model.Coord) bool {
 		if _, ok := before[c]; ok {
@@ -77,7 +81,7 @@ func TransformModelSelection(ctx context.Context, selection Selection, transform
 				var result *dmmprefab.Prefab
 				switch transform {
 				case PlacementRotateRight, PlacementRotateLeft:
-					result, failure = rotatePrefab(prefab, transform == PlacementRotateRight)
+					result, failure = rotatePrefab(prefab, transform == PlacementRotateRight, parent)
 				case PlacementMirrorHorizontal:
 					result, failure = mirrorPrefab(prefab, MirrorHorizontal)
 				case PlacementMirrorVertical:
@@ -86,13 +90,13 @@ func TransformModelSelection(ctx context.Context, selection Selection, transform
 				if failure != nil {
 					return
 				}
-				converted = make(map[string]string, result.Vars().Len())
+				converted = transformedPrefab{path: result.Path(), vars: make(map[string]string, result.Vars().Len())}
 				for _, name := range result.Vars().Iterate() {
-					converted[name], _ = result.Vars().ExplicitValue(name)
+					converted.vars[name], _ = result.Vars().ExplicitValue(name)
 				}
 				cache[key] = converted
 			}
-			state.Vars = converted
+			state.Path, state.Vars = converted.path, converted.vars
 			incoming[destination] = append(incoming[destination], state)
 		}
 	})

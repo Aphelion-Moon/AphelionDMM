@@ -1,5 +1,7 @@
 # Floating paste transforms and selection cost
 
+Current controls (2026-10-04): Q/E rotate left/right for selections, active Grab moves, clipboard/stamp previews, and held prefabs in Add, Fill, Replace, and Move. Declared directional object variants follow the turn. The original bracket bindings below describe the earlier implementation.
+
 Baseline commit: `052e1acb02b790641d63466de40c91d56028383b`, with prior
 uncommitted work preserved. Current source was inspected directly. Workspace
 red tests reproduced both absent floating rotation and inability to rotate an

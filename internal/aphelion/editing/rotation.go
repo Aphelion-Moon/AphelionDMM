@@ -22,7 +22,7 @@ type Rotation = Transform
 // Rotate turns visible contents by 90 degrees around the selection's bottom-left
 // anchor. Hidden instances stay put; visible destination contents are replaced.
 // It reads current tiles, never a previous gesture's potentially stale copies.
-func Rotate(m *dmmap.Dmm, area util.Bounds, z int, clockwise bool, visible func(string) bool) (Rotation, error) {
+func Rotate(m *dmmap.Dmm, area util.Bounds, z int, clockwise bool, visible func(string) bool, lookup ...PrefabLookup) (Rotation, error) {
 	if m == nil || visible == nil {
 		return Rotation{}, fmt.Errorf("no map or visibility filter")
 	}
@@ -83,7 +83,7 @@ func Rotate(m *dmmap.Dmm, area util.Bounds, z int, clockwise bool, visible func(
 				prefab, exists := prefabs[i.Prefab()]
 				if !exists {
 					var err error
-					prefab, err = rotatePrefab(i.Prefab(), clockwise)
+					prefab, err = rotatePrefab(i.Prefab(), clockwise, lookup...)
 					if err != nil {
 						return Rotation{}, fmt.Errorf("%s at (%d,%d,%d): %w", i.Prefab().Path(), x, y, z, err)
 					}
@@ -98,8 +98,9 @@ func Rotate(m *dmmap.Dmm, area util.Bounds, z int, clockwise bool, visible func(
 	return result, nil
 }
 
-func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool) (*dmmprefab.Prefab, error) {
-	vars := prefab.Vars()
+func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool, lookup ...PrefabLookup) (*dmmprefab.Prefab, error) {
+	sourceVars := prefab.Vars()
+	vars, path := sourceVars, prefab.Path()
 	if vars == nil {
 		return nil, fmt.Errorf("missing variables")
 	}
@@ -118,11 +119,30 @@ func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool) (*dmmprefab.Prefab, 
 				rotated |= to
 			}
 		}
+		if targetPath, targetVars := directionalVariant(path, rotated, lookup); targetVars != nil {
+			path = targetPath
+			explicit := &dmvars.MutableVariables{}
+			for _, name := range vars.Iterate() {
+				value, _ := vars.ExplicitValue(name)
+				explicit.Put(name, value)
+			}
+			vars = explicit.ToImmutable()
+			vars.LinkParent(targetVars)
+		}
 		vars = setOrientation(vars, "dir", strconv.Itoa(rotated))
 	}
-	for _, pair := range [][2]string{{"pixel_x", "pixel_y"}, {"step_x", "step_y"}} {
-		x, hasX := vars.Value(pair[0])
-		y, hasY := vars.Value(pair[1])
+	for _, pair := range [][2]string{{"pixel_x", "pixel_y"}, {"step_x", "step_y"}, {"pixel_w", "pixel_z"}} {
+		if pair[0] == "pixel_x" && strings.HasPrefix(path, prefab.Path()+"/directional/") {
+			_, explicitX := sourceVars.ExplicitValue(pair[0])
+			_, explicitY := sourceVars.ExplicitValue(pair[1])
+			if !explicitX && !explicitY {
+				// Base types adopt their declared wall-mounting defaults.
+				// Explicit map offsets still rotate as a pair below.
+				continue
+			}
+		}
+		x, hasX := sourceVars.Value(pair[0])
+		y, hasY := sourceVars.Value(pair[1])
 		if !hasX && !hasY {
 			continue
 		}
@@ -150,7 +170,7 @@ func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool) (*dmmprefab.Prefab, 
 		vars = setOrientation(vars, pair[0], strconv.FormatFloat(nx, 'f', -1, 64))
 		vars = setOrientation(vars, pair[1], strconv.FormatFloat(ny, 'f', -1, 64))
 	}
-	return dmmprefab.New(dmmprefab.IdNone, prefab.Path(), vars), nil
+	return dmmprefab.New(dmmprefab.IdNone, path, vars), nil
 }
 
 func setOrientation(vars *dmvars.Variables, name, value string) *dmvars.Variables {

@@ -200,7 +200,7 @@ func (t *ToolAdd) ActionContext(input ActionInput) ActionContext {
 	}
 	if ed == nil {
 		setUnavailable(&context, "No map is active")
-	} else if prefab, ok := ed.SelectedPrefab(); ok && prefab != nil {
+	} else if prefab, ok := t.HeldPrefab(); ok && prefab != nil {
 		context.Target = prefab.Path()
 		context.prefab = prefab
 	} else {
@@ -318,7 +318,7 @@ func (t *ToolFill) ActionContext(input ActionInput) ActionContext {
 		}
 	}
 	if ed != nil {
-		if prefab, ok := ed.SelectedPrefab(); ok && prefab != nil {
+		if prefab, ok := t.HeldPrefab(); ok && prefab != nil {
 			context.Target = prefab.Path()
 			context.prefab = prefab
 		} else if !randomEnabled {
@@ -568,7 +568,7 @@ func (t *ToolReplace) ActionContext(input ActionInput) ActionContext {
 		setUnavailable(&context, "No visible instance under the pointer")
 	} else if ed == nil {
 		setUnavailable(&context, "No map is active")
-	} else if prefab, ok := ed.SelectedPrefab(); !ok || prefab == nil {
+	} else if prefab, ok := t.HeldPrefab(); !ok || prefab == nil {
 		setUnavailable(&context, "Select a replacement prefab")
 	} else {
 		context.prefab = prefab

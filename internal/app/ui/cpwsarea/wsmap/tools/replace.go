@@ -1,12 +1,18 @@
 package tools
 
 import (
+	// APHELION EDIT ADDITION START - HELD ROTATION
+	"sdmm/internal/aphelion/editing"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/util"
 )
 
 // ToolReplace can be used to replace the hovered instance with the selected prefab.
 type ToolReplace struct {
 	tool
+	// APHELION EDIT ADDITION START - HELD ROTATION
+	held editing.HeldPrefab
+	// APHELION EDIT ADDITION END
 }
 
 func (ToolReplace) Name() string {

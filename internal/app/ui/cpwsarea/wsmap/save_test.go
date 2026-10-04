@@ -81,7 +81,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	io.SetIniFilename("")
 	io.SetDisplaySize(imgui.Vec2{X: 640, Y: 480})
 	io.Fonts().TextureDataRGBA32()
-	for _, key := range []glfw.Key{glfw.KeyRightBracket, glfw.KeyLeftBracket} {
+	for _, key := range []glfw.Key{glfw.KeyE, glfw.KeyQ} {
 		io.KeyPress(int(key))
 		shortcut.BeginFrame()
 		imgui.NewFrame()
@@ -90,7 +90,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 		io.KeyRelease(int(key))
 		got := mapState.Tiles[0].Instances()[2].Prefab().Vars().ValueV("dir", "")
 		want := "8"
-		if key == glfw.KeyLeftBracket {
+		if key == glfw.KeyQ {
 			want = "2"
 		}
 		if got != want {

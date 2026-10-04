@@ -138,7 +138,7 @@ func (o Orientation) Transform(t PlacementTransform) Orientation {
 	return Orientation{A: m.A*o.A + m.B*o.C, B: m.A*o.B + m.B*o.D, C: m.C*o.A + m.D*o.C, D: m.C*o.B + m.D*o.D}
 }
 
-func (o Orientation) Prepare(ctx context.Context, source []dmmap.Tile) ([]dmmap.Tile, error) {
+func (o Orientation) Prepare(ctx context.Context, source []dmmap.Tile, lookup ...PrefabLookup) ([]dmmap.Tile, error) {
 	// Choose a canonical bounded transform path from the original, so returning
 	// to identity also restores inherited values rather than stacking overrides.
 	for mirror := 0; mirror < 2; mirror++ {
@@ -153,7 +153,7 @@ func (o Orientation) Prepare(ctx context.Context, source []dmmap.Tile) ([]dmmap.
 				result := source
 				for _, t := range path {
 					var err error
-					result, err = TransformPlacementTemplate(ctx, result, t)
+					result, err = TransformPlacementTemplate(ctx, result, t, lookup...)
 					if err != nil {
 						return nil, err
 					}

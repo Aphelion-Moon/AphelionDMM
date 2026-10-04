@@ -33,6 +33,7 @@ const (
 )
 
 type selectionMoveWorkResult struct {
+	turns       uint8
 	payload     *editing.MovePayload
 	reservation *resources.Reservation
 	err         error
@@ -70,6 +71,8 @@ type selectionMoveSession struct {
 	intent            bool
 	err               error
 	payload           *editing.MovePayload
+	sourcePayload     *editing.MovePayload
+	baseMemory        uint64
 	reservation       *resources.Reservation
 	workerCancel      context.CancelFunc
 	workerBusy        bool
@@ -260,6 +263,73 @@ func (e *Editor) PreviewSelectionMovePreview(move *editing.SelectionMove, shift 
 	return area, nil
 }
 
+// RotateSelectionMovePreview changes the held pose without mutating authority.
+// Source capture and orientation workers are serialized; key repeats keep only
+// the latest requested orientation, including release before preparation ends.
+func (e *Editor) RotateSelectionMovePreview(move *editing.SelectionMove, clockwise bool) (util.Bounds, error) {
+	session := e.selectionMovePreview
+	if session == nil || session.pose != move || session.generation != e.attachmentGeneration {
+		return util.Bounds{}, fmt.Errorf("selection move belongs to an old map attachment")
+	}
+	if session.err != nil {
+		return move.Bounds(), session.err
+	}
+	if session.intent || session.phase == selectionMoveResolving || move.Closed() {
+		return move.Bounds(), fmt.Errorf("selection move has ended")
+	}
+	if session.sourcePayload != nil && !session.workerBusy {
+		// Admit the original, a previous destination, and worker scratch before
+		// allocating a new sparse mask or derived destination.
+		if err := session.reservation.Resize(saturatingMoveBytes(session.baseMemory, saturatingMoveBytes(session.baseMemory, session.baseMemory))); err != nil {
+			return move.Bounds(), err
+		}
+	}
+	area, err := move.Rotate(clockwise, e.dmm.MaxX, e.dmm.MaxY, e.pMap.ActiveLevel())
+	if err != nil {
+		return move.Bounds(), err
+	}
+	session.phase, session.preparing = selectionMovePreparing, true
+	session.presentation, session.presentationBuild = nil, nil
+	if r := e.pMap.Canvas().Render(); r != nil {
+		r.SetPresentation(nil)
+	}
+	if session.sourcePayload != nil && !session.workerBusy {
+		if err := e.startSelectionMoveRotation(session); err != nil {
+			session.err, session.preparing, session.phase = err, false, selectionMoveReady
+			return area, err
+		}
+	}
+	return area, nil
+}
+
+func (e *Editor) startSelectionMoveRotation(session *selectionMoveSession) error {
+	needed := saturatingMoveBytes(session.baseMemory, saturatingMoveBytes(session.baseMemory, session.baseMemory))
+	if err := session.reservation.Resize(needed); err != nil {
+		return err
+	}
+	source, turns, parent := session.sourcePayload, session.pose.Turns(), e.RotationLookup()
+	reservation := session.reservation
+	ctx, cancel := context.WithCancel(context.Background())
+	session.workerCancel, session.workerBusy = cancel, true
+	session.preparing, session.phase = true, selectionMovePreparing
+	go func() {
+		defer cancel()
+		payload, err := source.Rotated(ctx, turns, parent)
+		if err == nil {
+			err = reservation.Resize(max(needed, editing.EstimateMovePayloadMemory(payload)))
+		}
+		result := selectionMoveWorkResult{payload: payload, turns: turns, reservation: reservation, err: err}
+		session.resultMu.Lock()
+		defer session.resultMu.Unlock()
+		if session.discarded {
+			reservation.Release()
+			return
+		}
+		session.results <- result
+	}()
+	return nil
+}
+
 // FinishSelectionMovePreview retains release intent while the source subset is
 // being copied; the owner frame completes it when preparation is ready.
 func (e *Editor) FinishSelectionMovePreview(move *editing.SelectionMove, cancel bool) error {
@@ -339,6 +409,18 @@ func (e *Editor) processSelectionMoveWork() {
 			session.workerBusy = false
 			session.workerCancel = nil
 			session.reservation = result.reservation
+			if session.sourcePayload == nil && result.err == nil {
+				session.sourcePayload = result.payload
+				session.baseMemory = result.reservation.Bytes()
+			}
+			// Coalesce key turns while one worker is preparing an older pose.
+			if session.sourcePayload != nil && result.turns != session.pose.Turns() {
+				if err := e.startSelectionMoveRotation(session); err == nil {
+					return
+				} else {
+					result.err = err
+				}
+			}
 			session.preparing = false
 			if result.err != nil {
 				session.err = result.err
@@ -372,7 +454,7 @@ func (e *Editor) processSelectionMoveWork() {
 		default:
 		}
 	}
-	if session.payload == nil || session.err != nil || session.phase == selectionMoveResolving {
+	if session.payload == nil || session.preparing || session.err != nil || session.phase == selectionMoveResolving {
 		return
 	}
 	if session.presentationBuild != nil && e.preparePresentationBuild(session.presentationBuild) {
@@ -413,7 +495,7 @@ func (e *Editor) prepareSelectionMovePresentation(session *selectionMoveSession)
 		}
 		if a.WorldSpace {
 			source := util.Point{X: a.Coord.X + 1, Y: a.Coord.Y + 1, Z: session.pose.Level()}
-			return session.selection.Contains(source) && !session.selection.Contains(source.Minus(session.pose.Shift()))
+			return session.selection.Contains(source) && !session.payload.DestinationContains(source, session.pose.Shift())
 		}
 		return true
 	}
@@ -444,7 +526,7 @@ func (e *Editor) prepareSelectionMovePresentation(session *selectionMoveSession)
 				appearanceInstance := e.movePresentationInstance(coord, prefabs[instance])
 				return render.PrepareAppearance(coord, appearanceInstance, dmmap.WorldIconSize)
 			}
-			local, _ := session.payload.Tile(tile - sourceCount)
+			local, _ := session.payload.SourceTile(tile - sourceCount)
 			bounds := session.selection.Bounds()
 			coord := util.Point{X: int(bounds.X1) + local.X - 1, Y: int(bounds.Y1) + local.Y - 1, Z: session.pose.Level()}
 			prefab := sourceDefaults(tile - sourceCount)[instance]
@@ -459,7 +541,7 @@ func (e *Editor) prepareSelectionMovePresentation(session *selectionMoveSession)
 // Source defaults replace only missing families. Hidden source contents remain
 // in committed geometry and must not acquire an extra visible default.
 func moveSourceDefaults(session *selectionMoveSession, tile int) []model.PrefabState {
-	local, _ := session.payload.Tile(tile)
+	local, _ := session.payload.SourceTile(tile)
 	bounds := session.selection.Bounds()
 	coord := model.Coord{X: int(bounds.X1) + local.X - 1, Y: int(bounds.Y1) + local.Y - 1, Z: session.pose.Level()}
 	original, _ := session.payload.OriginalSource(coord)
@@ -538,7 +620,7 @@ func (e *Editor) submitSelectionMovePreview(session *selectionMoveSession) error
 	if err := session.payload.ValidateTarget(session.pose.Shift(), e.dmm.MaxX, e.dmm.MaxY, e.pMap.ActiveLevel()); err != nil {
 		return err
 	}
-	if session.pose.Shift() == (util.Point{}) {
+	if session.pose.Shift() == (util.Point{}) && session.pose.Turns() == 0 {
 		session.pose.Finish()
 		selectionApplied(session.selectionOutcome, false)
 		e.discardSelectionMovePreview(session)

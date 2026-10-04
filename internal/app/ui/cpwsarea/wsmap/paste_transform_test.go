@@ -30,7 +30,7 @@ func TestPasteTransformShortcutsBeforeConfirmation(t *testing.T) {
 	displayBefore := e.Dmm().Copy()
 	id := e.Dmm().GetTile(util.Point{X: 1, Y: 1, Z: 1}).Instances()[2].StableID()
 	hiddenID := e.Dmm().GetTile(util.Point{X: 2, Y: 3, Z: 1}).Instances()[0].StableID()
-	pressSelectionShortcut(glfw.KeyRightBracket)
+	pressSelectionShortcut(glfw.KeyE)
 	settlePastePreview(t, ws, app)
 	if !g.Placing() || g.Bounds() != (util.Bounds{X1: 2, Y1: 2, X2: 2, Y2: 3}) {
 		t.Fatal("rotation shortcut did not rotate the floating template")
@@ -85,7 +85,7 @@ func TestPasteTransformNetworkOutcomes(t *testing.T) {
 			ws.Map().CanvasState().SetMousePosition(32, 32, 1)
 			e.TilePasteSelected()
 			settlePastePreview(t, ws, app)
-			pressSelectionShortcut(glfw.KeyRightBracket)
+			pressSelectionShortcut(glfw.KeyE)
 			settlePastePreview(t, ws, app)
 			pressSelectionShortcut(glfw.KeyH)
 			settlePastePreview(t, ws, app)
@@ -155,7 +155,7 @@ func TestPasteTransformTextModifiersAndLevelCancellation(t *testing.T) {
 	e.TilePasteSelected()
 	settlePastePreview(t, ws, app)
 	preview := e.Dmm().Copy()
-	for _, pair := range [][2]glfw.Key{{glfw.KeyLeftControl, glfw.KeyRightBracket}, {glfw.KeyRightAlt, glfw.KeyH}, {glfw.KeyLeftShift, glfw.KeyV}} {
+	for _, pair := range [][2]glfw.Key{{glfw.KeyLeftControl, glfw.KeyE}, {glfw.KeyRightAlt, glfw.KeyH}, {glfw.KeyLeftShift, glfw.KeyV}} {
 		pressSelectionShortcut(pair[0], pair[1])
 		settlePastePreview(t, ws, app)
 		if !reflect.DeepEqual(preview, e.Dmm().Copy()) {
@@ -164,7 +164,7 @@ func TestPasteTransformTextModifiersAndLevelCancellation(t *testing.T) {
 	}
 	io := imgui.CurrentIO()
 	input := "typing"
-	keys := []glfw.Key{glfw.KeyLeftBracket, glfw.KeyRightBracket, glfw.KeyH, glfw.KeyV}
+	keys := []glfw.Key{glfw.KeyQ, glfw.KeyE, glfw.KeyH, glfw.KeyV}
 	for frame := 0; frame < len(keys)+2; frame++ {
 		if frame >= 2 {
 			io.KeyPress(int(keys[frame-2]))
@@ -192,7 +192,7 @@ func TestPasteTransformTextModifiersAndLevelCancellation(t *testing.T) {
 	}
 	imgui.NewFrame()
 	imgui.EndFrame()
-	pressSelectionShortcut(glfw.KeyRightBracket)
+	pressSelectionShortcut(glfw.KeyE)
 	settlePastePreview(t, ws, app)
 	if tools.Selected().(*tools.ToolGrab).Bounds().Y2 != 3 {
 		t.Fatal("rotation did not resume after text input")
@@ -219,13 +219,13 @@ func TestPasteTransformRepairsInvalidTargetAndCancels(t *testing.T) {
 	if g.PlacementError() == nil {
 		t.Fatal("fixture must initially be out of bounds")
 	}
-	pressSelectionShortcut(glfw.KeyLeftBracket)
+	pressSelectionShortcut(glfw.KeyQ)
 	settlePastePreview(t, ws, app)
 	if g.PlacementError() != nil || g.Bounds() != (util.Bounds{X1: 4, Y1: 1, X2: 4, Y2: 2}) {
 		t.Fatal("rotation did not fit previously invalid target")
 	}
 	preview := e.Dmm().Copy()
-	pressSelectionShortcut(glfw.KeyLeftBracket)
+	pressSelectionShortcut(glfw.KeyQ)
 	settlePastePreview(t, ws, app)
 	if g.PlacementError() == nil || g.ConfirmPlacement() || !reflect.DeepEqual(preview, e.Dmm().Copy()) {
 		t.Fatal("invalid rotation changed or confirmed the displayed preview")
@@ -251,7 +251,7 @@ func TestPasteTransformNeverCapturesOrRepairsDestinationDisplay(t *testing.T) {
 	originalID := invalid.StableID()
 	invalid.SetStableID("invalid-transform-destination")
 	display := e.Dmm().Copy()
-	pressSelectionShortcut(glfw.KeyRightBracket)
+	pressSelectionShortcut(glfw.KeyE)
 	settlePastePreview(t, ws, app)
 	g := tools.Selected().(*tools.ToolGrab)
 	if g.PlacementError() != nil || !reflect.DeepEqual(display, e.Dmm().Copy()) {

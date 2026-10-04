@@ -1,5 +1,7 @@
 # Cancellable paste placement
 
+Current controls (2026-10-04): Q/E rotate left/right for selections, active Grab moves, clipboard/stamp previews, and held prefabs in Add, Fill, Replace, and Move. Declared directional object variants follow the turn. The original bracket bindings below describe the earlier implementation.
+
 This extends the existing clipboard, Grab and authoritative edit flow under the
 active editor QoL goal. Default interaction: Ctrl/Cmd+V starts placement, click
 or Enter confirms, Escape cancels. A shortcut preference was requested while

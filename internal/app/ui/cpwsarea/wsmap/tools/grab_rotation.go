@@ -28,4 +28,24 @@ func (t *ToolGrab) Rotate(clockwise bool, transform func(util.Bounds, int, bool)
 	})
 }
 
+type selectionMoveRotationOwner interface {
+	RotateSelectionMovePreview(*editing.SelectionMove, bool) (util.Bounds, error)
+}
+
+func (t *ToolGrab) canRotateMove() bool {
+	_, supported := ed.(selectionMoveRotationOwner)
+	return supported && t.dragging && t.previewMove != nil && !t.previewMove.Closed()
+}
+
+func (t *ToolGrab) rotateMove(clockwise bool) error {
+	if !t.canRotateMove() {
+		return fmt.Errorf("no held selection move")
+	}
+	area, err := ed.(selectionMoveRotationOwner).RotateSelectionMovePreview(t.previewMove, clockwise)
+	if err == nil {
+		t.fillArea = area
+	}
+	return err
+}
+
 // APHELION EDIT ADDITION END

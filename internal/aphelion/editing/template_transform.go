@@ -14,7 +14,7 @@ import (
 // TransformPlacementTemplate rotates or mirrors a detached clipboard template
 // without reading or mutating the displayed map. It is safe to run on the
 // placement worker because prefab values are immutable.
-func TransformPlacementTemplate(ctx context.Context, source []dmmap.Tile, transform PlacementTransform) ([]dmmap.Tile, error) {
+func TransformPlacementTemplate(ctx context.Context, source []dmmap.Tile, transform PlacementTransform, lookup ...PrefabLookup) ([]dmmap.Tile, error) {
 	if transform < PlacementRotateRight || transform > PlacementMirrorVertical {
 		return nil, fmt.Errorf("unknown paste transform")
 	}
@@ -69,7 +69,7 @@ func TransformPlacementTemplate(ctx context.Context, source []dmmap.Tile, transf
 				var err error
 				switch transform {
 				case PlacementRotateRight, PlacementRotateLeft:
-					prefab, err = rotatePrefab(instance.Prefab(), transform == PlacementRotateRight)
+					prefab, err = rotatePrefab(instance.Prefab(), transform == PlacementRotateRight, lookup...)
 				case PlacementMirrorHorizontal:
 					prefab, err = mirrorPrefab(instance.Prefab(), MirrorHorizontal)
 				case PlacementMirrorVertical:

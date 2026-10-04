@@ -67,14 +67,14 @@ func TestRepeatTransformMirrorsCurrentContents(t *testing.T) {
 	ws, _ := newSelectionWorkspace(t)
 	activateSelectionWorkspace(t, ws)
 	e := ws.Map().Editor()
-	pressSelectionShortcut(glfw.KeyRightBracket) // West, so horizontal reflection changes direction.
+	pressSelectionShortcut(glfw.KeyE) // West, so horizontal reflection changes direction.
 	before := resizeSnapshot(t, e)
 	pressSelectionShortcut(glfw.KeyH)
 	pressSelectionShortcut(glfw.KeyF4)
 	if resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) {
 		t.Fatal("repeated horizontal mirror did not restore exact contents")
 	}
-	pressSelectionShortcut(glfw.KeyRightBracket) // North, so vertical reflection changes direction.
+	pressSelectionShortcut(glfw.KeyE) // North, so vertical reflection changes direction.
 	before = resizeSnapshot(t, e)
 	pressSelectionShortcut(glfw.KeyV)
 	pressSelectionShortcut(glfw.KeyF4)
@@ -92,7 +92,7 @@ func TestRepeatTransformUsesCurrentSelectionAndHistory(t *testing.T) {
 	if resizeSnapshot(t, e).Revision != initial.Revision {
 		t.Fatal("repeat without a transform changed authority")
 	}
-	pressSelectionShortcut(glfw.KeyRightBracket)
+	pressSelectionShortcut(glfw.KeyE)
 	pressSelectionShortcut(glfw.KeyF4)
 	if resizeSnapshot(t, e).Revision != initial.Revision+2 {
 		t.Fatal("F4 did not repeat the rotation")
@@ -183,7 +183,7 @@ func TestRepeatTransformKeepsFloatingPasteUncommittedUntilConfirmation(t *testin
 		}
 	}
 	assertPreview(util.Bounds{X1: 2, Y1: 2, X2: 3, Y2: 2})
-	pressSelectionShortcut(glfw.KeyRightBracket)
+	pressSelectionShortcut(glfw.KeyE)
 	settlePastePreview(t, ws, app)
 	assertPreview(util.Bounds{X1: 2, Y1: 2, X2: 2, Y2: 3})
 	pressSelectionShortcut(glfw.KeyF4)
@@ -220,7 +220,7 @@ func TestRepeatTransformIgnoresRejectedNetworkAction(t *testing.T) {
 	activateSelectionWorkspace(t, ws)
 	network, transport, document := selectionNetwork(t, ws)
 	e := ws.Map().Editor()
-	pressSelectionShortcut(glfw.KeyRightBracket)
+	pressSelectionShortcut(glfw.KeyE)
 	first := transport.next(t)
 	pressSelectionShortcut(glfw.KeyF4)
 	select {

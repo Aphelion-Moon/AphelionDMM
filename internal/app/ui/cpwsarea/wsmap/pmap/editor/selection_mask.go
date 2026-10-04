@@ -29,7 +29,7 @@ func (e *Editor) RotateSelectionMask(s editing.Selection, clockwise bool) (util.
 		return s.Bounds(), err
 	}
 	defer reservation.Release()
-	plan, err := editing.RotateMask(e.dmm, s, clockwise, e.app.PathsFilter().IsVisiblePath)
+	plan, err := editing.RotateMask(e.dmm, s, clockwise, e.app.PathsFilter().IsVisiblePath, e.RotationLookup())
 	if err != nil {
 		return s.Bounds(), err
 	}

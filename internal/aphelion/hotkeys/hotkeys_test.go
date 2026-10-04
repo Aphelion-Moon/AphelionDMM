@@ -13,8 +13,8 @@ func TestPressedRequiresExactModifiersAndRealKeys(t *testing.T) {
 		pressed glfw.Key
 		want    bool
 	}{
-		{"bare rotate", [][2]glfw.Key{{glfw.KeyLeftBracket, 0}}, nil, glfw.KeyLeftBracket, true},
-		{"modified rotate", [][2]glfw.Key{{glfw.KeyLeftBracket, 0}}, []glfw.Key{glfw.KeyLeftControl}, glfw.KeyLeftBracket, false},
+		{"bare rotate", [][2]glfw.Key{{glfw.KeyQ, 0}}, nil, glfw.KeyQ, true},
+		{"modified rotate", [][2]glfw.Key{{glfw.KeyQ, 0}}, []glfw.Key{glfw.KeyLeftControl}, glfw.KeyQ, false},
 		{"save", [][2]glfw.Key{{glfw.KeyLeftControl, glfw.KeyRightControl}, {glfw.KeyS, 0}}, []glfw.Key{glfw.KeyRightControl}, glfw.KeyS, true},
 		{"save all is not save", [][2]glfw.Key{{glfw.KeyLeftControl, glfw.KeyRightControl}, {glfw.KeyS, 0}}, []glfw.Key{glfw.KeyLeftControl, glfw.KeyLeftShift}, glfw.KeyS, false},
 		{"unset alternative", [][2]glfw.Key{{glfw.KeyS, 0}}, nil, 0, false},
@@ -37,7 +37,7 @@ func TestPressedRequiresExactModifiersAndRealKeys(t *testing.T) {
 
 func TestPressedIdleDoesNotPollModifiers(t *testing.T) {
 	downCalls := 0
-	if Pressed([][2]glfw.Key{{glfw.KeyLeftBracket, 0}}, func(glfw.Key) bool { downCalls++; return false }, func(glfw.Key) bool { return false }) {
+	if Pressed([][2]glfw.Key{{glfw.KeyQ, 0}}, func(glfw.Key) bool { downCalls++; return false }, func(glfw.Key) bool { return false }) {
 		t.Fatal("idle input matched")
 	}
 	if downCalls != 0 {
@@ -46,13 +46,13 @@ func TestPressedIdleDoesNotPollModifiers(t *testing.T) {
 }
 
 func TestReferenceUsesActualKeysAndDeduplicatesPanes(t *testing.T) {
-	b := Binding{Name: "pmap#rotateLeft", Keys: [][2]glfw.Key{{glfw.KeyLeftBracket, 0}}}
+	b := Binding{Name: "pmap#rotateLeft", Keys: [][2]glfw.Key{{glfw.KeyQ, 0}}}
 	rows := Reference([]Binding{b, b, {Name: "menu#DoSave", Keys: [][2]glfw.Key{{glfw.KeyLeftControl, glfw.KeyRightControl}, {glfw.KeyS, 0}}}})
 	if len(rows) != 2 {
 		t.Fatalf("duplicated reference rows: %v", rows)
 	}
 	for _, row := range rows {
-		if row.Action == "Rotate selection left" && row.Keys != "[" {
+		if row.Action == "Rotate selection left" && row.Keys != "Q" {
 			t.Fatal("rotation binding drift")
 		}
 		if row.Action == "Save" && row.Keys != "Ctrl+S" {

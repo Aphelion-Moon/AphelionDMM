@@ -22,7 +22,7 @@ const (
 // TransformPlacement transforms the sparse clipboard template at the requested
 // target, without creating an operation. Geometry and orientations are validated
 // before capture. Failed preflight leaves the old template and preview intact.
-func (move *Move) TransformPlacement(transform PlacementTransform, shift util.Point) ([]util.Point, error) {
+func (move *Move) TransformPlacement(transform PlacementTransform, shift util.Point, lookup ...PrefabLookup) ([]util.Point, error) {
 	if move.closed || !move.placement {
 		return nil, fmt.Errorf("no open paste placement")
 	}
@@ -61,7 +61,7 @@ func (move *Move) TransformPlacement(transform PlacementTransform, shift util.Po
 				var err error
 				switch transform {
 				case PlacementRotateRight, PlacementRotateLeft:
-					prefab, err = rotatePrefab(instance.Prefab(), transform == PlacementRotateRight)
+					prefab, err = rotatePrefab(instance.Prefab(), transform == PlacementRotateRight, lookup...)
 				case PlacementMirrorHorizontal:
 					prefab, err = mirrorPrefab(instance.Prefab(), MirrorHorizontal)
 				case PlacementMirrorVertical:

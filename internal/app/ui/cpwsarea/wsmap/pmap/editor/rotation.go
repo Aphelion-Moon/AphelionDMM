@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/util"
 )
 
@@ -22,7 +23,7 @@ func (e *Editor) RotateSelection(area util.Bounds, z int, clockwise bool) (util.
 	if selection := editing.RectangleSelection(area, z); selection.Len() > directLocalTiles {
 		return e.RotateSelectionMask(selection, clockwise)
 	}
-	plan, err := editing.Rotate(e.dmm, area, z, clockwise, e.app.PathsFilter().IsVisiblePath)
+	plan, err := editing.Rotate(e.dmm, area, z, clockwise, e.app.PathsFilter().IsVisiblePath, e.RotationLookup())
 	if err != nil {
 		return area, err
 	}
@@ -31,6 +32,19 @@ func (e *Editor) RotateSelection(area util.Bounds, z int, clockwise bool) (util.
 		label = "Rotate Selection Right"
 	}
 	return e.commitSelectionTransform(plan, area, label)
+}
+
+// RotationLookup captures the immutable environment used by this edit or worker.
+func (e *Editor) RotationLookup() editing.PrefabLookup {
+	environment := e.app.LoadedEnvironment()
+	return func(path string) *dmvars.Variables {
+		if environment != nil {
+			if object := environment.Objects[path]; object != nil {
+				return object.Vars
+			}
+		}
+		return nil
+	}
 }
 
 // APHELION EDIT ADDITION END

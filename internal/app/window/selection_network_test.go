@@ -194,10 +194,16 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 	for _, scenario := range []struct {
 		name                       string
 		rejectRotation, rejectMove bool
+		rotateHeld                 bool
+		sparse                     bool
 	}{
 		{name: "accepted"},
 		{name: "rotation_rejected_during_drag", rejectRotation: true},
 		{name: "move_rejected_after_release", rejectMove: true},
+		{name: "held_rotation_accepted", rotateHeld: true},
+		{name: "sparse_held_rotation", rotateHeld: true, sparse: true},
+		{name: "held_rotation_rejected", rotateHeld: true, rejectMove: true},
+		{name: "held_rotation_dependency_rejected", rotateHeld: true, rejectRotation: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			ws, app := newMouseNetworkWorkspace(t)
@@ -243,9 +249,16 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 			grab := tools.SetSelected(tools.TNGrab).(*tools.ToolGrab)
 			grab.Reset()
 			grab.SelectArea([]util.Point{{X: 1, Y: 1, Z: 1}, {X: 3, Y: 2, Z: 1}})
+			if scenario.sparse {
+				if err := grab.SelectMask([]util.Point{{X: 1, Y: 1, Z: 1}, {X: 3, Y: 1, Z: 1}, {X: 1, Y: 2, Z: 1}}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			selectionSize := grab.Selection().Len()
 			origin := grab.Bounds()
 
-			rawFrame := mouseWorkspaceFrame(t, ws, app.mouse)
+			ws.Map().SetShortcutsVisible(true)
+			rawFrame := mouseWorkspaceFrame(t, ws, app.mouse, shortcut.Process)
 			down, mouseX, mouseY := false, 1, 1
 			frame := func(pressed bool, x, y int) {
 				down, mouseX, mouseY = pressed, x, y
@@ -296,6 +309,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 			}
 			rotation := transport.next(t)
 			rotated := grab.Bounds()
+			rotatedSelection := grab.Selection()
 			rotatedSnapshot := displaySnapshot()
 			rotatedHash := hash(rotatedSnapshot)
 			// Verify the submitted or retained operation against the original
@@ -320,15 +334,24 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 					}
 				}
 				for _, source := range rotatedSnapshot.Tiles {
-					if !rotated.Contains(float32(source.Coord.X), float32(source.Coord.Y)) {
+					if !rotatedSelection.Contains(util.Point{X: source.Coord.X, Y: source.Coord.Y, Z: source.Coord.Z}) {
 						continue
 					}
 					destination := model.Coord{X: source.Coord.X + 1, Y: source.Coord.Y + 1, Z: source.Coord.Z}
+					expected := source.State
+					if scenario.rotateHeld {
+						destination.X = int(rotated.X1) + source.Coord.Y - int(rotated.Y1) + 1
+						destination.Y = int(rotated.Y1) + int(rotated.X2) - source.Coord.X + 1
+						expected = model.CloneTileState(source.State)
+						for i := range expected.Prefabs {
+							expected.Prefabs[i].Vars["dir"] = "1"
+						}
+					}
 					found := false
 					for _, tile := range recovered.Tiles {
 						if tile.Coord == destination {
 							found = true
-							if !tile.State.Equal(source.State) {
+							if !tile.State.Equal(expected) {
 								t.Fatal("move lost exact selected contents")
 							}
 						}
@@ -345,9 +368,17 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 				t.Fatal("mouse press did not start Grab")
 			}
 			frame(true, 2, 2)
+			expectedBounds := rotated.Plus(1, 1)
+			if scenario.rotateHeld {
+				imgui.CurrentIO().KeyPress(int(glfw.KeyE))
+				frame(true, 2, 2)
+				imgui.CurrentIO().KeyRelease(int(glfw.KeyE))
+				frame(true, 2, 2)
+				expectedBounds.X2, expectedBounds.Y2 = expectedBounds.X1+rotated.Y2-rotated.Y1, expectedBounds.Y1+rotated.X2-rotated.X1
+			}
 			previewBounds := grab.Bounds()
 			var previewHash string // Exact confirmed contents become known at dispatch.
-			if previewBounds != rotated.Plus(1, 1) || displayHash() != rotatedHash {
+			if previewBounds != expectedBounds || displayHash() != rotatedHash {
 				t.Fatal("mouse movement failed to move the pose without mutating map data")
 			}
 			outcome(rotation, scenario.rejectRotation)
@@ -385,7 +416,7 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if hash(snapshot) != wantHash || displayHash() != wantHash || grab.Bounds() != wantBounds {
+				if hash(snapshot) != wantHash || displayHash() != wantHash || grab.Bounds() != wantBounds || grab.Selection().Len() != selectionSize {
 					t.Fatalf("map/authority/selection mismatch: bounds %v want %v", grab.Bounds(), wantBounds)
 				}
 			}

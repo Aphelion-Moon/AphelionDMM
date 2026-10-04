@@ -20,7 +20,7 @@ func (h *HeldPrefab) SetSource(p *dmmprefab.Prefab) {
 	}
 }
 func (h *HeldPrefab) Value() *dmmprefab.Prefab { return h.value }
-func (h *HeldPrefab) Rotate(clockwise bool) error {
+func (h *HeldPrefab) Rotate(clockwise bool, lookup ...PrefabLookup) error {
 	if h.source == nil {
 		return fmt.Errorf("no held prefab")
 	}
@@ -31,7 +31,7 @@ func (h *HeldPrefab) Rotate(clockwise bool) error {
 	value := h.source
 	for n := uint8(0); n < turns; n++ {
 		var err error
-		value, err = rotatePrefab(value, true)
+		value, err = rotatePrefab(value, true, lookup...)
 		if err != nil {
 			return err
 		}

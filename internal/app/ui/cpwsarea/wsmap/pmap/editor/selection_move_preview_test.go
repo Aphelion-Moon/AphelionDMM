@@ -121,3 +121,73 @@ func TestSelectionMoveReleasesCaptureOnSetupFailure(t *testing.T) {
 		t.Fatal("failed preview setup retained its source or reservation")
 	}
 }
+
+func TestSelectionMoveRotationReleaseBeforeReadyAndCancel(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		t.Run(map[bool]string{false: "release", true: "cancel"}[cancel], func(t *testing.T) {
+			e := selectionEditor(t)
+			app := e.app.(*editorTestApp)
+			app.runLater = make(chan func(), 8)
+			previousArea, previousTurf := dmmap.BaseArea, dmmap.BaseTurf
+			dmmap.BaseArea, dmmap.BaseTurf = e.dmm.Tiles[0].Instances()[0].Prefab(), e.dmm.Tiles[0].Instances()[1].Prefab()
+			t.Cleanup(func() { dmmap.BaseArea, dmmap.BaseTurf = previousArea, previousTurf })
+			counted := &trackedSelectionCapture{countedLocalEdits: &countedLocalEdits{Local: e.executor.(*executor.Local)}}
+			e.executor = counted
+			before := e.dmm.Copy()
+			id := e.dmm.Tiles[0].Instances()[2].StableID()
+			move, err := e.BeginSelectionMovePreview(editing.RectangleSelection(util.Bounds{X1: 1, Y1: 1, X2: 1, Y2: 1}, 1))
+			if err != nil {
+				t.Fatal(err)
+			}
+			session := e.selectionMovePreview
+			for range 5 {
+				if _, err := e.RotateSelectionMovePreview(move, true); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !reflect.DeepEqual(before, e.dmm.Copy()) || e.authoritative.Revision != 0 {
+				t.Fatal("rotation preview mutated authority")
+			}
+			if err := e.FinishSelectionMovePreview(move, cancel); err != nil {
+				t.Fatal(err)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			for e.selectionMovePreview != nil || e.localWork != nil || e.editWorkBudget().Used() != 0 {
+				if time.Now().After(deadline) {
+					t.Fatal("rotation did not settle or release reservation")
+				}
+				e.ProcessPasteWork()
+				select {
+				case job := <-app.runLater:
+					job()
+				default:
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if counted.captures != 1 || counted.source.DocumentID() != "" {
+				t.Fatal("rotation recaptured or retained the source")
+			}
+			if cancel {
+				if !reflect.DeepEqual(before, e.dmm.Copy()) || app.commands.HasUndoV("test") {
+					t.Fatal("cancel changed map/history")
+				}
+				return
+			}
+			if session.sourcePayload == nil || session.payload == session.sourcePayload {
+				t.Fatal("rotation did not derive payload")
+			}
+			assertEditorDirection(t, e.dmm, "8")
+			if e.authoritative.Revision != 1 || e.dmm.Tiles[0].Instances()[2].StableID() != id {
+				t.Fatal("rotation lost single operation or identity")
+			}
+			app.commands.UndoV("test")
+			for e.localWork != nil {
+				app.runScheduled(t)
+			}
+			assertEditorDirection(t, e.dmm, "2")
+			if app.commands.HasUndoV("test") {
+				t.Fatal("rotation added more than one undo step")
+			}
+		})
+	}
+}

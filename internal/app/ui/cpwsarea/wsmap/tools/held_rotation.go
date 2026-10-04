@@ -20,13 +20,20 @@ func heldInteractionTool() Tool {
 
 // APHELION EDIT ADDITION END
 
+func rotationLookup() editing.PrefabLookup {
+	if owner, ok := ed.(interface{ RotationLookup() editing.PrefabLookup }); ok {
+		return owner.RotationLookup()
+	}
+	return nil
+}
+
 func CanRotateHeld() bool {
 	if ed == nil {
 		return false
 	}
 	tool := heldInteractionTool()
 	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if grab, ok := Selected().(*ToolGrab); ok && grab.Placing() {
-	if grab, ok := tool.(*ToolGrab); ok && grab.Placing() {
+	if grab, ok := tool.(*ToolGrab); ok && (grab.Placing() || grab.canRotateMove()) {
 		return true
 	}
 	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if move, ok := Selected().(*ToolMove); ok && !move.Stale() {
@@ -34,8 +41,10 @@ func CanRotateHeld() bool {
 		return true
 	}
 	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if add, ok := Selected().(*ToolAdd); ok {
-	if add, ok := tool.(*ToolAdd); ok {
-		_, exists := add.HeldPrefab()
+	if palette, ok := tool.(interface {
+		HeldPrefab() (*dmmprefab.Prefab, bool)
+	}); ok {
+		_, exists := palette.HeldPrefab()
 		return exists
 	}
 	return false
@@ -46,7 +55,10 @@ func RotateHeld(clockwise bool) error {
 	}
 	tool := heldInteractionTool()
 	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if grab, ok := Selected().(*ToolGrab); ok && grab.Placing() {
-	if grab, ok := tool.(*ToolGrab); ok && grab.Placing() {
+	if grab, ok := tool.(*ToolGrab); ok && (grab.Placing() || grab.canRotateMove()) {
+		if grab.canRotateMove() {
+			return grab.rotateMove(clockwise)
+		}
 		transform := editing.PlacementRotateLeft
 		if clockwise {
 			transform = editing.PlacementRotateRight
@@ -58,26 +70,80 @@ func RotateHeld(clockwise bool) error {
 		return move.rotateHeld(clockwise)
 	}
 	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if add, ok := Selected().(*ToolAdd); ok {
-	if add, ok := tool.(*ToolAdd); ok {
-		if _, exists := add.HeldPrefab(); exists {
-			if err := add.held.Rotate(clockwise); err != nil {
+	switch palette := tool.(type) {
+	case *ToolAdd:
+		if source, exists := palette.HeldPrefab(); exists {
+			if err := rotateHeldValue(&palette.held, source, clockwise); err != nil {
 				return err
 			}
-			add.showHeld()
+			if palette.shapeStroke != nil {
+				palette.shapePrefab = palette.held.Value()
+				palette.shapeContext.prefab = palette.shapePrefab
+				palette.shapeContext.Target = palette.shapePrefab.Path()
+			}
+			palette.showHeld()
 			return nil
+		}
+	case *ToolFill:
+		if source, exists := palette.HeldPrefab(); exists {
+			if err := rotateHeldValue(&palette.held, source, clockwise); err != nil {
+				return err
+			}
+			if palette.dragging {
+				palette.prefab = palette.held.Value()
+				palette.gestureContext.prefab = palette.prefab
+				palette.gestureContext.Target = palette.prefab.Path()
+			}
+			return nil
+		}
+	case *ToolReplace:
+		if source, exists := palette.HeldPrefab(); exists {
+			return rotateHeldValue(&palette.held, source, clockwise)
 		}
 	}
 	return fmt.Errorf("no held payload")
 }
-func (t *ToolAdd) HeldPrefab() (*dmmprefab.Prefab, bool) {
+func rotateHeldValue(held *editing.HeldPrefab, source *dmmprefab.Prefab, clockwise bool) error {
+	if held.Value() != source {
+		held.SetSource(source)
+	}
+	return held.Rotate(clockwise, rotationLookup())
+}
+
+func selectedHeldPrefab(held *editing.HeldPrefab) (*dmmprefab.Prefab, bool) {
 	p, ok := ed.SelectedPrefab()
 	if !ok {
-		t.held = editing.HeldPrefab{}
+		*held = editing.HeldPrefab{}
 		return nil, false
 	}
-	t.held.SetSource(p)
-	return t.held.Value(), true
+	held.SetSource(p)
+	return held.Value(), true
 }
+
+func (t *ToolAdd) HeldPrefab() (*dmmprefab.Prefab, bool) {
+	if t.shapeStroke != nil {
+		return t.shapePrefab, t.shapePrefab != nil && !t.shapeReleased
+	}
+	return selectedHeldPrefab(&t.held)
+}
+
+func (t *ToolFill) HeldPrefab() (*dmmprefab.Prefab, bool) {
+	if t.dragging {
+		return t.prefab, t.prefab != nil && !t.random
+	}
+	if owner, ok := ed.(randomFillOwner); ok {
+		if settings := owner.RandomFillSettings(); settings != nil && settings.RandomFill {
+			return nil, false
+		}
+	}
+	return selectedHeldPrefab(&t.held)
+}
+
+func (t *ToolReplace) HeldPrefab() (*dmmprefab.Prefab, bool) {
+	return selectedHeldPrefab(&t.held)
+}
+
+func (t *ToolReplace) OnDeselect() { t.held = editing.HeldPrefab{} }
 func (t *ToolAdd) showHeld() {
 	if owner, ok := ed.(interface {
 		PreviewHeldPrefab(*dmmprefab.Prefab, util.Point, bool)
@@ -111,7 +177,7 @@ func (t *ToolMove) rotateHeld(clockwise bool) error {
 	if !ed.TryBeginTileChange(t.instance.Coord()) {
 		return fmt.Errorf("unable to capture held instance")
 	}
-	if err := t.held.Rotate(clockwise); err != nil {
+	if err := t.held.Rotate(clockwise, rotationLookup()); err != nil {
 		return err
 	}
 	t.instance.SetPrefab(t.held.Value())

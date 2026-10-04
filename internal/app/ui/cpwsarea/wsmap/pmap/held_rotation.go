@@ -15,6 +15,10 @@ func (p *PaneMap) addHeldRotationShortcuts() {
 		clockwise bool
 	}{{"pmap#rotateHeldLeft", glfw.KeyQ, false}, {"pmap#rotateHeldRight", glfw.KeyE, true}} {
 		p.shortcuts.Add(shortcut.Shortcut{Name: binding.name, FirstKey: binding.key, IsEnabled: tools.CanRotateHeld, AllowWhenItemActive: func() bool { return tools.OwnsGesture(p.editor) }, Action: func() {
+			if p.canTransformSelection() {
+				p.rotateSelection(binding.clockwise)
+				return
+			}
 			if err := tools.RotateHeld(binding.clockwise); err != nil {
 				util.ShowErrorDialog(err.Error())
 			}

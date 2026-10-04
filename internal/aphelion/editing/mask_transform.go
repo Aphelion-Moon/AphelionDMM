@@ -73,7 +73,7 @@ func TransformSelection(m *dmmap.Dmm, selection Selection, destination func(util
 	return result, nil
 }
 
-func RotateMask(m *dmmap.Dmm, s Selection, clockwise bool, visible func(string) bool) (Transform, error) {
+func RotateMask(m *dmmap.Dmm, s Selection, clockwise bool, visible func(string) bool, lookup ...PrefabLookup) (Transform, error) {
 	a := s.Bounds()
 	w, h := int(a.X2-a.X1+1), int(a.Y2-a.Y1+1)
 	return TransformSelection(m, s, func(p util.Point) util.Point {
@@ -83,7 +83,7 @@ func RotateMask(m *dmmap.Dmm, s Selection, clockwise bool, visible func(string) 
 			dx, dy = h-1-y, x
 		}
 		return util.Point{X: int(a.X1) + dx, Y: int(a.Y1) + dy, Z: p.Z}
-	}, func(p *dmmprefab.Prefab) (*dmmprefab.Prefab, error) { return rotatePrefab(p, clockwise) }, visible)
+	}, func(p *dmmprefab.Prefab) (*dmmprefab.Prefab, error) { return rotatePrefab(p, clockwise, lookup...) }, visible)
 }
 func MirrorMask(m *dmmap.Dmm, s Selection, axis MirrorAxis, visible func(string) bool) (Transform, error) {
 	if axis != MirrorHorizontal && axis != MirrorVertical {

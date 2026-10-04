@@ -131,7 +131,7 @@ func TestStampRoundTripPreviewAndHistory(t *testing.T) {
 	if !reflect.DeepEqual(beforeDisplay, e.Dmm().Copy()) || resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) {
 		t.Fatal("stamp preview mutated committed map state")
 	}
-	pressSelectionShortcut(glfw.KeyRightBracket)
+	pressSelectionShortcut(glfw.KeyE)
 	settlePastePreview(t, ws, app)
 	if !reflect.DeepEqual(beforeDisplay, e.Dmm().Copy()) || resizeHash(t, resizeSnapshot(t, e)) != resizeHash(t, before) {
 		t.Fatal("stamp transform mutated committed map state")

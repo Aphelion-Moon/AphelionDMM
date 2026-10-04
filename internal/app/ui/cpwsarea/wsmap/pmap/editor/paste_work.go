@@ -346,6 +346,7 @@ func (e *Editor) startPasteWorker(p *pasteSession) {
 	source, visible, factory, reservation := p.source, p.visible, p.sourceFactory, p.reservation
 	viewFilter := p.viewFilter.Copy()
 	orientation, request, first := p.orientation, p.request, !p.sourcePrepared
+	lookup := e.RotationLookup()
 	releaseSource := p.releaseSource
 	p.releaseSource = nil
 	budget := e.editWorkBudget()
@@ -400,7 +401,7 @@ func (e *Editor) startPasteWorker(p *pasteSession) {
 			}
 			r.source, r.visible = source, visible
 		}
-		transformed, err := orientation.Prepare(ctx, source)
+		transformed, err := orientation.Prepare(ctx, source, lookup)
 		if err != nil {
 			r.err = err
 			return

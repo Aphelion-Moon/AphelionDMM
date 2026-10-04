@@ -46,6 +46,9 @@ func EstimateMovePayloadMemory(payload *MovePayload) uint64 {
 			}
 		}
 	}
+	for _, tile := range payload.destination {
+		bytes = saturatingAdd(bytes, EstimateMoveTileMemory(tile.state))
+	}
 	return saturatingMul(bytes, 4)
 }
 

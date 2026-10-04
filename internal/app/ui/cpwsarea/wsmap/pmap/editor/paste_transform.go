@@ -18,7 +18,7 @@ func (e *Editor) TransformPastePlacement(move *editing.Move, transform editing.P
 	if e.collaborationErr != nil {
 		return move.Bounds(), e.collaborationErr
 	}
-	coords, err := move.TransformPlacement(transform, shift)
+	coords, err := move.TransformPlacement(transform, shift, e.RotationLookup())
 	if err != nil {
 		return move.Bounds(), err
 	}

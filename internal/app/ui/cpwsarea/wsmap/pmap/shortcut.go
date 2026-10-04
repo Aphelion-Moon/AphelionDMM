@@ -36,8 +36,8 @@ func (p *PaneMap) addShortcuts() {
 	} {
 		p.shortcuts.Add(shortcut.Shortcut{Name: "pmap#" + binding.name, FirstKey: binding.key, FirstKeyAlt: binding.alternate, Action: func() { tools.SetSelected(binding.tool) }})
 	}
-	p.shortcuts.Add(shortcut.Shortcut{Name: "pmap#rotateLeft", FirstKey: glfw.KeyLeftBracket, Action: func() { p.rotateSelection(false) }, IsEnabled: p.canTransformSelection})
-	p.shortcuts.Add(shortcut.Shortcut{Name: "pmap#rotateRight", FirstKey: glfw.KeyRightBracket, Action: func() { p.rotateSelection(true) }, IsEnabled: p.canTransformSelection})
+	p.shortcuts.Add(shortcut.Shortcut{Name: "pmap#rotateLeft", FirstKey: glfw.KeyQ, Action: func() { p.rotateSelection(false) }, IsEnabled: p.canTransformSelection})
+	p.shortcuts.Add(shortcut.Shortcut{Name: "pmap#rotateRight", FirstKey: glfw.KeyE, Action: func() { p.rotateSelection(true) }, IsEnabled: p.canTransformSelection})
 	p.shortcuts.Add(shortcut.Shortcut{Name: "pmap#doDeselectAll", FirstKey: glfw.KeyEscape, Action: p.DoDeselect})
 	// Shift+= produces + on keyboards where the existing = binding needs Shift.
 	p.shortcuts.Add(shortcut.Shortcut{Name: "pmap#doZoomIn", FirstKey: glfw.KeyLeftShift, FirstKeyAlt: glfw.KeyRightShift, SecondKey: glfw.KeyEqual, Action: p.doZoomIn})
