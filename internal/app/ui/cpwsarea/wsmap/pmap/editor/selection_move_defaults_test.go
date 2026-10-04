@@ -55,3 +55,28 @@ func TestMoveSourceDefaultsRespectHiddenFamiliesAndOverlap(t *testing.T) {
 		})
 	}
 }
+
+func TestPresentationBuildUsesBudgetAndResumesAtExactSprite(t *testing.T) {
+	counts := []int{0, 700, 3}
+	prepared := 0
+	build := &presentationBuild{
+		presentation: &render.Presentation{}, tileCount: len(counts),
+		instanceCount: func(tile int) int { return counts[tile] },
+		appearance: func(tile, instance int) render.Appearance {
+			if tile == 1 && instance != prepared || tile == 2 && instance != prepared-700 {
+				t.Fatalf("lost preparation position: tile=%d instance=%d prepared=%d", tile, instance, prepared)
+			}
+			prepared++
+			return render.Appearance{Layer: float32(tile), Coord: util.Point{X: instance, Y: tile}}
+		},
+	}
+	if build.advance(func() bool { return prepared >= 513 }) {
+		t.Fatal("unfinished presentation reported ready")
+	}
+	if prepared != 513 || build.presentation.Ready {
+		t.Fatalf("unused preparation budget: prepared=%d ready=%t", prepared, build.presentation.Ready)
+	}
+	if !build.advance(func() bool { return false }) || !build.presentation.Ready || prepared != 703 {
+		t.Fatalf("resumed preparation lost sprites or readiness: prepared=%d ready=%t", prepared, build.presentation.Ready)
+	}
+}

@@ -20,10 +20,7 @@ import (
 	"sdmm/internal/util"
 )
 
-const (
-	pasteUIChunkTiles = 384
-	pasteUIChunkTime  = 2 * time.Millisecond
-)
+const pasteUIChunkTime = 2 * time.Millisecond
 
 type pastePhase uint8
 
@@ -485,7 +482,12 @@ func (e *Editor) preparePresentationBuild(build *presentationBuild) bool {
 		build.finished = true
 		return true
 	}
-	started, count := time.Now(), 0
+	// Cheap cached sprites can use the full frame budget to finish preview startup sooner.
+	started := time.Now()
+	return build.advance(func() bool { return time.Since(started) >= pasteUIChunkTime })
+}
+
+func (build *presentationBuild) advance(shouldYield func() bool) bool {
 	for build.tile < build.tileCount {
 		instances := build.instanceCount(build.tile)
 		if build.instance >= instances {
@@ -495,8 +497,7 @@ func (e *Editor) preparePresentationBuild(build *presentationBuild) bool {
 		}
 		build.presentation.Add(build.appearance(build.tile, build.instance))
 		build.instance++
-		count++
-		if count >= pasteUIChunkTiles || time.Since(started) >= pasteUIChunkTime {
+		if shouldYield() {
 			return false
 		}
 	}
