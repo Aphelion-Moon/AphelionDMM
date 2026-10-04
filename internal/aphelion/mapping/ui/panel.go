@@ -75,6 +75,16 @@ type result struct {
 	connectors          [2]int
 }
 
+// displayMap shares immutable CPU display data only within this result's lifetime.
+// Each canvas still owns its geometry; the source catalog owns the display lease.
+func (r *result) displayMap(ctx context.Context, source *mapping.Source) (*dmmap.Dmm, error) {
+	for i, existing := range r.sources {
+		if existing == source && r.displays[i] != nil {
+			return r.displays[i], nil
+		}
+	}
+	return source.DisplayMap(ctx)
+}
 func (r *result) close() {
 	r.advisory.Close()
 	r.projection.Close()
@@ -466,7 +476,7 @@ func (p *Panel) advance() {
 				if out.err != nil {
 					break
 				}
-				out.displays[i], out.err = out.sources[i].DisplayMap(ctx)
+				out.displays[i], out.err = out.displayMap(ctx, out.sources[i])
 				if out.err != nil {
 					break
 				}
@@ -530,7 +540,7 @@ func (p *Panel) advance() {
 					if size.X*size.Y > 65536 {
 						err = fmt.Errorf("thumbnail exceeds 65536-cell limit; use the full reference view")
 					} else {
-						out.thumbnailDisplay, err = out.thumbnailSource.DisplayMap(ctx)
+						out.thumbnailDisplay, err = out.displayMap(ctx, out.thumbnailSource)
 					}
 				}
 				if err != nil {

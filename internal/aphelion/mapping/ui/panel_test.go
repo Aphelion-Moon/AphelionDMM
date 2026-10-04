@@ -1,8 +1,11 @@
 package mappingui
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/SpaiR/imgui-go"
@@ -80,5 +83,43 @@ func TestEnvironmentReplacementRejectsOldSelectionsAndQueuedSources(t *testing.T
 	p.advance()
 	if p.pending != nil || len(p.choices) != 0 || len(p.fixedChoices) != 0 {
 		t.Fatal("old project state survived replacement")
+	}
+}
+
+func TestReferenceThumbnailReusesRequestDisplay(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"parent.dmm", "reference.dmm"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte("\"a\" = (/turf/a,/area/a)\n(1,1,1) = {\"\na\n\"}\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	app := &fixtureApp{env: &dmenv.Dme{RootDir: root}}
+	p := New(app)
+	p.open, p.environment = true, app.env
+	defer p.Invalidate()
+	for _, reference := range []string{"parent.dmm", "reference.dmm"} {
+		p.pending = &request{environment: app.env, parent: "parent.dmm", reference: reference, thumbnail: true}
+		p.advance()
+		select {
+		case completed := <-p.results:
+			p.results = nil
+			p.cancel()
+			if completed.err != nil {
+				completed.close()
+				t.Fatal(completed.err)
+			}
+			if completed.thumbnailDisplay == nil || completed.thumbnailDisplay != completed.displays[1] {
+				completed.close()
+				t.Fatal("thumbnail duplicated its request's reference display")
+			}
+			same := reference == "parent.dmm"
+			if (completed.displays[0] == completed.displays[1]) != same {
+				completed.close()
+				t.Fatal("display reuse did not follow source identity")
+			}
+			completed.close()
+		case <-time.After(5 * time.Second):
+			t.Fatal("reference request did not complete")
+		}
 	}
 }
