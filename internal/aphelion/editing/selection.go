@@ -87,13 +87,13 @@ func (s Selection) Contains(p util.Point) bool {
 			return false
 		}
 		p = p.Minus(s.offset)
-		i := sort.Search(len(s.runs), func(i int) bool { return s.runs[i].X1 >= float32(p.X) })
-		for ; i < len(s.runs) && s.runs[i].X1 == float32(p.X); i++ {
-			if s.runs[i].Contains(float32(p.X), float32(p.Y)) {
-				return true
-			}
-		}
-		return false
+		x, y := float32(p.X), float32(p.Y)
+		// Canonical runs are disjoint and sorted by column then Y. Search the
+		// interval end too, so fragmented columns do not require a linear scan.
+		i := sort.Search(len(s.runs), func(i int) bool {
+			return s.runs[i].X1 > x || s.runs[i].X1 == x && s.runs[i].Y2 >= y
+		})
+		return i < len(s.runs) && s.runs[i].X1 == x && s.runs[i].Y1 <= y
 	}
 	if s.Sparse() {
 		_, ok := s.members[p.Minus(s.offset)]
@@ -158,31 +158,11 @@ func (s Selection) Rotate(clockwise bool) Selection {
 		area.Y2 = area.Y1 + float32(w) - 1
 		return RectangleSelection(area, s.z)
 	}
-	points := s.Coordinates()
-	for i, p := range points {
-		x, y := p.X-int(area.X1), p.Y-int(area.Y1)
-		dx, dy := y, w-1-x
-		if !clockwise {
-			dx, dy = h-1-y, x
-		}
-		points[i] = util.Point{X: int(area.X1) + dx, Y: int(area.Y1) + dy, Z: s.z}
-	}
-	out, _ := MaskSelection(points)
-	return out
+	return rotateSelectionSpans(s, clockwise)
 }
 func (s Selection) Mirror(axis MirrorAxis) Selection {
 	if !s.Sparse() {
 		return s
 	}
-	points := s.Coordinates()
-	for i, p := range points {
-		if axis == MirrorHorizontal {
-			p.X = int(s.area.X1+s.area.X2) - p.X
-		} else {
-			p.Y = int(s.area.Y1+s.area.Y2) - p.Y
-		}
-		points[i] = p
-	}
-	out, _ := MaskSelection(points)
-	return out
+	return mirrorSelectionSpans(s, axis)
 }
