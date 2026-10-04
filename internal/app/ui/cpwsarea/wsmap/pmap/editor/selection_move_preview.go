@@ -552,31 +552,46 @@ func (e *Editor) submitSelectionMovePreview(session *selectionMoveSession) error
 			var projection client.ProjectionCapture
 			projection, err = capturer.CaptureProjection(context.Background())
 			if err == nil {
-				need := saturatingMoveBytes(editing.EstimateMovePayloadMemory(payload), projection.EstimatedBytes())
-				err = session.reservation.Resize(need)
-			}
-			var visibleSnapshot model.Snapshot
-			if err == nil {
-				visibleSnapshot, err = projection.VisibleSnapshot()
-			}
-			if err == nil {
-				lookup := snapshotTile(visibleSnapshot)
-				if session.pendingAtStart && projection.BaseRevision() == session.revision && payload.ValidateSource(visible, lookup) != nil {
-					// A rejected dependency invalidated the speculative source. Retain
-					// the exact original draft, including destinations changed by that
-					// dependency, so its before-states remain reconstructable in order.
-					need := saturatingMoveBytes(editing.EstimateMovePayloadMemory(payload), projection.EstimatedBytes())
-					err = session.reservation.Resize(saturatingMoveBytes(need, session.sourceProjection.EstimatedBytes()))
-					if err == nil {
-						var original model.Snapshot
-						original, err = session.sourceProjection.VisibleSnapshot()
-						if err == nil {
-							lookup = snapshotTile(original)
+				needed := editing.EstimateMovePayloadMemory(payload)
+				var readErr error
+				lookupFor := func(capture client.ProjectionCapture) func(model.Coord) (model.TileState, bool) {
+					tiles := make(map[model.Coord]model.TileState)
+					return func(coord model.Coord) (model.TileState, bool) {
+						if state, exists := tiles[coord]; exists {
+							return state, true
 						}
+						if readErr != nil {
+							return model.TileState{}, false
+						}
+						size, exists := capture.EstimatedVisibleTileBytes(coord)
+						if !exists {
+							return model.TileState{}, false
+						}
+						needed = saturatingMoveBytes(needed, 128)
+						for range 4 {
+							needed = saturatingMoveBytes(needed, size)
+						}
+						if readErr = session.reservation.Resize(needed); readErr != nil {
+							return model.TileState{}, false
+						}
+						state, exists := capture.VisibleTile(coord)
+						if exists {
+							tiles[coord] = state
+						}
+						return state, exists
 					}
 				}
-				if err == nil {
+				lookup := lookupFor(projection)
+				if session.pendingAtStart && projection.BaseRevision() == session.revision && payload.ValidateSource(visible, lookup) != nil && readErr == nil {
+					// A rejected dependency must retain its original before-states,
+					// including destinations from the pinned speculative source.
+					lookup = lookupFor(session.sourceProjection)
+				}
+				if readErr == nil {
 					changes, err = payload.BuildMoveChangesWithDefaults(context.Background(), shift, visible, lookup, session.defaults)
+				}
+				if readErr != nil {
+					err = readErr
 				}
 			}
 			if err == nil {
@@ -603,8 +618,8 @@ func (e *Editor) submitSelectionMovePreview(session *selectionMoveSession) error
 			return
 		}
 		if err == nil {
-			// Whole-projection scratch is no longer needed once the sparse
-			// operation is prepared. Keep admission for its retained copies only.
+			// Sparse source scratch is no longer needed after preparation.
+			// Keep admission for the retained operation copies.
 			need := editing.EstimateMovePayloadMemory(payload)
 			for _, change := range changes {
 				bytes := saturatingMoveBytes(editing.EstimateMoveTileMemory(change.Before), editing.EstimateMoveTileMemory(change.After))

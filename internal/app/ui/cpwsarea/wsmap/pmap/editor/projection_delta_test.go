@@ -11,6 +11,8 @@ import (
 	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
+	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmvars"
@@ -199,5 +201,60 @@ func TestNetworkSpeculationDoesNotMaterializeMissingAuthority(t *testing.T) {
 	}
 	if _, exists := e.authoritativeTiles[missing]; exists {
 		t.Fatal("rejection materialized missing authority")
+	}
+}
+
+func TestNetworkGrabCommitUsesSelectedTileBudget(t *testing.T) {
+	e, network, document, transport := deltaEditor(t)
+	application := e.app.(*editorTestApp)
+	application.runLater = make(chan func(), 8)
+	e.workBudget = resources.NewFixedBudget(5 << 20)
+	area, turf := dmmap.BaseArea, dmmap.BaseTurf
+	dmmap.BaseArea, dmmap.BaseTurf = e.dmm.Tiles[0].Instances()[0].Prefab(), e.dmm.Tiles[0].Instances()[1].Prefab()
+	t.Cleanup(func() {
+		network.Suspend(fmt.Errorf("test finished"))
+		e.CancelSelectionMovePreview()
+		dmmap.BaseArea, dmmap.BaseTurf = area, turf
+	})
+	move, err := e.BeginSelectionMovePreview(editing.RectangleSelection(util.Bounds{X1: 1, Y1: 1, X2: 1, Y2: 1}, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for e.selectionMovePreview.preparing && time.Now().Before(deadline) {
+		e.ProcessPasteWork()
+		time.Sleep(time.Millisecond)
+	}
+	if e.selectionMovePreview.preparing || e.selectionMovePreview.err != nil {
+		t.Fatalf("prepare move: %v", e.selectionMovePreview.err)
+	}
+	if _, err := e.PreviewSelectionMovePreview(move, util.Point{X: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.FinishSelectionMovePreview(move, false); err != nil {
+		t.Fatal(err)
+	}
+	application.runScheduled(t)
+	envelope := transport.next(t)
+	decoded, err := protocol.DecodeClient(mustEditorJSON(t, envelope))
+	if err != nil {
+		t.Fatal(err)
+	}
+	operation := decoded.Payload.(*protocol.OperationSubmitPayload).Operation
+	accepted, err := document.Apply(operation, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, err := document.Metadata()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := network.Receive(protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "grab-accepted", SessionID: "delta-session", Type: protocol.ServerOperationAccepted, Payload: mustEditorJSON(t, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: metadata.MapHash})}); err != nil {
+		t.Fatal(err)
+	}
+	application.runScheduled(t)
+	e.ProcessCollaborationUpdates()
+	if e.workBudget.Used() != 0 || e.authoritative.Revision != 1 {
+		t.Fatalf("accepted move retained work or missed display: bytes=%d revision=%d", e.workBudget.Used(), e.authoritative.Revision)
 	}
 }
