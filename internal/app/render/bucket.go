@@ -80,9 +80,9 @@ func (r *Render) batchLevel(pass *brush.DrawPass, level int, viewBounds util.Bou
 			}
 
 			// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
-			// Ghost suppression changes base membership. A selected unit changes
-			// painter order only in its own chunk-layer, so keep other layers retained.
-			if cacheable && ghost == nil && !r.retainedChunkLayerHasHighlight(chunk, layer, policyRevision, highlightedUnits, viewBounds) {
+			// Suppressed chunks and highlighted chunk-layers need the stream path.
+			// A conservative preview bound keeps unaffected committed chunks retained.
+			if cacheable && (ghost == nil || ghost.MaySuppress != nil && !ghost.MaySuppress(chunk.MapBounds)) && !r.retainedChunkLayerHasHighlight(chunk, layer, policyRevision, highlightedUnits, viewBounds) {
 				if r.drawRetainedChunkLayer(pass, chunk, layer, policyRevision) {
 					continue
 				}

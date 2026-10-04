@@ -38,8 +38,11 @@ type Presentation struct {
 	groups     map[float32][]*appearanceGroup
 	groupIndex map[appearanceGroupKey]*appearanceGroup
 	Suppress   func(unit.Unit) bool
-	Visible    func(Appearance) bool
-	Ready      bool
+	// MaySuppress conservatively bounds Suppress using one-based map tile bounds.
+	// Nil keeps the stream fallback. Returning false must exclude every unit in the bounds.
+	MaySuppress func(util.Bounds) bool
+	Visible     func(Appearance) bool
+	Ready       bool
 }
 
 type appearanceGroupKey struct {

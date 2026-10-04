@@ -6,6 +6,7 @@ import (
 
 	"github.com/SpaiR/imgui-go"
 	"sdmm/internal/app/render"
+	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
@@ -151,5 +152,61 @@ func BenchmarkRetainedHighlightFrame(b *testing.B) {
 				c.Process(size)
 			}
 		})
+	}
+}
+
+func TestRetainedMovePreviewReusesOnlyUnaffectedChunks(t *testing.T) {
+	c, instances, size := warmRetainedHighlightCanvas(t)
+	r := c.Render()
+	baseline := c.ReadPixels()
+	source := instances[0].Coord()
+	sourceBounds := util.Bounds{X1: float32(source.X), Y1: float32(source.Y), X2: float32(source.X), Y2: float32(source.Y)}
+	ghost := &render.Presentation{Anchor: util.Point{X: 2, Y: 1, Z: 1}, IconSize: 32}
+	appearance := render.PrepareAppearance(util.Point{X: 1, Y: 1, Z: 1}, instances[0], 32)
+	appearance.R, appearance.G, appearance.B, appearance.A = 0, 1, 0, 0.5
+	ghost.Add(appearance)
+	ghost.Finish()
+	destinationBounds := func() util.Bounds {
+		return sourceBounds.Plus(float32(ghost.Anchor.X-source.X), float32(ghost.Anchor.Y-source.Y))
+	}
+	ghost.Suppress = func(u unit.Unit) bool {
+		coord := u.Instance().Coord()
+		return sourceBounds.Contains(float32(coord.X), float32(coord.Y)) || destinationBounds().Contains(float32(coord.X), float32(coord.Y))
+	}
+	maySuppress := func(bounds util.Bounds) bool {
+		return bounds.ContainsV(sourceBounds) || bounds.ContainsV(destinationBounds())
+	}
+	r.SetPresentation(ghost)
+	for _, tc := range []struct {
+		x, width int
+		wantHit  bool
+	}{{2, 1, true}, {26, 1, false}, {2, 25, false}, {2, 1, true}} {
+		x := tc.x
+		ghost.Anchor.X = x
+		sourceBounds.X2 = sourceBounds.X1 + float32(tc.width-1)
+		ghost.MaySuppress = nil // The existing stream renderer is the pixel oracle.
+		c.Process(size)
+		want := c.ReadPixels()
+		before := r.RetainedCacheStats()
+		ghost.MaySuppress = maySuppress
+		c.Process(size)
+		if !bytes.Equal(c.ReadPixels(), want) {
+			t.Fatalf("move to x=%d changed suppression or painter order", x)
+		}
+		after := r.RetainedCacheStats()
+		if after.Builds != before.Builds || after.UploadBytes != before.UploadBytes {
+			t.Fatal("moving preview rebuilt committed submissions")
+		}
+		if tc.wantHit && after.Hits <= before.Hits {
+			t.Fatal("moving preview disabled unaffected chunks")
+		}
+		if !tc.wantHit && after.Hits != before.Hits {
+			t.Fatal("source/destination chunk reused unsuppressed geometry")
+		}
+	}
+	r.SetPresentation(nil)
+	c.Process(size)
+	if !bytes.Equal(c.ReadPixels(), baseline) {
+		t.Fatal("ending preview changed committed pixels")
 	}
 }

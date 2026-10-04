@@ -367,6 +367,11 @@ func (e *Editor) prepareSelectionMovePresentation(session *selectionMoveSession)
 	}
 	anchor := session.pose.Bounds()
 	presentation := &render.Presentation{Anchor: util.Point{X: int(anchor.X1), Y: int(anchor.Y1), Z: session.pose.Level()}, IconSize: dmmap.WorldIconSize}
+	sourceBounds := session.selection.Bounds()
+	presentation.MaySuppress = func(bounds util.Bounds) bool {
+		// ContainsV tests inclusive overlap, including selections crossing chunk edges.
+		return bounds.ContainsV(sourceBounds) || bounds.ContainsV(session.pose.Bounds())
+	}
 	presentation.Suppress = func(u unit.Unit) bool {
 		instance := u.Instance()
 		return session.visible(instance.Prefab().Path()) && session.payload.Suppresses(instance.Coord(), session.pose.Shift())

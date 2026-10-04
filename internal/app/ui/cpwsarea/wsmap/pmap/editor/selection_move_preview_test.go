@@ -47,11 +47,18 @@ func TestSelectionMovePresentationCancelThenEdit(t *testing.T) {
 		t.Fatal(e.selectionMovePreview.err)
 	}
 	payload, presentation := e.selectionMovePreview.payload, e.selectionMovePreview.presentation
+	if presentation == nil || presentation.MaySuppress == nil {
+		t.Fatal("selection preview has no bounded suppression hint")
+	}
 	for i := 0; i < 100; i++ {
 		if _, err := e.PreviewSelectionMovePreview(move, util.Point{X: i % 2}); err != nil {
 			t.Fatal(err)
 		}
 		e.ProcessPasteWork()
+		sourceBounds := util.Bounds{X1: 1, Y1: 1, X2: 1, Y2: 1}
+		if !presentation.MaySuppress(sourceBounds) || !presentation.MaySuppress(move.Bounds()) || presentation.MaySuppress(util.Bounds{X1: 3, Y1: 1, X2: 24, Y2: 24}) {
+			t.Fatal("selection suppression bounds lost the source, moving destination, or unaffected chunk")
+		}
 	}
 	if !reflect.DeepEqual(before, e.dmm.Copy()) || len(e.pendingChanges) != 0 || counted.snapshots != 0 || counted.wireEdits != 0 {
 		t.Fatal("move presentation entered map mutation, capture, or protocol work")
