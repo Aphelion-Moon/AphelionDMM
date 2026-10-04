@@ -23,24 +23,28 @@ type unitProcessor interface {
 	ProcessUnit(unit.Unit) (visible bool)
 }
 
-func (r *Render) batchBucketUnits(viewBounds util.Bounds) {
+// APHELION EDIT CHANGE - SHARED BRUSH PASS - ORIGINAL: func (r *Render) batchBucketUnits(viewBounds util.Bounds) {
+func (r *Render) batchBucketUnits(pass *brush.DrawPass, viewBounds util.Bounds) {
 	if MultiZRendering && r.Camera.Level > 1 {
 		for level := 1; level < r.Camera.Level; level++ {
-			r.batchLevel(level, viewBounds, false) // Draw everything below.
+			// APHELION EDIT CHANGE - SHARED BRUSH PASS - ORIGINAL: r.batchLevel(level, viewBounds, false) // Draw everything below.
+			r.batchLevel(pass, level, viewBounds, false) // Draw everything below.
 		}
 
 		// Draw a "shadow" overlay to visually separate different levels.
 		brush.RectFilled(viewBounds.X1, viewBounds.Y1, viewBounds.X2, viewBounds.Y2, multiZShadow)
 	}
 
-	r.batchLevel(r.Camera.Level, viewBounds, true) // Draw currently visible level.
+	// APHELION EDIT CHANGE - SHARED BRUSH PASS - ORIGINAL: r.batchLevel(r.Camera.Level, viewBounds, true) // Draw currently visible level.
+	r.batchLevel(pass, r.Camera.Level, viewBounds, true) // Draw currently visible level.
 
 	if r.overlay != nil {
 		r.overlay.FlushUnits()
 	}
 }
 
-func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight bool) {
+// APHELION EDIT CHANGE - SHARED BRUSH PASS - ORIGINAL: func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight bool) {
+func (r *Render) batchLevel(pass *brush.DrawPass, level int, viewBounds util.Bounds, withUnitHighlight bool) {
 	visibleLevel := r.bucket.Level(level)
 	if visibleLevel == nil {
 		return
@@ -79,7 +83,7 @@ func (r *Render) batchLevel(level int, viewBounds util.Bounds, withUnitHighlight
 			// Ghost suppression changes base membership. A selected unit changes
 			// painter order only in its own chunk-layer, so keep other layers retained.
 			if cacheable && ghost == nil && !r.retainedChunkLayerHasHighlight(chunk, layer, policyRevision, highlightedUnits, viewBounds) {
-				if r.drawRetainedChunkLayer(chunk, layer, policyRevision) {
+				if r.drawRetainedChunkLayer(pass, chunk, layer, policyRevision) {
 					continue
 				}
 			}
@@ -182,7 +186,7 @@ func (r *Render) retainedChunkLayerHasHighlight(c *chunk.Chunk, layer float32, p
 	return false
 }
 
-func (r *Render) drawRetainedChunkLayer(c *chunk.Chunk, layer float32, policyRevision uint64) bool {
+func (r *Render) drawRetainedChunkLayer(pass *brush.DrawPass, c *chunk.Chunk, layer float32, policyRevision uint64) bool {
 	if r.retained == nil {
 		r.retained = rendercache.New()
 	}
@@ -194,7 +198,7 @@ func (r *Render) drawRetainedChunkLayer(c *chunk.Chunk, layer float32, policyRev
 		return false
 	}
 	if entry != nil && entry.Submission != nil {
-		entry.Submission.Draw(r.viewportWidth, r.viewportHeight, r.Camera.ShiftX, r.Camera.ShiftY, r.Camera.Scale)
+		pass.DrawSubmission(entry.Submission)
 	}
 	return true
 }

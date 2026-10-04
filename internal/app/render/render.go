@@ -149,12 +149,20 @@ func (r *Render) prepare() {
 }
 
 func (r *Render) draw(width, height float32) {
-	r.batchBucketUnits(r.viewportBounds(width, height))
+	// APHELION EDIT ADDITION START - SHARED BRUSH PASS
+	// Unit/overlay callbacks only inspect or queue CPU data while this pass owns
+	// brush GL state. Retained uploads run separately in the visual scheduler.
+	pass := brush.NewDrawPass(width, height, r.Camera.ShiftX, r.Camera.ShiftY, r.Camera.Scale)
+	defer pass.End()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - SHARED BRUSH PASS - ORIGINAL: r.batchBucketUnits(r.viewportBounds(width, height))
+	r.batchBucketUnits(&pass, r.viewportBounds(width, height))
 	//r.batchChunksVisuals()
 	// APHELION EDIT CHANGE - BORDER CULLING - ORIGINAL: r.batchOverlayAreasBorders()
 	r.batchOverlayAreasBorders(r.viewportBounds(width, height))
 	r.batchOverlayAreas()
-	brush.Draw(width, height, r.Camera.ShiftX, r.Camera.ShiftY, r.Camera.Scale)
+	// APHELION EDIT CHANGE - SHARED BRUSH PASS - ORIGINAL: brush.Draw(width, height, r.Camera.ShiftX, r.Camera.ShiftY, r.Camera.Scale)
+	pass.Flush()
 }
 
 // Clean OpenGL state after rendering.

@@ -116,20 +116,84 @@ func (s *Submission) Dispose() {
 
 // Draw flushes earlier stream geometry to preserve painter order.
 func (s *Submission) Draw(w, h, x, y, z float32) {
+	pass := NewDrawPass(w, h, x, y, z)
+	defer pass.End()
+	pass.DrawSubmission(s)
+}
+
+// APHELION EDIT ADDITION END - RETAINED SUBMISSIONS
+
+// APHELION EDIT ADDITION START - SHARED BRUSH PASS
+// DrawPass shares shader and material setup for one camera. Between its first
+// draw and End, callers may queue primitives but must not change GL state, capture
+// or dispose submissions, or invoke another draw pass. Flush any trailing stream
+// geometry before End; an unused pass leaves GL state and queued geometry intact.
+type DrawPass struct {
+	width, height, shiftX, shiftY, scale float32
+	bound                                bool
+	hasTexture                           int32
+	texture                              uint32
+}
+
+func NewDrawPass(w, h, x, y, z float32) DrawPass {
+	return DrawPass{width: w, height: h, shiftX: x, shiftY: y, scale: z}
+}
+
+func (p *DrawPass) bind() {
+	if p.bound {
+		return
+	}
+	gl.UseProgram(program)
+	mtxTransform := transformationMatrix(p.width, p.height, p.shiftX, p.shiftY, p.scale)
+	gl.UniformMatrix4fv(uniformLocationTransform, 1, false, &mtxTransform[0])
+	p.bound = true
+	// Uniforms and texture bindings can belong to an earlier pass or renderer.
+	p.hasTexture, p.texture = -1, 0
+}
+
+// DrawSubmission flushes earlier stream geometry to preserve painter order.
+func (p *DrawPass) DrawSubmission(s *Submission) {
 	if s == nil || s.vao == 0 || len(s.calls) == 0 {
 		return
 	}
-	Draw(w, h, x, y, z)
-	gl.UseProgram(program)
+	p.Flush()
+	p.bind()
 	gl.BindVertexArray(s.vao)
-	mtxTransform := transformationMatrix(w, h, x, y, z)
-	gl.UniformMatrix4fv(uniformLocationTransform, 1, false, &mtxTransform[0])
-	for _, c := range s.calls {
+	p.drawCalls(s.calls)
+}
+
+// Flush draws and clears the queued stream geometry without ending the pass.
+func (p *DrawPass) Flush() {
+	batching.flush()
+	if len(batching.data) == 0 {
+		return
+	}
+	p.bind()
+	gl.BindVertexArray(vao)
+	gl.BindBuffer(gl.ARRAY_BUFFER, vbo)
+	gl.BufferData(gl.ARRAY_BUFFER, len(batching.data)*platform.FloatSize, gl.Ptr(batching.data), gl.STREAM_DRAW)
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, ebo)
+	gl.BufferData(gl.ELEMENT_ARRAY_BUFFER, len(batching.indices)*platform.FloatSize, gl.Ptr(batching.indices), gl.STREAM_DRAW)
+	p.drawCalls(batching.calls)
+	// Detach only from the stream VAO: retained VAOs keep their index buffers.
+	gl.BindBuffer(gl.ELEMENT_ARRAY_BUFFER, 0)
+	gl.BindBuffer(gl.ARRAY_BUFFER, 0)
+	batching.clear()
+}
+
+func (p *DrawPass) drawCalls(calls []batchCall) {
+	for _, c := range calls {
+		var hasTexture int32
 		if c.texture != 0 {
-			gl.Uniform1i(uniformLocationHasTexture, 1)
+			hasTexture = 1
+		}
+		if p.hasTexture != hasTexture {
+			gl.Uniform1i(uniformLocationHasTexture, hasTexture)
+			p.hasTexture = hasTexture
+		}
+		if c.texture != 0 && p.texture != c.texture {
 			gl.BindTexture(gl.TEXTURE_2D, c.texture)
-		} else {
-			gl.Uniform1i(uniformLocationHasTexture, 0)
+			p.texture = c.texture
 		}
 		switch c.mode {
 		case mtRect:
@@ -138,13 +202,21 @@ func (s *Submission) Draw(w, h, x, y, z float32) {
 			gl.DrawElementsWithOffset(gl.LINES, c.len, gl.UNSIGNED_INT, uintptr(c.offset))
 		}
 	}
-	gl.BindVertexArray(0)
-	gl.UseProgram(0)
 }
 
-// APHELION EDIT ADDITION END - RETAINED SUBMISSIONS
+func (p *DrawPass) End() {
+	if !p.bound {
+		return
+	}
+	gl.BindVertexArray(0)
+	gl.UseProgram(0)
+	p.bound = false
+}
+
+// APHELION EDIT ADDITION END
 
 func Draw(w, h, x, y, z float32) {
+	/* APHELION EDIT REMOVAL START - SHARED BRUSH PASS
 	// Ensure that the latest batch state is persisted.
 	batching.flush()
 
@@ -187,6 +259,12 @@ func Draw(w, h, x, y, z float32) {
 
 	// Clear batch state.
 	batching.clear()
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - SHARED BRUSH PASS
+	pass := NewDrawPass(w, h, x, y, z)
+	defer pass.End()
+	pass.Flush()
+	// APHELION EDIT ADDITION END
 }
 
 func transformationMatrix(w, h, x, y, z float32) mgl32.Mat4 {
