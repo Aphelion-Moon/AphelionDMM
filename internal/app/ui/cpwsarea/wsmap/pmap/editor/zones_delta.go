@@ -59,6 +59,7 @@ func (e *Editor) updateAreaMembership(path string, point util.Point, present boo
 		delete(index.members, point)
 	}
 	zone := &e.areasZones[index.zone]
+	zone.Generation = e.areaBordersGeneration
 	recompute := func(coord util.Point) {
 		dirs := 0
 		if index.members[coord] {

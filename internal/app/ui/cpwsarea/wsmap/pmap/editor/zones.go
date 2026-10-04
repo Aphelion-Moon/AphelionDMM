@@ -6,6 +6,10 @@ import (
 )
 
 type AreaZone struct {
+	// APHELION EDIT ADDITION START - CACHED AREA BORDERS
+	// Generation changes when this area membership is rebuilt or edited.
+	Generation uint64
+	// APHELION EDIT ADDITION END
 	Name    string
 	Borders []AreaBorder
 }
@@ -46,7 +50,8 @@ func (e *Editor) updateAreasZones() {
 	var areaZones []AreaZone
 
 	for areaName, areaCoords := range areas {
-		areaZone := AreaZone{Name: areaName}
+		// APHELION EDIT CHANGE - CACHED AREA BORDERS - ORIGINAL: areaZone := AreaZone{Name: areaName}
+		areaZone := AreaZone{Name: areaName, Generation: e.areaBordersGeneration}
 
 		for coord := range areaCoords {
 			var areaBorder AreaBorder

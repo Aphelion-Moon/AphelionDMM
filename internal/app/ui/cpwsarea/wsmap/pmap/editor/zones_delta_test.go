@@ -43,3 +43,26 @@ func areaBorderSet(zones []AreaZone) map[string]map[util.Point]int {
 	}
 	return result
 }
+
+func TestAreaGenerationChangesOnlyWithMembership(t *testing.T) {
+	e := &Editor{areaIndexes: make(map[string]*areaIndex)}
+	e.updateAreaMembership("/area/a", util.Point{X: 1, Y: 1, Z: 1}, true)
+	e.updateAreaMembership("/area/b", util.Point{X: 3, Y: 1, Z: 1}, true)
+	generation := func(path string) uint64 { return e.areasZones[e.areaIndexes[path].zone].Generation }
+	a, b := generation("/area/a"), generation("/area/b")
+	if a == 0 || b == 0 {
+		t.Fatal("new area geometry has no version")
+	}
+	e.updateAreaMembership("/area/a", util.Point{X: 2, Y: 1, Z: 1}, true)
+	if generation("/area/a") == a || generation("/area/b") != b {
+		t.Fatal("membership invalidated unrelated area geometry")
+	}
+	changed := generation("/area/a")
+	state := model.TileState{Prefabs: []model.PrefabState{{Path: "/area/a"}, {Path: "/obj/a"}}}
+	after := model.CloneTileState(state)
+	after.Prefabs[1].Path = "/obj/b"
+	e.updateAreaDelta(model.TileChange{Coord: model.Coord{X: 1, Y: 1, Z: 1}, Before: state, After: after})
+	if generation("/area/a") != changed || generation("/area/b") != b {
+		t.Fatal("object edit invalidated area geometry")
+	}
+}
