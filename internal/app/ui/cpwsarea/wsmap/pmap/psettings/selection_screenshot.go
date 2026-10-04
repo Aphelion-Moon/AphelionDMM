@@ -5,6 +5,7 @@ import (
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/dmapi/dm"
+	"sdmm/internal/dmapi/dmmap/dmminstance"
 	"sdmm/internal/util"
 )
 
@@ -27,6 +28,11 @@ func (p screenshotPolicy) includes(coord util.Point, path string) bool {
 }
 func (p screenshotPolicy) ProcessUnit(u unit.Unit) bool {
 	return p.includes(u.Instance().Coord(), u.Instance().Prefab().Path())
+}
+
+// GeometryInstanceVisible applies the captured mask before allocating units.
+func (p screenshotPolicy) GeometryInstanceVisible(instance *dmminstance.Instance) bool {
+	return p.includes(instance.Coord(), instance.Prefab().Path())
 }
 
 // APHELION EDIT ADDITION END

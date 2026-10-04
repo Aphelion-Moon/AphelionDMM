@@ -111,16 +111,29 @@ func (p *Panel) createScreenshot() {
 	c.Render().Camera.Translate(boundX, boundY)
 	// APHELION EDIT CHANGE - PERSISTENT SELECTION - ORIGINAL: c.Render().SetUnitProcessor(p)
 	c.Render().SetUnitProcessor(screenshotPolicy{selection: selection, filter: p.app.PathsFilter().Copy()})
-	// APHELION EDIT ADDITION START - SCREENSHOT LEVEL PREPARATION
-	firstLevel := 1
-	if selection.Len() != 0 || !render.MultiZRendering {
-		firstLevel = p.editor.ActiveLevel()
-	}
-	// APHELION EDIT ADDITION END
-	// APHELION EDIT CHANGE - SCREENSHOT LEVEL PREPARATION - ORIGINAL: for level := 1; level <= p.editor.ActiveLevel(); level++ {
-	for level := firstLevel; level <= p.editor.ActiveLevel(); level++ {
+	/* APHELION EDIT REMOVAL START - SCREENSHOT LEVEL PREPARATION
+	for level := 1; level <= p.editor.ActiveLevel(); level++ {
 		c.Render().UpdateBucket(p.editor.Dmm(), level) // Prepare for render all available levels
 	}
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - SCREENSHOT LEVEL PREPARATION
+	if selection.Len() != 0 {
+		// A nonempty coordinate list keeps cold preparation inside selected
+		// chunks. The geometry policy excludes holes and hidden instances.
+		coords := make([]util.Point, 0, selection.Len())
+		selection.Visit(func(point util.Point) { coords = append(coords, point) })
+		c.Render().UpdateBucketV(p.editor.Dmm(), p.editor.ActiveLevel(), coords)
+	} else {
+		firstLevel := 1
+		if !render.MultiZRendering {
+			firstLevel = p.editor.ActiveLevel()
+		}
+		// Full screenshots retain lower levels used by MultiZ rendering.
+		for level := firstLevel; level <= p.editor.ActiveLevel(); level++ {
+			c.Render().UpdateBucket(p.editor.Dmm(), level)
+		}
+	}
+	// APHELION EDIT ADDITION END
 	c.Process(imgui.Vec2{X: float32(width), Y: float32(height)})
 	c.Dispose()
 

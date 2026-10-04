@@ -72,3 +72,25 @@ func levelBuildTestMap(x, y, z int) *dmmap.Dmm {
 	}
 	return d
 }
+
+func TestColdPartialUpdateLeavesUntouchedChunksAndLevelsUnbuilt(t *testing.T) {
+	dmm := levelBuildTestMap(75, 2, 3)
+	r := &Render{Camera: newCamera(), bucket: bucket.New()}
+	defer r.InvalidateLevelBuilds(nil)
+	r.Camera.Level = 2
+	r.UpdateBucketV(dmm, 2, []util.Point{{X: 25, Y: 2, Z: 2}, {X: 27, Y: 2, Z: 2}})
+	for _, z := range []int{1, 3} {
+		if level := r.bucket.Level(z); level != nil {
+			t.Fatalf("unrequested Z %d constructed geometry", z)
+		}
+	}
+	level := r.bucket.Level(2)
+	if level == nil {
+		t.Fatal("selected level absent")
+	}
+	for point, chunk := range level.Chunks {
+		if touched := point.X == 1 || point.X == 26; (chunk.Revision() != 0) != touched {
+			t.Fatalf("chunk %v revision=%d, touched=%t", point, chunk.Revision(), touched)
+		}
+	}
+}
