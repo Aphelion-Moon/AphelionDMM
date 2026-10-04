@@ -2,7 +2,7 @@
 package dmmdata
 
 import (
-	"bytes"
+	"bufio"
 	"crypto/sha256"
 	"encoding/binary"
 	"errors"
@@ -162,10 +162,13 @@ func (d DmmData) semanticDigest() ([sha256.Size]byte, error) {
 	if d.MaxX <= 0 || d.MaxY <= 0 || d.MaxZ <= 0 {
 		return [sha256.Size]byte{}, fmt.Errorf("dimensions must be positive")
 	}
-	var encoded bytes.Buffer
-	writeSaveUint64(&encoded, uint64(d.MaxX))
-	writeSaveUint64(&encoded, uint64(d.MaxY))
-	writeSaveUint64(&encoded, uint64(d.MaxZ))
+	// Preserve the canonical byte stream without retaining a full-map encoding.
+	// SHA-256 writes cannot fail; the buffer batches small fields and long strings.
+	digest := sha256.New()
+	encoded := bufio.NewWriter(digest)
+	writeSaveUint64(encoded, uint64(d.MaxX))
+	writeSaveUint64(encoded, uint64(d.MaxY))
+	writeSaveUint64(encoded, uint64(d.MaxZ))
 	for z := 1; z <= d.MaxZ; z++ {
 		for y := 1; y <= d.MaxY; y++ {
 			for x := 1; x <= d.MaxX; x++ {
@@ -178,39 +181,45 @@ func (d DmmData) semanticDigest() ([sha256.Size]byte, error) {
 				if !exists {
 					return [sha256.Size]byte{}, fmt.Errorf("dictionary has no content for key %q", key)
 				}
-				writeSaveUint64(&encoded, uint64(len(prefabs)))
+				writeSaveUint64(encoded, uint64(len(prefabs)))
 				for _, prefab := range prefabs {
 					if prefab == nil || prefab.Vars() == nil {
 						return [sha256.Size]byte{}, fmt.Errorf("key %q contains nil prefab data", key)
 					}
-					writeSaveString(&encoded, prefab.Path())
+					writeSaveString(encoded, prefab.Path())
 					names := append([]string(nil), prefab.Vars().Iterate()...)
 					sort.Strings(names)
-					writeSaveUint64(&encoded, uint64(len(names)))
+					writeSaveUint64(encoded, uint64(len(names)))
 					for _, name := range names {
 						value, exists := prefab.Vars().Value(name)
 						if !exists {
 							return [sha256.Size]byte{}, fmt.Errorf("variable %q on %q has no value", name, prefab.Path())
 						}
-						writeSaveString(&encoded, name)
-						writeSaveString(&encoded, value)
+						writeSaveString(encoded, name)
+						writeSaveString(encoded, value)
 					}
 				}
 			}
 		}
 	}
-	return sha256.Sum256(encoded.Bytes()), nil
+	_ = encoded.Flush()
+	var sum [sha256.Size]byte
+	_ = digest.Sum(sum[:0])
+	return sum, nil
 }
 
-func writeSaveString(buffer *bytes.Buffer, value string) {
+func writeSaveString(buffer *bufio.Writer, value string) {
 	writeSaveUint64(buffer, uint64(len(value)))
 	_, _ = buffer.WriteString(value)
 }
 
-func writeSaveUint64(buffer *bytes.Buffer, value uint64) {
-	var encoded [8]byte
-	binary.BigEndian.PutUint64(encoded[:], value)
-	_, _ = buffer.Write(encoded[:])
+func writeSaveUint64(buffer *bufio.Writer, value uint64) {
+	if buffer.Available() < 8 {
+		_ = buffer.Flush()
+	}
+	// Append into the writer's own storage to avoid an escaping scratch array
+	// for every field. The immediately following Write commits those bytes.
+	_, _ = buffer.Write(binary.BigEndian.AppendUint64(buffer.AvailableBuffer(), value))
 }
 
 // APHELION EDIT ADDITION END
