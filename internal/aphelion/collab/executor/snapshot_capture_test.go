@@ -22,6 +22,11 @@ func TestCapturedSnapshotCanMaterializeDuringLaterMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	scoped, err := local.CaptureScopedTiles(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer scoped.Release()
 	var readers sync.WaitGroup
 	readers.Add(1)
 	go func() {
@@ -30,6 +35,10 @@ func TestCapturedSnapshotCanMaterializeDuringLaterMutation(t *testing.T) {
 			state, ok := tiles.Tile(base.Tiles[0].Coord)
 			if !ok || !state.Equal(base.Tiles[0].State) {
 				t.Error("sparse read crossed revision")
+			}
+			state, ok = scoped.Tile(base.Tiles[0].Coord)
+			if !ok || !state.Equal(base.Tiles[0].State) {
+				t.Error("scoped read crossed revision")
 			}
 			snapshot := capture.Snapshot()
 			if snapshot.Revision != base.Revision || !snapshot.Tiles[0].State.Equal(base.Tiles[0].State) {
@@ -42,4 +51,15 @@ func TestCapturedSnapshotCanMaterializeDuringLaterMutation(t *testing.T) {
 		t.Fatal(err)
 	}
 	readers.Wait()
+}
+
+func TestScopedCaptureRejectsCancelledRequest(t *testing.T) {
+	local := newTestLocal(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	capture, err := local.CaptureScopedTiles(ctx)
+	capture.Release()
+	if err != context.Canceled || capture.DocumentID() != "" {
+		t.Fatal("cancelled request retained a scoped source", err)
+	}
 }

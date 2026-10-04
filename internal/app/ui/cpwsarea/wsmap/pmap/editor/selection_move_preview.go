@@ -42,6 +42,17 @@ type localTileCapturer interface {
 	CaptureTiles(context.Context) (engine.TileCapture, error)
 }
 
+type scopedLocalTileCapturer interface {
+	CaptureScopedTiles(context.Context) (engine.ScopedTileCapture, error)
+}
+
+type selectionSourceCapture interface {
+	DocumentID() model.DocumentID
+	Revision() model.Revision
+	Tile(model.Coord) (model.TileState, bool)
+	EstimatedTileBytes(model.Coord) (uint64, bool)
+}
+
 type projectionCapturer interface {
 	CaptureProjection(context.Context) (client.ProjectionCapture, error)
 }
@@ -86,25 +97,35 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 	if err != nil {
 		return nil, err
 	}
-	var sourceCapture engine.TileCapture
-	hasSourceCapture := false
+	var sourceCapture selectionSourceCapture
+	var releaseSource func()
+	defer func() {
+		if releaseSource != nil {
+			releaseSource()
+		}
+	}()
 	var projectionCapture client.ProjectionCapture
 	hasProjectionCapture := false
 	if !e.sessionOwned {
-		if capturer, ok := e.executor.(localTileCapturer); ok {
+		if capturer, ok := e.executor.(scopedLocalTileCapturer); ok {
+			var captured engine.ScopedTileCapture
+			captured, err = capturer.CaptureScopedTiles(context.Background())
+			if err == nil {
+				sourceCapture, releaseSource = captured, captured.Release
+			}
+		} else if capturer, ok := e.executor.(localTileCapturer); ok {
 			sourceCapture, err = capturer.CaptureTiles(context.Background())
-			if err != nil {
-				reservation.Release()
-				return nil, fmt.Errorf("capture committed selection source: %w", err)
-			}
-			if sourceCapture.DocumentID() != e.authoritative.DocumentID || sourceCapture.Revision() != e.authoritative.Revision {
-				reservation.Release()
-				return nil, fmt.Errorf("local authority changed before selection move")
-			}
-			hasSourceCapture = true
 		} else if _, local := e.executor.(localEditExecutor); local {
 			reservation.Release()
 			return nil, fmt.Errorf("local executor cannot pin selection source tiles")
+		}
+		if err != nil {
+			reservation.Release()
+			return nil, fmt.Errorf("capture committed selection source: %w", err)
+		}
+		if sourceCapture != nil && (sourceCapture.DocumentID() != e.authoritative.DocumentID || sourceCapture.Revision() != e.authoritative.Revision) {
+			reservation.Release()
+			return nil, fmt.Errorf("local authority changed before selection move")
 		}
 	}
 	if capturer, ok := e.executor.(projectionCapturer); ok {
@@ -138,14 +159,19 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 	base := e.authoritativeTiles
 	ctx, cancel := context.WithCancel(context.Background())
 	session.workerCancel = cancel
+	releaseCapturedSource := releaseSource
+	releaseSource = nil // The worker owns the pin after launch.
 	go func() {
+		if releaseCapturedSource != nil {
+			defer releaseCapturedSource()
+		}
 		if hasProjectionCapture {
 			session.revision = projectionCapture.BaseRevision()
 		}
 		var sourceBytes uint64
 		var captureErr error
 		payload, compileErr := editing.CompileMovePayload(ctx, selection, session.visible, func(coord model.Coord) (model.TileState, bool) {
-			if hasSourceCapture {
+			if sourceCapture != nil {
 				size, ok := sourceCapture.EstimatedTileBytes(coord)
 				if !ok {
 					return model.TileState{}, false
@@ -182,6 +208,11 @@ func (e *Editor) BeginSelectionMovePreview(selection editing.Selection) (*editin
 			}
 			return state, ok
 		})
+		// The payload owns both original and visible states. End the source pin
+		// before publication can start a commit against the same authority table.
+		if releaseCapturedSource != nil {
+			releaseCapturedSource()
+		}
 		if captureErr != nil {
 			compileErr = captureErr
 		}

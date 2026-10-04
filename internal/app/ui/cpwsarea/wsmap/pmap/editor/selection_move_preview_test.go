@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/executor"
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/dmapi/dmmap"
@@ -25,7 +26,7 @@ func TestSelectionMovePresentationCancelThenEdit(t *testing.T) {
 	e.dmm.Tiles = append(e.dmm.Tiles, second)
 	e.dmm.MaxX = 2
 	e.initializeCollaboration()
-	counted := &countedLocalEdits{Local: e.executor.(*executor.Local)}
+	counted := &trackedSelectionCapture{countedLocalEdits: &countedLocalEdits{Local: e.executor.(*executor.Local)}}
 	e.executor = counted
 	before := e.dmm.Copy()
 	generation, revision := e.SaveVersion()
@@ -45,6 +46,9 @@ func TestSelectionMovePresentationCancelThenEdit(t *testing.T) {
 	}
 	if e.selectionMovePreview.err != nil {
 		t.Fatal(e.selectionMovePreview.err)
+	}
+	if counted.captures != 1 || counted.source.DocumentID() != "" {
+		t.Fatal("completed preview preparation kept its authority source pinned")
 	}
 	payload, presentation := e.selectionMovePreview.payload, e.selectionMovePreview.presentation
 	if presentation == nil || presentation.MaySuppress == nil {
@@ -88,4 +92,32 @@ func TestSelectionMovePresentationCancelThenEdit(t *testing.T) {
 	assertEditorDirection(t, e.dmm, "4")
 	e.app.CommandStorage().UndoV("test")
 	assertEditorDirection(t, e.dmm, "2")
+}
+
+type trackedSelectionCapture struct {
+	*countedLocalEdits
+	source   engine.ScopedTileCapture
+	captures int
+}
+
+func (local *trackedSelectionCapture) CaptureScopedTiles(ctx context.Context) (engine.ScopedTileCapture, error) {
+	capture, err := local.Local.CaptureScopedTiles(ctx)
+	if err == nil {
+		local.captures++
+		local.source = capture
+	}
+	return capture, err
+}
+
+func TestSelectionMoveReleasesCaptureOnSetupFailure(t *testing.T) {
+	e := selectionEditor(t)
+	counted := &trackedSelectionCapture{countedLocalEdits: &countedLocalEdits{Local: e.executor.(*executor.Local)}}
+	e.executor = counted
+	e.authoritative.DocumentID = ""
+	if _, err := e.BeginSelectionMovePreview(editing.RectangleSelection(util.Bounds{X1: 1, Y1: 1, X2: 1, Y2: 1}, 1)); err == nil {
+		t.Fatal("mismatched authority started a preview")
+	}
+	if counted.captures != 1 || counted.source.DocumentID() != "" || e.editWorkBudget().Used() != 0 {
+		t.Fatal("failed preview setup retained its source or reservation")
+	}
 }

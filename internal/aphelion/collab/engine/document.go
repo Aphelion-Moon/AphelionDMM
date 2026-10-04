@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"sdmm/internal/aphelion/collab/model"
@@ -26,6 +27,7 @@ type Document struct {
 	tileIndexes          map[model.Coord]int
 	identityOwners       map[model.StableID]model.Coord
 	sharedTiles          bool
+	scopedTileReaders    *atomic.Int64
 	sharedTileIndexes    bool
 	sharedIdentityOwners bool
 	unshared             bool
@@ -94,6 +96,7 @@ func (document *Document) ApplyContext(ctx context.Context, operation model.Oper
 	}
 	document.snapshot = candidate
 	document.sharedTiles = false
+	document.scopedTileReaders = nil
 	document.updateIdentityOwners(normalized.Changes)
 	document.mapHash = candidateHash
 	document.hashes[candidate.Revision] = candidateHash

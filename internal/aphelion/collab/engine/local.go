@@ -99,9 +99,10 @@ func (document *Document) ApplyLocal(ctx context.Context, request LocalRequest) 
 	}
 	// Cloned engine branches share immutable payloads, but never mutable tables.
 	// Ordinary local edits keep their uniquely owned table between operations.
-	if document.sharedTiles {
+	if document.sharedTiles || document.scopedTileReaders != nil && document.scopedTileReaders.Load() != 0 {
 		document.snapshot.Tiles = slices.Clone(document.snapshot.Tiles)
 		document.sharedTiles = false
+		document.scopedTileReaders = nil
 	}
 	document.installChanges(changes)
 	document.snapshot.Revision++

@@ -24,3 +24,14 @@ func (local *Local) CaptureTiles(ctx context.Context) (engine.TileCapture, error
 	}
 	return local.document.CaptureTiles(), nil
 }
+
+// CaptureScopedTiles pins a temporary worker source without permanently
+// sharing the tile table. The caller releases it after its last source read.
+func (local *Local) CaptureScopedTiles(ctx context.Context) (engine.ScopedTileCapture, error) {
+	local.mu.Lock()
+	defer local.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return engine.ScopedTileCapture{}, err
+	}
+	return local.document.CaptureScopedTiles(), nil
+}
