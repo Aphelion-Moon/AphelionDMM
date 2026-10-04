@@ -64,16 +64,23 @@ func Make(x, y int, i *dmminstance.Instance, iconSize int) Unit {
 	icon, _ := i.Prefab().Vars().Text("icon")
 	iconState, _ := i.Prefab().Vars().Text("icon_state")
 	dir, _ := i.Prefab().Vars().Int("dir")
+	/* APHELION EDIT REMOVAL START - BATCH UNIT PREPARATION
 	pixelX, _ := i.Prefab().Vars().Int("pixel_x")
 	pixelY, _ := i.Prefab().Vars().Int("pixel_y")
 	stepX, _ := i.Prefab().Vars().Int("step_x")
 	stepY, _ := i.Prefab().Vars().Int("step_y")
 	pixelW, _ := i.Prefab().Vars().Int("pixel_w")
 	pixelZ, _ := i.Prefab().Vars().Int("pixel_z")
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - BATCH UNIT PREPARATION
+	offset := PlacementOffset(i.Prefab())
+	// APHELION EDIT ADDITION END
 
 	sp := dmicon.Cache.GetSpriteOrPlaceholderV(icon, iconState, dir)
-	x1 := float32((x-1)*iconSize + pixelX + stepX + pixelW)
-	y1 := float32((y-1)*iconSize + pixelY + stepY + pixelZ)
+	// APHELION EDIT CHANGE - BATCH UNIT PREPARATION - ORIGINAL: x1 := float32((x-1)*iconSize + pixelX + stepX + pixelW)
+	x1 := float32((x-1)*iconSize + offset.X)
+	// APHELION EDIT CHANGE - BATCH UNIT PREPARATION - ORIGINAL: y1 := float32((y-1)*iconSize + pixelY + stepY + pixelZ)
+	y1 := float32((y-1)*iconSize + offset.Y)
 	x2 := x1 + float32(sp.IconWidth())
 	y2 := y1 + float32(sp.IconHeight())
 	r, g, b, a := parseColor(i.Prefab())
@@ -134,3 +141,31 @@ func countLayer(p *dmmprefab.Prefab) float32 {
 
 	return layer
 }
+
+// APHELION EDIT ADDITION START - BATCH UNIT PREPARATION
+// PlacementOffset resolves the prefab's integer pixel and step offsets.
+func PlacementOffset(p *dmmprefab.Prefab) util.Point {
+	pixelX, _ := p.Vars().Int("pixel_x")
+	pixelY, _ := p.Vars().Int("pixel_y")
+	stepX, _ := p.Vars().Int("step_x")
+	stepY, _ := p.Vars().Int("step_y")
+	pixelW, _ := p.Vars().Int("pixel_w")
+	pixelZ, _ := p.Vars().Int("pixel_z")
+	return util.Point{X: pixelX + stepX + pixelW, Y: pixelY + stepY + pixelZ}
+}
+
+// WithPlacement reuses this unit's appearance for another instance of the same
+// prefab. Offsets stay integral until final placement to preserve pixel rounding.
+func (u Unit) WithPlacement(x, y int, i *dmminstance.Instance, iconSize int, offset util.Point) Unit {
+	u.instance = i
+	x1 := float32((x-1)*iconSize + offset.X)
+	y1 := float32((y-1)*iconSize + offset.Y)
+	u.viewBounds = util.Bounds{
+		X1: x1, Y1: y1,
+		X2: x1 + float32(u.sprite.IconWidth()),
+		Y2: y1 + float32(u.sprite.IconHeight()),
+	}
+	return u
+}
+
+// APHELION EDIT ADDITION END

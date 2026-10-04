@@ -8,6 +8,8 @@ import (
 
 	"github.com/go-gl/gl/v3.3-core/gl"
 	"github.com/go-gl/glfw/v3.3/glfw"
+	"sdmm/internal/aphelion/renderprep"
+	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
@@ -162,4 +164,118 @@ func setChunkTestInstance(dmm *dmmap.Dmm, coord util.Point, values map[string]st
 	prefab := dmmprefab.New(dmmprefab.IdNone, "/obj/chunk-test", vars.ToImmutable())
 	tile := dmm.GetTile(coord)
 	tile.Set(dmmap.Instances{dmminstance.New(coord, prefab)})
+}
+
+func TestUnitBatchMatchesUncachedAppearanceAndPlacement(t *testing.T) {
+	if chunkTestWindow == nil {
+		t.Skip("set APHELIONDMM_GL_TEST=1 for native unit preparation")
+	}
+	runtime.LockOSThread()
+	t.Cleanup(runtime.UnlockOSThread)
+	chunkTestWindow.MakeContextCurrent()
+	t.Cleanup(glfw.DetachCurrentContext)
+
+	parent := (&dmvars.MutableVariables{}).ToImmutable()
+	for name, value := range map[string]string{
+		"pixel_x": "16777216", "step_x": "1", "pixel_y": "-17",
+		"step_y": "3", "pixel_w": "0", "pixel_z": "-9",
+		"plane": "-1", "layer": "25004", "color": "\"#804020\"", "alpha": "111",
+	} {
+		parent = dmvars.Set(parent, name, value)
+	}
+	shared := dmmprefab.New(0, "/obj/batch-shared", dmvars.FromParent(parent))
+	var batch renderprep.UnitBatch
+	check := func(p *dmmprefab.Prefab, x, y, iconSize int) unit.Unit {
+		t.Helper()
+		instance := dmminstance.New(util.Point{X: x, Y: y, Z: 1}, p)
+		got := batch.Make(x, y, instance, iconSize)
+		want := unit.Make(x, y, instance, iconSize)
+		if got != want {
+			t.Fatalf("cached unit differs at (%d,%d), scale %d: got %+v, want %+v", x, y, iconSize, got, want)
+		}
+		return got
+	}
+	first := check(shared, 1, 1, 1)
+	second := check(shared, 2, 2, 1)
+	// Independent expectations also guard the offset helper shared by both paths.
+	if first.ViewBounds().X1 != 16777216 || first.ViewBounds().Y1 != -23 ||
+		second.ViewBounds().X1 != 16777218 || second.ViewBounds().Y1 != -22 {
+		t.Fatal("integer placement or inherited pixel/step offsets changed")
+	}
+	for n := 0; n < 140; n++ {
+		p := dmmprefab.New(0, "/obj/batch-unique", dmvars.Set(parent, "pixel_x", fmt.Sprint(n)))
+		check(p, n%11+1, n%7+1, 32)
+		check(p, n%7+1, n%11+1, 64)
+	}
+	check(shared, 4, 7, 32)
+	replacement := dmmprefab.New(0, shared.Path(), dmvars.Set(shared.Vars(), "alpha", "255"))
+	check(replacement, 4, 7, 32)
+
+	// Async publication updates the retained sprite handle. Both existing and
+	// subsequently placed units must observe its current dimensions.
+	dmi := first.Sprite().Dmi()
+	width, height := dmi.IconWidth, dmi.IconHeight
+	t.Cleanup(func() { dmi.IconWidth, dmi.IconHeight = width, height })
+	dmi.IconWidth, dmi.IconHeight = width+64, height+16
+	bounds := first.ViewBounds()
+	if bounds.X2 != bounds.X1+float32(width+64) || bounds.Y2 != bounds.Y1+float32(height+16) {
+		t.Fatal("prepared unit retained old sprite dimensions", bounds)
+	}
+	check(shared, 3, 6, 32)
+}
+
+func TestChunkBatchPreservesFiltersOrderAndReplacement(t *testing.T) {
+	if chunkTestWindow == nil {
+		t.Skip("set APHELIONDMM_GL_TEST=1 for native chunk preparation")
+	}
+	runtime.LockOSThread()
+	t.Cleanup(runtime.UnlockOSThread)
+	chunkTestWindow.MakeContextCurrent()
+	t.Cleanup(glfw.DetachCurrentContext)
+
+	dmm := newChunkTestMap(3, 2, 1)
+	prefab := dmmprefab.New(0, "/obj/batch-order", dmvars.Set((&dmvars.MutableVariables{}).ToImmutable(), "pixel_x", "-13"))
+	for _, tile := range dmm.Tiles {
+		tile.InstancesAdd(prefab)
+		tile.InstancesAdd(prefab)
+	}
+	blocked := dmm.Tiles[2].Instances()[0]
+	c := New(1, 1, 3, 2, float32(dmmap.WorldIconSize))
+	for pass := 0; pass < 2; pass++ {
+		calls := 0
+		c.Update(dmm, 1, func(i *dmminstance.Instance) bool {
+			calls++
+			return i != blocked
+		})
+		want := map[float32][]unit.Unit{}
+		bounds := c.baseViewBounds
+		for x := 1; x <= 3; x++ {
+			for y := 1; y <= 2; y++ {
+				for _, i := range dmm.GetTile(util.Point{X: x, Y: y, Z: 1}).Instances() {
+					if i == blocked {
+						continue
+					}
+					u := unit.Make(x, y, i, dmmap.WorldIconSize)
+					want[u.Layer()] = append(want[u.Layer()], u)
+					bounds = includeViewBounds(bounds, u.ViewBounds())
+				}
+			}
+		}
+		if calls != 12 || c.ViewBounds != bounds {
+			t.Fatalf("pass %d: filter calls=%d, bounds=%+v, want 12, %+v", pass, calls, c.ViewBounds, bounds)
+		}
+		for layer, expected := range want {
+			got := c.UnitsByLayers[layer]
+			if len(got) != len(expected) {
+				t.Fatalf("pass %d: layer %v has %d units, want %d", pass, layer, len(got), len(expected))
+			}
+			for n, u := range expected {
+				if got[n] != u {
+					t.Fatalf("pass %d: layer %v unit %d differs from uncached painter order", pass, layer, n)
+				}
+			}
+		}
+		dmm.Tiles[0].Instances()[0].SetPrefab(dmmprefab.New(0, prefab.Path(), dmvars.Set(prefab.Vars(), "pixel_x", "53")))
+		blocked = dmm.Tiles[3].Instances()[1]
+	}
 }

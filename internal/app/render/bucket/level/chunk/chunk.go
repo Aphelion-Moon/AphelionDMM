@@ -1,6 +1,9 @@
 package chunk
 
 import (
+	// APHELION EDIT ADDITION START - BATCH UNIT PREPARATION
+	"sdmm/internal/aphelion/renderprep"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/dmapi/dmmap"
 	// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
@@ -70,6 +73,9 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int, filters ...func(*dmminstance.I
 	viewBounds := c.baseViewBounds
 	// APHELION EDIT ADDITION END
 
+	// APHELION EDIT ADDITION START - BATCH UNIT PREPARATION
+	var batch renderprep.UnitBatch
+	// APHELION EDIT ADDITION END
 	for x := c.MapBounds.X1; x <= c.MapBounds.X2; x++ {
 		for y := c.MapBounds.Y1; y <= c.MapBounds.Y2; y++ {
 			x, y := int(x), int(y)
@@ -79,7 +85,8 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int, filters ...func(*dmminstance.I
 					continue
 				}
 				// APHELION EDIT ADDITION END
-				u := unit.Make(x, y, i, dmmap.WorldIconSize)
+				// APHELION EDIT CHANGE - BATCH UNIT PREPARATION - ORIGINAL: u := unit.Make(x, y, i, dmmap.WorldIconSize)
+				u := batch.Make(x, y, i, dmmap.WorldIconSize)
 				unitsByLayers[u.Layer()] = append(unitsByLayers[u.Layer()], u)
 				// APHELION EDIT ADDITION START - RENDER CULLING
 				viewBounds = includeViewBounds(viewBounds, u.ViewBounds())
