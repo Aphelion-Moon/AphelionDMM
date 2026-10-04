@@ -200,18 +200,13 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		writeError(writer, http.StatusBadRequest, "invalid_snapshot", "snapshot is not valid")
 		return
 	}
-	current, err := owner.Snapshot(request.Context())
+	current, _, err := owner.ReadAuthority(request.Context(), nil)
 	if err != nil {
 		_ = owner.Close(request.Context())
 		writeError(writer, http.StatusInternalServerError, "internal", "session recovery failed")
 		return
 	}
-	mapHash, err := current.Hash()
-	if err != nil {
-		_ = owner.Close(request.Context())
-		writeError(writer, http.StatusInternalServerError, "internal", "session recovery hash failed")
-		return
-	}
+	mapHash := current.MapHash
 	created := collabstore.HostedSession{SessionID: sessionID, DocumentID: current.DocumentID, CreatedAt: service.config.Now(), Visibility: body.Visibility, Title: body.Title, MapLabel: body.MapLabel, EnvironmentLabel: body.EnvironmentLabel}
 	if err := service.config.HostedRegistry.CreateHostedSession(request.Context(), created, ownerMember); err != nil {
 		_ = owner.Close(request.Context())

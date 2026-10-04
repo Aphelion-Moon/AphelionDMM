@@ -156,7 +156,7 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 	if !auth.hosted {
 		defer service.hub.DisconnectPresence(auth.sessionID, auth.principal.ActorID())
 	}
-	snapshot, err := session.owner.Snapshot(parent)
+	snapshot, _, err := session.owner.ReadAuthority(parent, nil)
 	if err != nil {
 		return fmt.Errorf("load joined snapshot: %w", err)
 	}
@@ -164,10 +164,7 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		_ = connection.Close(websocket.StatusPolicyViolation, "unsupported collaboration version")
 		return fmt.Errorf("negotiate joined version: %w", err)
 	}
-	mapHash, err := snapshot.Hash()
-	if err != nil {
-		return fmt.Errorf("hash joined snapshot: %w", err)
-	}
+	mapHash := snapshot.MapHash
 	resumptionToken, resumptionTokenExpiresAt := auth.hostedCredential, auth.expiresAt
 	if !auth.hosted {
 		resumptionToken, resumptionTokenExpiresAt, err = service.rotateResumptionToken(tokenValue, auth.sessionID, auth.principal)
@@ -384,7 +381,7 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 	}
 }
 
-func (service *Service) validateJoinCompatibility(snapshot model.Snapshot) error {
+func (service *Service) validateJoinCompatibility(snapshot engine.Metadata) error {
 	_, err := service.compatibility.Negotiate(snapshot.ProtocolVersion, snapshot.SchemaVersion)
 	return err
 }
@@ -474,14 +471,14 @@ func (service *Service) handleClientMessage(ctx context.Context, connection *web
 	case protocol.ClientOperationSubmit:
 		submission := message.Payload.(*protocol.OperationSubmitPayload)
 		if !session.owner.bulkEdits && len(submission.Operation.Changes) > service.limits.MaxOperationChanges {
-			current, snapshotErr := session.owner.Snapshot(ctx)
+			current, _, snapshotErr := session.owner.ReadAuthority(ctx, nil)
 			if snapshotErr != nil {
 				return fmt.Errorf("load limit rejection snapshot: %w", snapshotErr)
 			}
 			if err := flushThrough(current.Revision); err != nil {
 				return err
 			}
-			currentHash, _ := current.Hash()
+			currentHash := current.MapHash
 			return writeServerEnvelope(ctx, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "rejected-" + message.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerOperationRejected}, protocol.OperationRejectedPayload{OperationID: submission.Operation.OperationID, Code: "limit_exceeded", Message: "operation was rejected", Revision: current.Revision, MapHash: currentHash})
 		}
 		if !service.durableLimiter.Allow(string(auth.principal.ActorID()), service.config.Now()) {
@@ -496,15 +493,14 @@ func (service *Service) handleClientMessage(ctx context.Context, connection *web
 		accepted, duplicate, err := service.hub.SubmitWithStatus(operationContext, auth.sessionID, auth.principal, submission.Operation)
 		finishOperation(err)
 		if err != nil {
-			current, snapshotErr := session.owner.Snapshot(ctx)
+			current, values, snapshotErr := session.owner.ReadAuthority(ctx, changeCoords(submission.Operation.Changes))
 			if snapshotErr != nil {
 				return fmt.Errorf("load rejected snapshot: %w", snapshotErr)
 			}
 			if err := flushThrough(current.Revision); err != nil {
 				return err
 			}
-			currentHash, _ := current.Hash()
-			return writeServerEnvelope(ctx, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "rejected-" + message.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerOperationRejected}, protocol.OperationRejectedPayload{OperationID: submission.Operation.OperationID, Code: rejectionCode(err, "operation_rejected"), Message: "operation was rejected", Revision: current.Revision, MapHash: currentHash, AuthoritativeValues: authoritativeValues(current, submission.Operation.Changes)})
+			return writeServerEnvelope(ctx, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "rejected-" + message.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerOperationRejected}, protocol.OperationRejectedPayload{OperationID: submission.Operation.OperationID, Code: rejectionCode(err, "operation_rejected"), Message: "operation was rejected", Revision: current.Revision, MapHash: current.MapHash, AuthoritativeValues: values})
 		}
 		if duplicate {
 			if err := flushThrough(accepted.Revision); err != nil {
@@ -543,19 +539,21 @@ func (service *Service) handleClientMessage(ctx context.Context, connection *web
 				_ = connection.Close(websocket.StatusTryAgainLater, admission.Error())
 				return err
 			}
-			current, snapshotErr := session.owner.Snapshot(ctx)
+			current, _, snapshotErr := session.owner.ReadAuthority(ctx, nil)
 			if snapshotErr != nil {
 				return fmt.Errorf("load inverse rejection snapshot: %w", snapshotErr)
+			}
+			var values []model.Tile
+			if target, found, lookupErr := service.store.LookupOperation(ctx, current.DocumentID, inverse.OperationID); lookupErr == nil && found {
+				current, values, snapshotErr = session.owner.ReadAuthority(ctx, changeCoords(target.Changes))
+				if snapshotErr != nil {
+					return fmt.Errorf("load inverse rejection values: %w", snapshotErr)
+				}
 			}
 			if err := flushThrough(current.Revision); err != nil {
 				return err
 			}
-			currentHash, _ := current.Hash()
-			var changes []model.TileChange
-			if target, found, lookupErr := service.store.LookupOperation(ctx, current.DocumentID, inverse.OperationID); lookupErr == nil && found {
-				changes = target.Changes
-			}
-			return writeServerEnvelope(ctx, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "inverse-rejected-" + message.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerOperationRejected}, protocol.OperationRejectedPayload{OperationID: inverse.OperationID, Code: rejectionCode(err, "inverse_rejected"), Message: "inverse was rejected", Revision: current.Revision, MapHash: currentHash, AuthoritativeValues: authoritativeValues(current, changes)})
+			return writeServerEnvelope(ctx, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "inverse-rejected-" + message.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerOperationRejected}, protocol.OperationRejectedPayload{OperationID: inverse.OperationID, Code: rejectionCode(err, "inverse_rejected"), Message: "inverse was rejected", Revision: current.Revision, MapHash: current.MapHash, AuthoritativeValues: values})
 		}
 		return nil
 	default:
@@ -573,21 +571,12 @@ func rejectionCode(err error, fallback string) string {
 	return fallback
 }
 
-func authoritativeValues(snapshot model.Snapshot, changes []model.TileChange) []model.Tile {
-	states := make(map[model.Coord]model.TileState, len(snapshot.Tiles))
-	for _, tile := range snapshot.Tiles {
-		states[tile.Coord] = tile.State
+func changeCoords(changes []model.TileChange) []model.Coord {
+	coords := make([]model.Coord, len(changes))
+	for index, change := range changes {
+		coords[index] = change.Coord
 	}
-	seen := make(map[model.Coord]struct{}, len(changes))
-	values := make([]model.Tile, 0, len(changes))
-	for _, change := range changes {
-		if _, exists := seen[change.Coord]; exists {
-			continue
-		}
-		seen[change.Coord] = struct{}{}
-		values = append(values, model.Tile{Coord: change.Coord, State: model.CloneTileState(states[change.Coord])})
-	}
-	return values
+	return coords
 }
 
 func (service *Service) originAllowed(origin string) bool {

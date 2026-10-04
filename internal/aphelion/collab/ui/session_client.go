@@ -846,13 +846,13 @@ func (client *SessionClient) recordSynchronized(machine *collabclient.StateMachi
 }
 
 func (client *SessionClient) recordOperation(machine *collabclient.StateMachine, network *collabclient.NetworkExecutor, messageType protocol.ServerType) {
-	snapshot, err := network.Snapshot(context.Background())
+	capture, err := network.CaptureProjection(context.Background())
 	client.mutex.Lock()
 	if client.machine == machine {
 		if err != nil {
 			client.lastErr = err
 		} else {
-			client.revision = snapshot.Revision
+			client.revision = capture.BaseRevision()
 		}
 	}
 	client.mutex.Unlock()
@@ -956,11 +956,11 @@ func (client *SessionClient) startReconnect(machine *collabclient.StateMachine, 
 
 func (client *SessionClient) runReconnect(ctx context.Context, machine *collabclient.StateMachine, network *collabclient.NetworkExecutor) {
 	err := client.config.Reconnect.Reconnect(ctx, client.Status().Revision, func(attemptContext context.Context, _ model.Revision) error {
-		current, snapshotErr := network.Snapshot(attemptContext)
+		current, snapshotErr := network.CaptureProjection(attemptContext)
 		if snapshotErr != nil {
 			return snapshotErr
 		}
-		return client.reconnectAttempt(attemptContext, machine, network, current.Revision)
+		return client.reconnectAttempt(attemptContext, machine, network, current.BaseRevision())
 	})
 	client.mutex.Lock()
 	if client.machine == machine {

@@ -15,6 +15,7 @@ import (
 
 	"sdmm/internal/aphelion/collab/auth"
 	"sdmm/internal/aphelion/collab/compat"
+	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 )
@@ -83,7 +84,7 @@ func TestJoinCompatibilityRejectsUnsupportedCompiledProtocol(t *testing.T) {
 		Name: compat.CurrentRelease, ProtocolVersions: []uint16{model.ProtocolVersion + 1}, SchemaVersions: []uint16{model.SchemaVersion},
 	}}}})
 	t.Cleanup(func() { _ = service.Shutdown(context.Background()) })
-	if err := service.validateJoinCompatibility(testSnapshot(t, 1)); err == nil {
+	if err := service.validateJoinCompatibility(engine.Metadata{ProtocolVersion: model.ProtocolVersion, SchemaVersion: model.SchemaVersion}); err == nil {
 		t.Fatal("validateJoinCompatibility() error = nil")
 	}
 }

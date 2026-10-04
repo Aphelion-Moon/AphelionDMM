@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -22,6 +23,7 @@ const (
 	requestSubmit requestKind = iota + 1
 	requestSnapshot
 	requestBuildInverse
+	requestAuthority
 )
 
 type request struct {
@@ -33,6 +35,7 @@ type request struct {
 	inverseID model.OperationID
 	response  chan response
 	admit     func(int64) (func(), error)
+	coords    []model.Coord
 }
 
 type response struct {
@@ -41,6 +44,8 @@ type response struct {
 	duplicate bool
 	err       error
 	release   func()
+	metadata  engine.Metadata
+	values    []model.Tile
 }
 
 type DocumentOwner struct {
@@ -111,6 +116,13 @@ func (owner *DocumentOwner) SubmitWithStatus(ctx context.Context, operation mode
 func (owner *DocumentOwner) Snapshot(ctx context.Context) (model.Snapshot, error) {
 	result, err := owner.request(ctx, request{kind: requestSnapshot})
 	return result.snapshot, err
+}
+
+// ReadAuthority returns the header and requested conflict values from one
+// owner turn. It neither copies nor pins unrelated document tiles.
+func (owner *DocumentOwner) ReadAuthority(ctx context.Context, coords []model.Coord) (engine.Metadata, []model.Tile, error) {
+	result, err := owner.request(ctx, request{kind: requestAuthority, coords: slices.Clone(coords)})
+	return result.metadata, result.values, err
 }
 
 func (owner *DocumentOwner) BuildInverse(ctx context.Context, actorID model.ActorID, targetID, inverseID model.OperationID) (model.Operation, error) {
@@ -191,7 +203,7 @@ func (owner *DocumentOwner) run(ctx context.Context, document *engine.Document, 
 	}
 	scheduleSnapshot := func() {
 		snapshotInFlight = true
-		owner.saveSnapshot(ctx, store, document.Snapshot(), snapshotResults, config.Telemetry)
+		owner.saveSnapshot(ctx, store, document.CaptureSnapshot(), snapshotResults, config.Telemetry)
 	}
 	for {
 		select {
@@ -209,7 +221,7 @@ func (owner *DocumentOwner) run(ctx context.Context, document *engine.Document, 
 					config.OnSnapshotError(result.err)
 				}
 			} else {
-				acceptedSinceSnapshot = int(document.Snapshot().Revision - result.revision)
+				acceptedSinceSnapshot = int(document.Revision() - result.revision)
 			}
 			if !snapshotFailed && config.SnapshotOperationThreshold > 0 && acceptedSinceSnapshot >= config.SnapshotOperationThreshold {
 				scheduleSnapshot()
@@ -238,6 +250,23 @@ func (owner *DocumentOwner) run(ctx context.Context, document *engine.Document, 
 				}
 			case requestSnapshot:
 				request.response <- response{snapshot: document.Snapshot()}
+			case requestAuthority:
+				result := response{err: request.context.Err()}
+				if result.err == nil {
+					result.metadata, result.err = document.Metadata()
+				}
+				if result.err == nil && len(request.coords) != 0 {
+					seen := make(map[model.Coord]struct{}, len(request.coords))
+					result.values = make([]model.Tile, 0, len(request.coords))
+					for _, coord := range request.coords {
+						if _, exists := seen[coord]; exists {
+							continue
+						}
+						seen[coord] = struct{}{}
+						result.values = append(result.values, model.Tile{Coord: coord, State: document.Tile(coord)})
+					}
+				}
+				request.response <- result
 			case requestBuildInverse:
 				var release func()
 				if request.admit != nil {
@@ -268,10 +297,14 @@ type snapshotResult struct {
 	err      error
 }
 
-func (owner *DocumentOwner) saveSnapshot(ctx context.Context, store SessionStore, snapshot model.Snapshot, results chan<- snapshotResult, observability *collabtelemetry.Telemetry) {
+func (owner *DocumentOwner) saveSnapshot(ctx context.Context, store SessionStore, capture engine.SnapshotCapture, results chan<- snapshotResult, observability *collabtelemetry.Telemetry) {
 	owner.snapshots.Add(1)
 	go func() {
 		defer owner.snapshots.Done()
+		if ctx.Err() != nil {
+			return
+		}
+		snapshot := capture.Snapshot()
 		storeContext := ctx
 		finishStore := func(error) {}
 		if observability != nil {
@@ -344,8 +377,7 @@ func reconcileStoredOperation(ctx context.Context, document *engine.Document, st
 	if !model.SameOperation(prior.Operation, operation) {
 		return nil, fmt.Errorf("operation %q conflicts with stored revision %d", operation.OperationID, prior.Revision)
 	}
-	current := document.Snapshot()
-	currentHash, err := current.Hash()
+	current, err := document.Metadata()
 	if err != nil {
 		return nil, fmt.Errorf("hash in-memory document: %w", err)
 	}
@@ -353,26 +385,25 @@ func reconcileStoredOperation(ctx context.Context, document *engine.Document, st
 	if err != nil {
 		return nil, fmt.Errorf("look up in-memory revision hash: %w", err)
 	}
-	if prior.Revision <= current.Revision && found && storedCurrentHash == currentHash {
+	if prior.Revision <= current.Revision && found && storedCurrentHash == current.MapHash {
 		return document, nil
 	}
 	reconciled, err := loadStoredDocument(ctx, operation.DocumentID, store, observability)
 	if err != nil {
 		return nil, fmt.Errorf("reload stored document: %w", err)
 	}
-	reconciledSnapshot := reconciled.Snapshot()
-	if reconciledSnapshot.Revision < prior.Revision {
-		return nil, fmt.Errorf("reloaded revision %d is behind stored operation revision %d", reconciledSnapshot.Revision, prior.Revision)
-	}
-	reconciledHash, err := reconciledSnapshot.Hash()
+	reconciledSnapshot, err := reconciled.Metadata()
 	if err != nil {
 		return nil, fmt.Errorf("hash reloaded document: %w", err)
+	}
+	if reconciledSnapshot.Revision < prior.Revision {
+		return nil, fmt.Errorf("reloaded revision %d is behind stored operation revision %d", reconciledSnapshot.Revision, prior.Revision)
 	}
 	storedHash, found, err := store.RevisionHash(ctx, operation.DocumentID, reconciledSnapshot.Revision)
 	if err != nil {
 		return nil, fmt.Errorf("look up reloaded revision hash: %w", err)
 	}
-	if !found || storedHash != reconciledHash {
+	if !found || storedHash != reconciledSnapshot.MapHash {
 		return nil, fmt.Errorf("reloaded revision %d hash does not match durable state", reconciledSnapshot.Revision)
 	}
 	return reconciled, nil

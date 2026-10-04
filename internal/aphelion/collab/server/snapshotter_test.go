@@ -33,6 +33,18 @@ func TestSnapshotThresholdDoesNotBlockAcknowledgement(t *testing.T) {
 		if captured.Revision != 2 {
 			t.Fatalf("snapshot revision = %d, want 2", captured.Revision)
 		}
+		current, err := owner.Snapshot(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		change := testOperation(t, current, 1)
+		change.Changes[0].Before = current.Tiles[0].State
+		if _, err := owner.Submit(context.Background(), change); err != nil {
+			t.Fatal(err)
+		}
+		if captured.Revision != 2 || !captured.Tiles[0].State.Equal(current.Tiles[0].State) {
+			t.Fatal("a later edit changed the in-flight snapshot")
+		}
 	case <-time.After(time.Second):
 		t.Fatal("snapshot did not start")
 	}

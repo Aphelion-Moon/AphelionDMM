@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/coder/websocket"
+	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 	collabstore "sdmm/internal/aphelion/collab/store"
@@ -17,7 +18,7 @@ var errReplayNeedsSnapshot = errors.New("replay requires an authoritative snapsh
 // Each metadata page closes its database rows before this function writes to a
 // socket. Each V2 body is verified and reframed into an admitted private spool,
 // then its database reader closes before any network backpressure is possible.
-func (service *Service) writePagedReplay(ctx context.Context, connection *websocket.Conn, pages collabstore.ReplayPageStore, sessionID string, snapshot model.Snapshot, after model.Revision, mapHash, joinMessageID string) error {
+func (service *Service) writePagedReplay(ctx context.Context, connection *websocket.Conn, pages collabstore.ReplayPageStore, sessionID string, snapshot engine.Metadata, after model.Revision, mapHash, joinMessageID string) error {
 	if after > snapshot.Revision {
 		return fmt.Errorf("replay cursor is ahead of authoritative revision")
 	}

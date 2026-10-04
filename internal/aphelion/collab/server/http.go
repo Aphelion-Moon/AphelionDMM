@@ -407,18 +407,13 @@ func (service *Service) handleCreateSession(writer http.ResponseWriter, request 
 		return
 	}
 	service.setDocumentRecoveryError(body.Snapshot.DocumentID, nil)
-	current, err := owner.Snapshot(request.Context())
+	current, _, err := owner.ReadAuthority(request.Context(), nil)
 	if err != nil {
 		_ = owner.Close(request.Context())
 		writeError(writer, http.StatusInternalServerError, "internal", "session recovery failed")
 		return
 	}
-	mapHash, err = current.Hash()
-	if err != nil {
-		_ = owner.Close(request.Context())
-		writeError(writer, http.StatusInternalServerError, "internal", "session recovery hash failed")
-		return
-	}
+	mapHash = current.MapHash
 	actorID, err := model.NewActorID()
 	if err != nil {
 		_ = owner.Close(request.Context())
@@ -470,13 +465,12 @@ func (service *Service) handleGetSession(writer http.ResponseWriter, request *ht
 		writeError(writer, http.StatusUnauthorized, "unauthorized", "session token is invalid")
 		return
 	}
-	snapshot, err := record.owner.Snapshot(request.Context())
+	snapshot, _, err := record.owner.ReadAuthority(request.Context(), nil)
 	if err != nil {
 		writeError(writer, http.StatusServiceUnavailable, "unavailable", "session is unavailable")
 		return
 	}
-	hash, _ := snapshot.Hash()
-	writeJSON(writer, http.StatusOK, map[string]any{"session_id": sessionID, "document_id": snapshot.DocumentID, "protocol_version": snapshot.ProtocolVersion, "schema_version": snapshot.SchemaVersion, "revision": snapshot.Revision, "map_hash": hash})
+	writeJSON(writer, http.StatusOK, map[string]any{"session_id": sessionID, "document_id": snapshot.DocumentID, "protocol_version": snapshot.ProtocolVersion, "schema_version": snapshot.SchemaVersion, "revision": snapshot.Revision, "map_hash": snapshot.MapHash})
 }
 
 func (service *Service) handleGetSnapshot(writer http.ResponseWriter, request *http.Request) {
@@ -570,16 +564,12 @@ func (service *Service) handleExport(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusBadRequest, "invalid_request", "invalid export checkpoint request")
 		return
 	}
-	snapshot, err := session.owner.Snapshot(request.Context())
+	snapshot, _, err := session.owner.ReadAuthority(request.Context(), nil)
 	if err != nil {
 		writeError(writer, http.StatusServiceUnavailable, "unavailable", "session is unavailable")
 		return
 	}
-	mapHash, err := snapshot.Hash()
-	if err != nil {
-		writeError(writer, http.StatusServiceUnavailable, "unavailable", "session snapshot is invalid")
-		return
-	}
+	mapHash := snapshot.MapHash
 	if body.Revision != snapshot.Revision || body.MapHash != mapHash {
 		writeJSON(writer, http.StatusConflict, map[string]any{
 			"code": "stale_checkpoint", "message": "export checkpoint precondition does not match the authoritative document",
