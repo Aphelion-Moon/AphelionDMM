@@ -120,10 +120,11 @@ func ValidateSavedPair(path string, output, intended DmmData) error {
 	if err != nil {
 		return fmt.Errorf("reparse staged map: %w", err)
 	}
-	if err := output.validateSavedData(reparsed, output.IsTgm); err != nil {
+	validation := savedMapValidation{data: reparsed}
+	if err := validation.compare(output, output.IsTgm); err != nil {
 		return err
 	}
-	if err := intended.validateSavedData(reparsed, intended.IsTgm); err != nil {
+	if err := validation.compare(intended, intended.IsTgm); err != nil {
 		return fmt.Errorf("saved map differs from intended input: %w", err)
 	}
 	return nil
@@ -134,10 +135,20 @@ func (d DmmData) validateSaved(path string, isTGM bool) error {
 	if err != nil {
 		return fmt.Errorf("reparse staged map: %w", err)
 	}
-	return d.validateSavedData(reparsed, isTGM)
+	validation := savedMapValidation{data: reparsed}
+	return validation.compare(d, isTGM)
 }
 
-func (d DmmData) validateSavedData(reparsed *DmmData, isTGM bool) error {
+// One reparsed stage supplies the actual digest for both independent oracles.
+// Expected digests are always computed separately from their own input grids.
+type savedMapValidation struct {
+	data     *DmmData
+	digest   [sha256.Size]byte
+	digested bool
+}
+
+func (validation *savedMapValidation) compare(d DmmData, isTGM bool) error {
+	reparsed := validation.data
 	if reparsed.IsTgm != isTGM {
 		return fmt.Errorf("staged map format mismatch: got TGM=%t, want %t", reparsed.IsTgm, isTGM)
 	}
@@ -148,12 +159,15 @@ func (d DmmData) validateSavedData(reparsed *DmmData, isTGM bool) error {
 	if err != nil {
 		return fmt.Errorf("hash source map: %w", err)
 	}
-	got, err := reparsed.semanticDigest()
-	if err != nil {
-		return fmt.Errorf("hash staged map: %w", err)
+	if !validation.digested {
+		got, err := reparsed.semanticDigest()
+		if err != nil {
+			return fmt.Errorf("hash staged map: %w", err)
+		}
+		validation.digest, validation.digested = got, true
 	}
-	if got != want {
-		return fmt.Errorf("staged map semantic hash mismatch: got %x, want %x", got, want)
+	if validation.digest != want {
+		return fmt.Errorf("staged map semantic hash mismatch: got %x, want %x", validation.digest, want)
 	}
 	return nil
 }

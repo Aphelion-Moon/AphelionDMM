@@ -2,6 +2,8 @@ package dmmdata
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -85,6 +87,31 @@ func BenchmarkSemanticDigest(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if _, err := data.semanticDigest(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkValidateSavedPair(b *testing.B) {
+	data := repeatedDigestMap(255, fixtureData("").Dictionary["a"])
+	data.LineBreak, data.KeyLength = "\n", 1
+	path := filepath.Join(b.TempDir(), "staged.dmm")
+	file, err := os.Create(path)
+	if err != nil {
+		b.Fatal(err)
+	}
+	err = data.WriteDM(file)
+	closeErr := file.Close()
+	if err != nil {
+		b.Fatal(err)
+	}
+	if closeErr != nil {
+		b.Fatal(closeErr)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if err := ValidateSavedPair(path, data, data); err != nil {
 			b.Fatal(err)
 		}
 	}
