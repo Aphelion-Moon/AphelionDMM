@@ -9,6 +9,9 @@ import (
 	// APHELION EDIT ADDITION START - SELECTION GRID STEP
 	"sdmm/internal/aphelion/editing"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	"sdmm/internal/aphelion/repath"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/window"
 
@@ -95,6 +98,12 @@ func (a *app) loadPreferencesConfig() {
 	shortcut.UseSettings(cfg.Shortcuts)
 	if cfg.Mapper == nil {
 		cfg.Mapper = &editing.MapperSettings{Density: 1, Seed: "1", Palette: editing.RandomPalette{Version: 1, Name: "Palette"}}
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	if cfg.PathMigration == nil {
+		settings := repath.DefaultSettings()
+		cfg.PathMigration = &settings
 	}
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION GRID STEP

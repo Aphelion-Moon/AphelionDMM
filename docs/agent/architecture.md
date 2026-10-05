@@ -119,6 +119,23 @@ through the shared async cache. That cache retains sprite handles across bounded
 transient retries and explicit retries, publishes appearance revisions on the UI
 thread, and rejects completions from old environment generations.
 
+Path migration (`internal/aphelion/repath`) resolves map content whose type paths
+the loaded environment does not define. The engine is pure: it reads the
+environment through `TypeSource`, an accepted revision through tile readers,
+and tgstation UpdatePaths scripts through `repath/updatepaths`, then ranks
+candidates by confidence tier. Only Certain results (scripts, remembered rules)
+and, by preference, High results are selected without a person; deletion,
+root-type changes and lossy parent fallbacks always need one. A compiled plan
+rewrites only paths that were unknown when it was made, keeps stable IDs and
+map-edited variables, and fails closed if a tile would gain or lose an area or
+turf. The editor applies it as one operation and one history entry: the local
+work owner for unshared maps, one tile-change submission for sessions, refused
+before mutation when a session without bulk edits would exceed the operation
+limit. The `repath/ui` controller keeps analysis current per accepted revision
+and only writes remembered decisions or codebase scripts when preferences allow
+it. A reference environment is parsed on a worker and never replaces the loaded
+environment, icon cache or map defaults.
+
 ```text
 Desktop UI ---- local executor -----+
                                      |
@@ -140,6 +157,7 @@ New Aphelion-owned packages:
 - `internal/aphelion/collab/client`: desktop transport and reconciliation.
 - `internal/aphelion/collab/store`: snapshots and operation-log persistence.
 - `cmd/apheliondmm-collab`: the collaboration service executable.
+- `internal/aphelion/repath`: unknown type path migration; `updatepaths` parses and evaluates UpdatePaths scripts, `envtypes` adapts a parsed environment, `ui` is the panel.
 
 ## Dependency rules
 

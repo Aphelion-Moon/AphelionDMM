@@ -62,12 +62,25 @@ func (p *Panel) Process() {
 }
 
 func (p *Panel) ProcessV(instance *dmminstance.Instance) {
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	reason := p.unavailableReason(instance)
+	imgui.BeginDisabledV(reason != "")
+	// APHELION EDIT ADDITION END
 	imgui.BeginDisabledV(!dm.IsMovable(instance.Prefab().Path()))
 	p.showNudgeOption("Nudge X", true, instance)
 	p.showNudgeOption("Nudge Y", false, instance)
 	imgui.EndDisabled()
 
 	p.showDirOption(instance)
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	imgui.EndDisabled()
+	if reason != "" {
+		imgui.TextDisabled("Quick edit unavailable: unknown type")
+		if imgui.IsItemHovered() {
+			imgui.SetTooltip(reason)
+		}
+	}
+	// APHELION EDIT ADDITION END
 }
 
 func (p *Panel) showNudgeOption(label string, xAxis bool, instance *dmminstance.Instance) {
@@ -97,6 +110,11 @@ func (p *Panel) showNudgeOption(label string, xAxis bool, instance *dmminstance.
 	value := int32(pixelX)
 
 	onChange := func() {
+		// APHELION EDIT ADDITION START - UNKNOWN TYPES
+		if p.unavailableReason(instance) != "" {
+			return
+		}
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - PROPERTY CAPTURE
 		if !p.editor.TryBeginTileChange(instance.Coord()) {
 			return
@@ -111,6 +129,11 @@ func (p *Panel) showNudgeOption(label string, xAxis bool, instance *dmminstance.
 		p.editor.UpdateCanvasByCoords([]util.Point{instance.Coord()})
 	}
 	applyChange := func() {
+		// APHELION EDIT ADDITION START - UNKNOWN TYPES
+		if p.unavailableReason(instance) != "" {
+			return
+		}
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - PROPERTY CAPTURE
 		if !p.editor.TryBeginTileChange(instance.Coord()) {
 			p.editor.CommitOperation("Quick Edit: " + label)
@@ -185,6 +208,11 @@ func (p *Panel) showDirOption(instance *dmminstance.Instance) {
 	label := fmt.Sprint("Dir##dir_", p.editor.Dmm().Name)
 
 	onChange := func() {
+		// APHELION EDIT ADDITION START - UNKNOWN TYPES
+		if p.unavailableReason(instance) != "" {
+			return
+		}
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - PROPERTY CAPTURE
 		if !p.editor.TryBeginTileChange(instance.Coord()) {
 			return
@@ -200,6 +228,11 @@ func (p *Panel) showDirOption(instance *dmminstance.Instance) {
 		p.editor.UpdateCanvasByCoords([]util.Point{instance.Coord()})
 	}
 	applyChange := func() {
+		// APHELION EDIT ADDITION START - UNKNOWN TYPES
+		if p.unavailableReason(instance) != "" {
+			return
+		}
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - PROPERTY CAPTURE
 		if !p.editor.TryBeginTileChange(instance.Coord()) {
 			p.editor.CommitOperation("Quick Edit: Dir")
@@ -252,15 +285,51 @@ func (p *Panel) isScrollEdit() bool {
 
 func (p *Panel) sanitizeInstanceVar(instance *dmminstance.Instance, varName, defaultValue string) {
 	vars := instance.Prefab().Vars()
-	if p.initialVarValue(instance.Prefab().Path(), varName) == vars.ValueV(varName, defaultValue) {
+	// APHELION EDIT CHANGE - UNKNOWN TYPES - ORIGINAL: if p.initialVarValue(instance.Prefab().Path(), varName) == vars.ValueV(varName, defaultValue) {
+	if initial, ok := p.initialVarValue(instance.Prefab().Path(), varName); ok && initial == vars.ValueV(varName, defaultValue) {
 		vars = dmvars.Delete(vars, varName)
 		instance.SetPrefab(dmmprefab.New(dmmprefab.IdNone, instance.Prefab().Path(), vars))
 	}
 }
 
+/* APHELION EDIT REMOVAL START - UNKNOWN TYPES
 func (p *Panel) initialVarValue(path, varName string) string {
 	return p.app.LoadedEnvironment().Objects[path].Vars.ValueV(varName, dmvars.NullValue)
 }
+APHELION EDIT REMOVAL END */
+
+// APHELION EDIT ADDITION START - UNKNOWN TYPES
+
+// initialVarValue reports false for an unknown type, which has no environment
+// default. Its explicit variables are then kept rather than sanitized away.
+func (p *Panel) initialVarValue(path, varName string) (string, bool) {
+	object := p.environmentObject(path)
+	if object == nil {
+		return "", false
+	}
+	return object.Vars.ValueV(varName, dmvars.NullValue), true
+}
+
+func (p *Panel) environmentObject(path string) *dmenv.Object {
+	environment := p.app.LoadedEnvironment()
+	if environment == nil {
+		return nil
+	}
+	return environment.Objects[path]
+}
+
+// unavailableReason explains why quick edits are refused for the instance, or
+// returns "" when they are allowed. Unknown types are preserved in maps, but
+// their default-dependent edits are disabled like the variable editor's.
+func (p *Panel) unavailableReason(instance *dmminstance.Instance) string {
+	path := instance.Prefab().Path()
+	if p.environmentObject(path) != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s is not defined by the loaded environment, so quick edits are disabled to preserve its variables.", path)
+}
+
+// APHELION EDIT ADDITION END
 
 func (p *Panel) getIconMaxDirs(vars *dmvars.Variables) int32 {
 	icon := vars.TextV("icon", "")

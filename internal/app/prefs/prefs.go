@@ -4,6 +4,9 @@ package prefs
 import (
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/aphelion/hotkeys"
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	"sdmm/internal/aphelion/repath"
+	// APHELION EDIT ADDITION END
 )
 
 // APHELION EDIT ADDITION END
@@ -16,6 +19,9 @@ type Prefs struct {
 	// APHELION EDIT ADDITION START - EDITABLE SHORTCUTS
 	Shortcuts *hotkeys.Settings
 	Mapper    *editing.MapperSettings
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	PathMigration *repath.Settings
 	// APHELION EDIT ADDITION END
 }
 

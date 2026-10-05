@@ -672,7 +672,17 @@ func (a *app) DoSelectPrefab(prefab *dmmprefab.Prefab) {
 // DoSelectPrefabByPath globally selects a prefab with provided type path.
 func (a *app) DoSelectPrefabByPath(path string) {
 	log.Print("select prefab by path:", path)
+	/* APHELION EDIT REMOVAL START - UNKNOWN TYPES
 	a.DoSelectPrefab(dmmap.PrefabStorage.Initial(path))
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	prefab, ok := dmmap.PrefabStorage.InitialV(path)
+	if !ok {
+		log.Warn().Str("path", path).Msg("select prefab by path refused: the loaded environment does not define this type")
+		return
+	}
+	a.DoSelectPrefab(prefab)
+	// APHELION EDIT ADDITION END
 }
 
 // DoEditInstance enables an editing for the provided instance.
@@ -690,7 +700,17 @@ func (a *app) DoEditPrefab(prefab *dmmprefab.Prefab) {
 // DoEditPrefabByPath enables an editing for the provided prefab by its path.
 func (a *app) DoEditPrefabByPath(path string) {
 	log.Print("edit prefab by path:", path)
+	/* APHELION EDIT REMOVAL START - UNKNOWN TYPES
 	a.DoEditPrefab(dmmap.PrefabStorage.Initial(path))
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	prefab, ok := dmmap.PrefabStorage.InitialV(path)
+	if !ok {
+		log.Warn().Str("path", path).Msg("edit prefab by path refused: the loaded environment does not define this type")
+		return
+	}
+	a.DoEditPrefab(prefab)
+	// APHELION EDIT ADDITION END
 }
 
 // DoSearchPrefab does a search of the provided prefab ID.

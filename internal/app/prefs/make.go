@@ -5,6 +5,9 @@ import (
 	// APHELION EDIT ADDITION START - SELECTION GRID STEP
 	"sdmm/internal/aphelion/editing"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	"sdmm/internal/aphelion/repath"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/ui/cpwsarea/wsprefs"
 	"sdmm/internal/app/window"
@@ -126,6 +129,56 @@ func Make(app App, prefs *Prefs) wsprefs.Prefs {
 			},
 		},
 	}
+
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	if settings := prefs.PathMigration; settings != nil {
+		preferencesPrefabs[wsprefs.GPEditor] = append(preferencesPrefabs[wsprefs.GPEditor],
+			boolPrefPrefab{
+				name:  "Path Migration: Open on Unknown Types",
+				desc:  "Show the Path Migration panel when an opened map uses types the environment does not define.",
+				label: "##path_migration_open",
+				value: &settings.OpenOnUnknown,
+			},
+			optionPrefPrefab{
+				name:    "Path Migration: Automatic Selection",
+				desc:    "Which suggestions are selected without a person. Nothing changes the map until Apply, unless the next option is enabled.",
+				label:   "##path_migration_auto",
+				value:   &settings.Auto,
+				options: repath.AutoModes,
+			},
+			boolPrefPrefab{
+				name:  "Path Migration: Apply Certain Results on Open",
+				desc:  "Apply Certain selections (UpdatePaths scripts and remembered decisions) as one undoable edit when a map opens.",
+				label: "##path_migration_apply_on_open",
+				value: &settings.ApplyCertainOnOpen,
+			},
+			boolPrefPrefab{
+				name:  "Path Migration: Read Codebase Scripts",
+				desc:  "Read tools/UpdatePaths/Scripts from the loaded codebase.",
+				label: "##path_migration_read_scripts",
+				value: &settings.ReadCodebaseScripts,
+			},
+			boolPrefPrefab{
+				name:  "Path Migration: Offer to Remember Decisions",
+				desc:  "Show a Remember option that keeps chosen rules for maps of the same environment in editor configuration.",
+				label: "##path_migration_remember",
+				value: &settings.RememberDecisions,
+			},
+			boolPrefPrefab{
+				name:  "Path Migration: Remember Reference Environment",
+				desc:  "Reload the last reference environment when this environment opens.",
+				label: "##path_migration_remember_reference",
+				value: &settings.RememberReferencePath,
+			},
+			boolPrefPrefab{
+				name:  "Path Migration: Allow Saving into Codebase",
+				desc:  "Allow saving exported scripts into the codebase's tools/UpdatePaths/Scripts directory.",
+				label: "##path_migration_write_scripts",
+				value: &settings.WriteCodebaseScripts,
+			},
+		)
+	}
+	// APHELION EDIT ADDITION END
 
 	for group, prefabs := range preferencesPrefabs {
 		for _, prefab := range prefabs {

@@ -258,6 +258,13 @@ type NetworkExecutor struct {
 	authorityOwners map[model.StableID]model.Coord
 }
 
+// BulkEditsEnabled reports whether the session accepts operations above
+// protocol.MaxOperationChanges. Transports without bulk support never do.
+func (e *NetworkExecutor) BulkEditsEnabled() bool {
+	bulk, ok := e.transport.(interface{ BulkEditsEnabled() bool })
+	return ok && bulk.BulkEditsEnabled()
+}
+
 func NewNetworkExecutor(transport Transport, snapshot model.Snapshot, actor model.ActorID, sessionID string) (*NetworkExecutor, error) {
 	if transport == nil {
 		return nil, fmt.Errorf("network executor transport is nil")

@@ -58,6 +58,9 @@ type app interface {
 	DoSearch()
 	DoDeselect()
 	DoOpenJumpWindow()
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	DoOpenPathMigration()
+	// APHELION EDIT ADDITION END
 
 	// View
 	DoAreaBorders()
@@ -251,6 +254,11 @@ func (m *Menu) Process() {
 				Enabled(m.app.HasActiveMap()).
 				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "G")
 				Shortcut(shortcut.Label("menu#DoOpenJumpWindow")),
+			// APHELION EDIT ADDITION START - PATH MIGRATION
+			w.MenuItem("Resolve Unknown Types...", m.app.DoOpenPathMigration).
+				IconEmpty().
+				Enabled(m.app.HasLoadedEnvironment()),
+			// APHELION EDIT ADDITION END
 			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
 			w.Custom(func() {
 				shortcut.ProcessPopup("menu#DoUndo", "menu#DoRedo", "menu#DoCopy", "menu#DoPaste", "menu#DoCut", "menu#DoDelete", "pmap#doDeselectAll", "menu#DoSearch", "menu#DoOpenJumpWindow")

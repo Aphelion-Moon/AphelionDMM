@@ -67,8 +67,16 @@ func newPrefabNodes(prefabs dmmdata.Prefabs) []*prefabNode {
 
 		if idx == -1 {
 			// If the initial prefab index is still -1, then we don't have it.  We will add the one.
+			/* APHELION EDIT REMOVAL START - UNKNOWN TYPES
 			initialPrefab := dmmap.PrefabStorage.Initial(prefabs[0].Path())
 			nodes = append([]*prefabNode{newPrefabNode(initialPrefab)}, nodes...)
+			APHELION EDIT REMOVAL END */
+			// APHELION EDIT ADDITION START - UNKNOWN TYPES
+			// Unknown types have no environment defaults; list only their preserved prefabs.
+			if initialPrefab, ok := dmmap.PrefabStorage.InitialV(prefabs[0].Path()); ok {
+				nodes = append([]*prefabNode{newPrefabNode(initialPrefab)}, nodes...)
+			}
+			// APHELION EDIT ADDITION END
 		} else {
 			// Move the initial prefab to the beginning of the slice
 			initial := nodes[idx]

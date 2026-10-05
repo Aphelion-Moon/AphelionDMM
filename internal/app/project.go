@@ -15,7 +15,7 @@ import (
 	// "runtime"
 	// APHELION EDIT REMOVAL END
 	"sdmm/third_party/sdmmparser"
-	"sort"
+	// APHELION EDIT REMOVAL - PATH MIGRATION: "sort"
 	"time"
 
 	"sdmm/internal/app/ui/cpwsarea/workspace"
@@ -417,6 +417,14 @@ func (a *app) installOpenMap(path string, workspace *workspace.Workspace, dmm *d
 		// APHELION EDIT ADDITION END
 		a.layout.Prefabs.Sync()
 
+		// APHELION EDIT ADDITION START - PATH MIGRATION
+		// The Path Migration panel replaces the read-only list below. It counts
+		// instances from the accepted map, so unknownPrefabs is only a trigger.
+		if len(unknownPrefabs) != 0 {
+			a.offerPathMigration(dmm.Path.Absolute)
+		}
+		// APHELION EDIT ADDITION END
+		/* APHELION EDIT REMOVAL START - PATH MIGRATION
 		// TODO: processing for unknown prefabs
 		if len(unknownPrefabs) != 0 {
 			// Collect keys
@@ -444,6 +452,7 @@ func (a *app) installOpenMap(path string, workspace *workspace.Workspace, dmm *d
 				),
 			})
 		}
+		APHELION EDIT REMOVAL END */
 	}
 	a.layout.Search.Free()
 

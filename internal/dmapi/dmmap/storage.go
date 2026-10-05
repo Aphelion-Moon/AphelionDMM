@@ -1,6 +1,9 @@
 package dmmap
 
 import (
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	"sdmm/internal/dmapi/dmenv"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmvars"
 
@@ -78,8 +81,43 @@ func (s *prefabStorage) Put(prefab *dmmprefab.Prefab) *dmmprefab.Prefab {
 
 // Initial returns a prefab with an initial state (initial prefabs).
 func (s *prefabStorage) Initial(path string) *dmmprefab.Prefab {
+	/* APHELION EDIT REMOVAL START - UNKNOWN TYPES
 	return s.Get(path, dmvars.FromParent(environment.Objects[path].Vars))
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	// Returns nil for a type the loaded environment does not define. Callers
+	// with map-derived paths use InitialV and refuse instead.
+	prefab, _ := s.InitialV(path)
+	return prefab
+	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION START - UNKNOWN TYPES
+
+// InitialV returns the initial prefab for a type defined by the loaded
+// environment. Unknown types are preserved in maps but have no environment
+// defaults, so it reports false without creating or persisting a prefab.
+func (s *prefabStorage) InitialV(path string) (*dmmprefab.Prefab, bool) {
+	object := environmentObject(path)
+	if object == nil {
+		return nil, false
+	}
+	return s.Get(path, dmvars.FromParent(object.Vars)), true
+}
+
+// IsKnownType reports whether the loaded environment defines the type path.
+func IsKnownType(path string) bool {
+	return environmentObject(path) != nil
+}
+
+func environmentObject(path string) *dmenv.Object {
+	if environment == nil {
+		return nil
+	}
+	return environment.Objects[path]
+}
+
+// APHELION EDIT ADDITION END
 
 // Get returns a prefab for the provided path and variables.
 func (s *prefabStorage) Get(path string, vars *dmvars.Variables) *dmmprefab.Prefab {

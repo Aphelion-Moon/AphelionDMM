@@ -13,4 +13,7 @@ const (
 	// APHELION EDIT ADDITION START - COLLABORATION
 	NameCollaboration = "Collaboration Session"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	NamePathMigration = "Path Migration"
+	// APHELION EDIT ADDITION END
 )
