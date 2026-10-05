@@ -269,6 +269,19 @@ jobs:
             dst/bin/**
             dst/archive/**
 
+      # APHELION EDIT ADDITION START - RELEASE NOTES
+      - name: Resolve Release Notes
+        id: notes
+        run: |
+          notes="docs/releases/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes" ]; then
+            echo "path=$notes" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No $notes found; falling back to generated release notes."
+            echo "path=" >> "$GITHUB_OUTPUT"
+          fi
+      # APHELION EDIT ADDITION END
+
       - name: Release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         env:
@@ -276,6 +289,10 @@ jobs:
         with:
           draft: true
           prerelease: false
+          # APHELION EDIT ADDITION START - RELEASE NOTES
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}
+          # APHELION EDIT ADDITION END
           files: |
             dst/bin/**
             dst/archive/**
