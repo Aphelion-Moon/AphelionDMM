@@ -158,7 +158,7 @@ func visiblePrefabs(state model.TileState, visible func(string) bool) (model.Til
 			return model.TileState{}, fmt.Errorf("instance has an empty path")
 		}
 		if visible(prefab.Path) {
-			filtered.Prefabs = append(filtered.Prefabs, model.CloneTileState(model.TileState{Prefabs: []model.PrefabState{prefab}}).Prefabs[0])
+			filtered.Prefabs = append(filtered.Prefabs, clonePrefabState(prefab))
 		}
 	}
 	return filtered, nil
@@ -283,11 +283,11 @@ func (p *MovePayload) buildMoveChanges(ctx context.Context, shift util.Point, vi
 		after := model.TileState{Prefabs: make([]model.PrefabState, 0, len(before.Prefabs)+len(incoming[coord]))}
 		for _, prefab := range before.Prefabs {
 			if !visible(prefab.Path) {
-				after.Prefabs = append(after.Prefabs, model.CloneTileState(model.TileState{Prefabs: []model.PrefabState{prefab}}).Prefabs[0])
+				after.Prefabs = append(after.Prefabs, clonePrefabState(prefab))
 			}
 		}
 		for _, prefab := range incoming[coord] {
-			after.Prefabs = append(after.Prefabs, model.CloneTileState(model.TileState{Prefabs: []model.PrefabState{prefab}}).Prefabs[0])
+			after.Prefabs = append(after.Prefabs, clonePrefabState(prefab))
 		}
 		if defaults != nil {
 			if err := ensureMoveDefault(&after, "/area", defaults.Area); err != nil {
@@ -317,7 +317,7 @@ func ensureMoveDefault(state *model.TileState, path string, prototype model.Pref
 	if err != nil {
 		return err
 	}
-	prefab := model.CloneTileState(model.TileState{Prefabs: []model.PrefabState{prototype}}).Prefabs[0]
+	prefab := clonePrefabState(prototype)
 	prefab.StableID = stableID
 	state.Prefabs = append(state.Prefabs, prefab)
 	return nil
@@ -337,11 +337,22 @@ func (p *MovePayload) validateSourceContext(ctx context.Context, visible func(st
 		if !ok {
 			return fmt.Errorf("move source (%d,%d,%d) is unavailable", tile.source.X, tile.source.Y, tile.source.Z)
 		}
-		filtered, err := visiblePrefabs(current, visible)
-		if err != nil {
-			return err
+		matched, count := true, 0
+		for i, prefab := range current.Prefabs {
+			if prefab.Path == "" {
+				return fmt.Errorf("instance has an empty path")
+			}
+			if !visible(prefab.Path) {
+				continue
+			}
+			// Borrow one-entry views for the model's exact equality contract;
+			// validation does not retain or mutate either source.
+			if count >= len(tile.state.Prefabs) || !(model.TileState{Prefabs: current.Prefabs[i : i+1]}).Equal(model.TileState{Prefabs: tile.state.Prefabs[count : count+1]}) {
+				matched = false
+			}
+			count++
 		}
-		if !filtered.Equal(tile.state) {
+		if !matched || count != len(tile.state.Prefabs) {
 			return fmt.Errorf("move source changed at (%d,%d,%d)", tile.source.X, tile.source.Y, tile.source.Z)
 		}
 	}

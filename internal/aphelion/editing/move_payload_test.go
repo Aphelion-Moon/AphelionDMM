@@ -2,12 +2,88 @@ package editing
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/util"
 )
+
+func TestMovePayloadValidatesVisibleSourceWithoutCopies(t *testing.T) {
+	selection := RectangleSelection(util.Bounds{X1: 1, Y1: 1, X2: 1, Y2: 1}, 1)
+	initial := model.TileState{Prefabs: []model.PrefabState{
+		{StableID: "01890f3e-7b5c-7abc-8def-000000000001", Path: "/obj/a", Vars: map[string]string{"dir": "2", "empty": ""}},
+		{Path: "/obj/hidden", Vars: map[string]string{"dir": "4"}},
+		{StableID: "01890f3e-7b5c-7abc-8def-000000000002", Path: "/obj/b"},
+	}}
+	current := model.CloneTileState(initial)
+	lookup := func(model.Coord) (model.TileState, bool) { return current, true }
+	visible := func(path string) bool { return path != "/obj/hidden" }
+	payload, err := CompileMovePayload(context.Background(), selection, visible, lookup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name  string
+		edit  func()
+		valid bool
+	}{
+		{"unchanged", func() {}, true},
+		{"hidden change", func() { current.Prefabs[1].Vars["dir"] = "8" }, true},
+		{"empty variables", func() { current.Prefabs[2].Vars = map[string]string{} }, true},
+		{"visible value", func() { current.Prefabs[0].Vars["dir"] = "8" }, false},
+		{"empty variable renamed", func() { delete(current.Prefabs[0].Vars, "empty"); current.Prefabs[0].Vars["other"] = "" }, false},
+		{"identity", func() { current.Prefabs[0].StableID = current.Prefabs[2].StableID }, false},
+		{"path", func() { current.Prefabs[0].Path = "/obj/c" }, false},
+		{"order", func() { current.Prefabs[0], current.Prefabs[2] = current.Prefabs[2], current.Prefabs[0] }, false},
+		{"removed", func() { current.Prefabs = current.Prefabs[:2] }, false},
+		{"added", func() { current.Prefabs = append(current.Prefabs, current.Prefabs[0]) }, false},
+		{"malformed hidden", func() { current.Prefabs[1].Path = "" }, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			current = model.CloneTileState(initial)
+			test.edit()
+			if err := payload.ValidateSource(visible, lookup); (err == nil) != test.valid {
+				t.Fatalf("valid=%t: %v", test.valid, err)
+			}
+		})
+	}
+	current = model.CloneTileState(initial)
+	if allocs := testing.AllocsPerRun(10, func() {
+		if err := payload.ValidateSource(visible, lookup); err != nil {
+			t.Fatal(err)
+		}
+	}); allocs != 0 {
+		t.Fatalf("read-only source validation allocated %.0f times", allocs)
+	}
+}
+
+func BenchmarkMovePayloadValidateSource(b *testing.B) {
+	const width = 64
+	selection := RectangleSelection(util.Bounds{X1: 1, Y1: 1, X2: width, Y2: width}, 1)
+	base := make(map[model.Coord]model.TileState, width*width)
+	selection.Visit(func(point util.Point) {
+		coord := model.Coord{X: point.X, Y: point.Y, Z: point.Z}
+		base[coord] = model.TileState{Prefabs: []model.PrefabState{{
+			StableID: model.StableID(fmt.Sprintf("01890f3e-7b5c-7abc-8def-%012x", point.Y*width+point.X)),
+			Path:     "/obj/test", Vars: map[string]string{"dir": "2", "pixel_x": "1"},
+		}}}
+	})
+	lookup := func(coord model.Coord) (model.TileState, bool) { state, ok := base[coord]; return state, ok }
+	visible := func(string) bool { return true }
+	payload, err := CompileMovePayload(context.Background(), selection, visible, lookup)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if err := payload.ValidateSource(visible, lookup); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 
 func TestMovePayloadComposesSparseUnionAndPreservesSourceIdentity(t *testing.T) {
 	selection, err := MaskSelection([]util.Point{{X: 1, Y: 1, Z: 1}, {X: 4, Y: 1, Z: 1}})
