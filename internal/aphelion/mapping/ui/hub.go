@@ -1,7 +1,9 @@
 package mappingui
 
 import (
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/SpaiR/imgui-go"
@@ -23,11 +25,12 @@ type mapHost interface {
 // requests, accepted source snapshots, choices or canvas resources.
 type Hub struct {
 	component.Component
-	app            App
-	sessions       map[string]*Panel
-	contextCameras map[string]render.Camera
-	cursor         int
-	unavailable    map[string]string
+	app               App
+	sessions          map[string]*Panel
+	contextCameras    map[string]render.Camera
+	cursor            int
+	unavailable       map[string]string
+	detachedAuthoring []*authoringUI
 }
 
 func NewHub(app App) *Hub { return &Hub{app: app, sessions: map[string]*Panel{}} }
@@ -114,6 +117,7 @@ func (h *Hub) CloseSource(path string) {
 		}
 		p.open = false
 		p.Invalidate()
+		h.detachAuthoring(p)
 		delete(h.sessions, viewKey(path))
 	}
 	for _, p := range h.sessions {
@@ -128,9 +132,21 @@ func (h *Hub) Invalidate() {
 	for key, p := range h.sessions {
 		p.open = false
 		p.Invalidate()
+		h.detachAuthoring(p)
 		delete(h.sessions, key)
 	}
 }
+
+// Invalidation cancels staging, but a late result still owns its reservation
+// and a partially written export still needs an accessible recovery owner.
+func (h *Hub) detachAuthoring(p *Panel) {
+	if p.author.results != nil || p.author.proposal != nil {
+		author := p.author
+		h.detachedAuthoring = append(h.detachedAuthoring, &author)
+	}
+	p.author = authoringUI{}
+}
+
 func (h *Hub) Advance() {
 	if host, ok := h.app.(mapHost); ok {
 		open := map[string]bool{}
@@ -146,8 +162,19 @@ func (h *Hub) Advance() {
 	for _, p := range h.sessions {
 		p.advance()
 	}
+	h.detachedAuthoring = slices.DeleteFunc(h.detachedAuthoring, func(author *authoringUI) bool {
+		author.advance()
+		return author.results == nil && author.proposal == nil
+	})
 }
 func (h *Hub) Process(int32) {
+	for _, author := range h.detachedAuthoring {
+		imgui.PushID(fmt.Sprintf("detached-authoring-%p", author))
+		imgui.TextWrapped("Source export from a closed map or project")
+		author.proposalControls()
+		imgui.Separator()
+		imgui.PopID()
+	}
 	path := h.app.ActiveMappingPath()
 	if path == "" {
 		imgui.TextWrapped("Open a map to inspect its composition.")

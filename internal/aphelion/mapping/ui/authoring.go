@@ -153,13 +153,6 @@ func (p *Panel) authoringControls() {
 		imgui.InputInt("Trait-relative Z", &a.destination[2])
 	}
 	canStage := a.results == nil && (a.proposal == nil || !a.proposal.SourceWritten())
-	if !canStage && a.proposal != nil && a.proposal.SourceWritten() {
-		imgui.TextWrapped("Complete or explicitly discard the pending configuration recovery before staging another export.")
-		if imgui.Button("Discard configuration recovery; keep created source") {
-			a.proposal.Close()
-			a.proposal = nil
-		}
-	}
 	if imgui.Button("Stage proposal") && canStage {
 		path := a.target
 		if !filepath.IsAbs(path) {
@@ -201,6 +194,16 @@ func (p *Panel) authoringControls() {
 			}()
 		}
 	}
+	a.proposalControls()
+}
+
+func (a *authoringUI) proposalControls() {
+	if a.proposal != nil && a.proposal.SourceWritten() {
+		imgui.TextWrapped("Complete or explicitly discard the pending configuration recovery before staging another export.")
+		if imgui.Button("Discard configuration recovery; keep created source") {
+			a.discardRecovery()
+		}
+	}
 	if a.proposal != nil {
 		proposal := a.proposal
 		imgui.TextWrapped(fmt.Sprintf("%s\n%d×%d; source origin %d,%d,%d\n%s\n%s", proposal.SourcePath, proposal.Width, proposal.Height, proposal.Origin.X, proposal.Origin.Y, proposal.Origin.Z, proposal.ConfigPath, proposal.Summary))
@@ -212,40 +215,59 @@ func (p *Panel) authoringControls() {
 			imgui.TreePop()
 		}
 		if proposal.SourceWritten() && imgui.Button("Restage remaining configuration for review") && a.results == nil {
-			a.proposal = nil
-			results := make(chan authoringResult, 1)
-			a.results = results
-			generation := a.generation
-			go func() {
-				err := proposal.RestageConfiguration()
-				if err != nil {
-					results <- authoringResult{generation: generation, err: err, proposal: proposal}
-					return
-				}
-				results <- authoringResult{generation: generation, proposal: proposal}
-			}()
+			a.restageProposal()
 		}
 		if imgui.Button("Write reviewed proposal") && a.results == nil {
-			if !proposal.SourceWritten() && (a.current == nil || !a.current()) {
-				a.status = "Source changed or has a pending edit; stage a new proposal."
-			} else {
-				a.proposal = nil
-				ctx, cancel := context.WithCancel(context.Background())
-				a.cancel = cancel
-				results := make(chan authoringResult, 1)
-				a.results = results
-				go func() {
-					result := proposal.Apply(ctx)
-					var recovery *mapping.AuthoringProposal
-					if result.Err != nil && result.SourceWritten && !result.ConfigWritten {
-						recovery = proposal
-					} else {
-						proposal.Close()
-					}
-					results <- authoringResult{applied: &result, proposal: recovery}
-				}()
-			}
+			a.writeProposal()
 		}
 	}
 	imgui.TextWrapped(a.status)
+}
+
+func (a *authoringUI) discardRecovery() {
+	if a.results == nil && a.proposal != nil && a.proposal.SourceWritten() {
+		a.proposal.Close()
+		a.proposal = nil
+	}
+}
+
+func (a *authoringUI) restageProposal() {
+	proposal := a.proposal
+	if a.results != nil || proposal == nil || !proposal.SourceWritten() {
+		return
+	}
+	a.proposal = nil
+	results := make(chan authoringResult, 1)
+	a.results = results
+	generation := a.generation
+	go func() {
+		err := proposal.RestageConfiguration()
+		results <- authoringResult{generation: generation, err: err, proposal: proposal}
+	}()
+}
+
+func (a *authoringUI) writeProposal() {
+	proposal := a.proposal
+	if a.results != nil || proposal == nil {
+		return
+	}
+	if !proposal.SourceWritten() && (a.current == nil || !a.current()) {
+		a.status = "Source changed or has a pending edit; stage a new proposal."
+		return
+	}
+	a.proposal = nil
+	ctx, cancel := context.WithCancel(context.Background())
+	a.cancel = cancel
+	results := make(chan authoringResult, 1)
+	a.results = results
+	go func() {
+		result := proposal.Apply(ctx)
+		var recovery *mapping.AuthoringProposal
+		if result.Err != nil && result.SourceWritten && !result.ConfigWritten {
+			recovery = proposal
+		} else {
+			proposal.Close()
+		}
+		results <- authoringResult{applied: &result, proposal: recovery}
+	}()
 }
