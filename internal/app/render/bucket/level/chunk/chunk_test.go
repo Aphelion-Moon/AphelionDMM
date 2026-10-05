@@ -76,6 +76,8 @@ func TestOccurrenceMaskFiltersBeforeUnitConstruction(t *testing.T) {
 	tile := dmm.GetTile(util.Point{X: 1, Y: 1, Z: 1})
 	tile.InstancesAdd(dmmprefab.New(0, "/obj/not_materialized", (&dmvars.MutableVariables{}).ToImmutable()))
 	c := New(1, 1, 1, 1, 32)
+	// Previously populated and empty layers must disappear when filtered out.
+	c.UnitsByLayers = map[float32][]unit.Unit{1: make([]unit.Unit, 4), 2: nil}
 	seen := 0
 	c.Update(dmm, 1, func(*dmminstance.Instance) bool { seen++; return false })
 	if seen != 1 || len(c.UnitsByLayers) != 0 {
@@ -264,6 +266,9 @@ func TestChunkBatchPreservesFiltersOrderAndReplacement(t *testing.T) {
 		if calls != 12 || c.ViewBounds != bounds {
 			t.Fatalf("pass %d: filter calls=%d, bounds=%+v, want 12, %+v", pass, calls, c.ViewBounds, bounds)
 		}
+		if len(c.UnitsByLayers) != len(want) {
+			t.Fatalf("pass %d retained removed layers: got %d, want %d", pass, len(c.UnitsByLayers), len(want))
+		}
 		for layer, expected := range want {
 			got := c.UnitsByLayers[layer]
 			if len(got) != len(expected) {
@@ -275,7 +280,12 @@ func TestChunkBatchPreservesFiltersOrderAndReplacement(t *testing.T) {
 				}
 			}
 		}
-		dmm.Tiles[0].Instances()[0].SetPrefab(dmmprefab.New(0, prefab.Path(), dmvars.Set(prefab.Vars(), "pixel_x", "53")))
+		for _, tile := range dmm.Tiles {
+			for _, instance := range tile.Instances() {
+				instance.SetPrefab(dmmprefab.New(0, prefab.Path(), dmvars.Set(prefab.Vars(), "layer", "5")))
+			}
+		}
+		dmm.Tiles[0].Instances()[0].SetPrefab(dmmprefab.New(0, prefab.Path(), dmvars.Set(dmm.Tiles[0].Instances()[0].Prefab().Vars(), "pixel_x", "53")))
 		blocked = dmm.Tiles[3].Instances()[1]
 	}
 }

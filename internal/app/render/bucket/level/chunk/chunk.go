@@ -66,9 +66,11 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int, filters ...func(*dmminstance.I
 	// Create a storage for our units by Layers with initial capacity.
 	// Inner slices are created with initial capacity as well.
 	unitsByLayers := make(map[float32][]unit.Unit, len(c.UnitsByLayers))
+	/* APHELION EDIT REMOVAL START - LIVE CHUNK LAYERS
 	for layer := range c.UnitsByLayers {
 		unitsByLayers[layer] = make([]unit.Unit, 0, len(c.UnitsByLayers[layer]))
 	}
+	APHELION EDIT REMOVAL END */
 	// APHELION EDIT ADDITION START - RENDER CULLING
 	viewBounds := c.baseViewBounds
 	// APHELION EDIT ADDITION END
@@ -87,7 +89,16 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int, filters ...func(*dmminstance.I
 				// APHELION EDIT ADDITION END
 				// APHELION EDIT CHANGE - BATCH UNIT PREPARATION - ORIGINAL: u := unit.Make(x, y, i, dmmap.WorldIconSize)
 				u := batch.Make(x, y, i, dmmap.WorldIconSize)
-				unitsByLayers[u.Layer()] = append(unitsByLayers[u.Layer()], u)
+				// APHELION EDIT ADDITION START - LIVE CHUNK LAYERS
+				// Retain capacity hints only for layers still present in this rebuild.
+				layer := u.Layer()
+				units, exists := unitsByLayers[layer]
+				if !exists {
+					units = make([]unit.Unit, 0, len(c.UnitsByLayers[layer]))
+				}
+				// APHELION EDIT ADDITION END
+				// APHELION EDIT CHANGE - LIVE CHUNK LAYERS - ORIGINAL: unitsByLayers[u.Layer()] = append(unitsByLayers[u.Layer()], u)
+				unitsByLayers[layer] = append(units, u)
 				// APHELION EDIT ADDITION START - RENDER CULLING
 				viewBounds = includeViewBounds(viewBounds, u.ViewBounds())
 				// APHELION EDIT ADDITION END
