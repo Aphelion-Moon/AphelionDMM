@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"fmt"
 	"math/rand"
 	"sort"
 	"strings"
@@ -94,5 +95,51 @@ func TestCanonicalEncodingMemoryIsBounded(t *testing.T) {
 	})
 	if result.AllocedBytesPerOp() > 16<<10 {
 		t.Fatalf("encoding allocated %d bytes/op for a reused 1 MiB value", result.AllocedBytesPerOp())
+	}
+}
+
+func hashVariableFixture(count int, withVars bool) Snapshot {
+	snapshot := fixtureSnapshot()
+	snapshot.MaxX = count
+	snapshot.Tiles = make([]Tile, count)
+	for i := range snapshot.Tiles {
+		prefab := PrefabState{
+			StableID: StableID(fmt.Sprintf("01890f3e-7b5c-7abc-8def-%012x", i+1)),
+			Path:     "/obj/test",
+		}
+		if withVars {
+			prefab.Vars = map[string]string{"dir": "2", "pixel_x": "-1", "pixel_y": "3"}
+		}
+		snapshot.Tiles[i] = Tile{Coord: Coord{X: i + 1, Y: 1, Z: 1}, State: TileState{Prefabs: []PrefabState{prefab}}}
+	}
+	return snapshot
+}
+
+func TestHashVariableScratchIsBounded(t *testing.T) {
+	allocations := func(withVars bool) float64 {
+		snapshot := hashVariableFixture(1024, withVars)
+		want := bufferedCanonicalHash(snapshot)
+		return testing.AllocsPerRun(5, func() {
+			got, err := snapshot.Hash()
+			if err != nil || got != want {
+				t.Fatalf("canonical hash mismatch: got %s, want %s, err %v", got, want, err)
+			}
+		})
+	}
+	// Validation and coordinate sorting allocate in both cases. Variable ordering
+	// must not add a scratch allocation for every prefab in a large map.
+	if extra := allocations(true) - allocations(false); extra > 16 {
+		t.Fatalf("variable ordering added %.0f allocations for 1024 prefabs", extra)
+	}
+}
+
+func BenchmarkSnapshotHashVariables(b *testing.B) {
+	snapshot := hashVariableFixture(1024, true)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for range b.N {
+		if _, err := snapshot.Hash(); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

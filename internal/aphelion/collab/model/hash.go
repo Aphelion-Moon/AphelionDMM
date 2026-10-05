@@ -33,6 +33,7 @@ func (snapshot Snapshot) Hash() (string, error) {
 	writeUint64(&canonical, uint64(snapshot.MaxY))
 	writeUint64(&canonical, uint64(snapshot.MaxZ))
 	writeUint64(&canonical, uint64(len(tiles)))
+	var keys []string
 	for _, tile := range tiles {
 		writeUint64(&canonical, uint64(tile.Coord.X))
 		writeUint64(&canonical, uint64(tile.Coord.Y))
@@ -42,7 +43,7 @@ func (snapshot Snapshot) Hash() (string, error) {
 			writeString(&canonical, string(prefab.StableID))
 			writeString(&canonical, prefab.Path)
 
-			keys := make([]string, 0, len(prefab.Vars))
+			keys = keys[:0]
 			for key := range prefab.Vars {
 				keys = append(keys, key)
 			}
