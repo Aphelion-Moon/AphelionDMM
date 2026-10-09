@@ -12,6 +12,9 @@ import (
 	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
 	"sdmm/internal/aphelion/lighting/maplight"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	"sdmm/internal/aphelion/ingame"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PATH MIGRATION
 	"sdmm/internal/aphelion/repath"
 	// APHELION EDIT ADDITION END
@@ -129,6 +132,10 @@ func (a *app) loadPreferencesConfig() {
 	cfg.Editor.Lighting.Darkness = max(0, min(100, cfg.Editor.Lighting.Darkness))
 	prefs.ApplyLighting(cfg.Editor)
 	maplight.SetPersist(func(enabled bool) { cfg.Editor.Lighting.Preview = enabled })
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	ingame.Apply(cfg.Editor.InGameLook)
+	ingame.SetPersist(func(enabled bool) { cfg.Editor.InGameLook = enabled })
 	// APHELION EDIT ADDITION END
 	a.validateCodeEditor(cfg)
 

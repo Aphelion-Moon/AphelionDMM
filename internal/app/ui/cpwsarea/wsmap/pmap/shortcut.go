@@ -33,6 +33,7 @@ func (p *PaneMap) addShortcuts() {
 		{"selectPickTool", tools.TNPick, glfw.Key5, glfw.KeyKP5},
 		{"selectDeleteTool", tools.TNDelete, glfw.Key6, glfw.KeyKP6},
 		{"selectReplaceTool", tools.TNReplace, glfw.Key7, glfw.KeyKP7},
+		{"selectBrushTool", tools.TNBrush, glfw.Key8, glfw.KeyKP8},
 	} {
 		p.shortcuts.Add(shortcut.Shortcut{Name: "pmap#" + binding.name, FirstKey: binding.key, FirstKeyAlt: binding.alternate, Action: func() { tools.SetSelected(binding.tool) }})
 	}

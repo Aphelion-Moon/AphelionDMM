@@ -60,6 +60,9 @@ type WsArea struct {
 		ProcessLevelBuildBudget(*render.LevelBuildBudget) bool
 	}
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - TAB CONTEXT MENU
+	tabActions []func() // run after the workspace loop
+	// APHELION EDIT ADDITION END
 }
 
 // APHELION EDIT ADDITION START - DOCUMENT COMMAND OWNERSHIP

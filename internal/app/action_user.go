@@ -670,6 +670,37 @@ func (a *app) DoSave() {
 	}
 }
 
+// APHELION EDIT ADDITION START - SAVE AS REPLACE
+
+// DoSaveAs saves the active map to a chosen file.
+func (a *app) DoSaveAs() {
+	log.Print("do save as")
+	if ws, ok := a.activeWsMap(); ok {
+		ws.SaveAs()
+	}
+}
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT ADDITION START - PLAYTEST
+
+// DoOpenPlaytestPanel shows the Playtest panel.
+func (a *app) DoOpenPlaytestPanel() { a.ShowLayout(lnode.NamePlaytest, true) }
+
+// PlaytestMap is the active map's file and whether it has unsaved edits.
+func (a *app) PlaytestMap() (string, bool, bool) {
+	ws, ok := a.activeWsMap()
+	if !ok || ws.Untitled() {
+		return "", false, false
+	}
+	return ws.Map().Dmm().Path.Absolute, ws.HasUnsavedChanges(), true
+}
+
+// PlaytestSettings are the persisted playtest settings.
+func (a *app) PlaytestSettings() *prefs.Playtest { return &a.preferencesConfig().Prefs.Editor.Playtest }
+
+// APHELION EDIT ADDITION END
+
 // DoSaveAll saves all active maps.
 func (a *app) DoSaveAll() {
 	log.Print("do save all")

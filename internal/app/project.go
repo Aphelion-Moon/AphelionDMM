@@ -9,6 +9,12 @@ import (
 	"sdmm/internal/aphelion/maplint"
 	"sdmm/internal/aphelion/mapindex"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - SPRITE DIRECTIONS
+	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/aphelion/ingame"
+	"sdmm/internal/aphelion/spritedirs"
+	"sdmm/internal/dmapi/dmvars"
+	// APHELION EDIT ADDITION END
 	"context"
 	"fmt"
 	"os"
@@ -274,6 +280,16 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 		a.pathsFilter = newPathsFilter(env)
 		// APHELION EDIT ADDITION START - PLACEMENT LINT
 		maplint.Active().Begin(env.RootFile, window.RunLater)
+		// APHELION EDIT ADDITION END
+		// APHELION EDIT ADDITION START - SPRITE DIRECTIONS
+		spritedirs.Activate(spritedirs.New(env.RootDir))
+		editing.SetSpriteDirections(spritedirs.ActiveDirs)
+		ingame.SetTypes(func(path string) *dmvars.Variables {
+			if object := env.Objects[path]; object != nil {
+				return object.Vars
+			}
+			return nil
+		})
 		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - FILTER PROFILES
 		a.layout.Environment.BindFilterEnvironment(env)
@@ -610,6 +626,11 @@ func (a *app) freeEnvironmentResources() {
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	maplint.Active().Reset()
 	a.layout.MapLint.Free()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - SPRITE DIRECTIONS
+	spritedirs.Activate(nil)
+	editing.SetSpriteDirections(nil)
+	ingame.SetTypes(nil)
 	// APHELION EDIT ADDITION END
 
 	a.layout.Prefabs.Free()

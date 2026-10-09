@@ -140,6 +140,10 @@ func actionContext(name, action, scope string, input ActionInput) ActionContext 
 		shortcutAction = "pmap#selectDeleteTool"
 	case TNReplace:
 		shortcutAction = "pmap#selectReplaceTool"
+	// APHELION EDIT ADDITION START - BRUSH TOOL
+	case TNBrush:
+		shortcutAction = "pmap#selectBrushTool"
+		// APHELION EDIT ADDITION END
 	}
 	return ActionContext{
 		ToolName:       name,

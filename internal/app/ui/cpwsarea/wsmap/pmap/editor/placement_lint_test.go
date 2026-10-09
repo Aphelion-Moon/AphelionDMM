@@ -53,6 +53,18 @@ func activateLintFiles(t *testing.T, files map[string]string) *maplint.Guard {
 	}
 	return g
 }
+// ruleFindings drops editor-audit findings (the fixture's explicit default
+// dir) so tests can check repository rules alone.
+func ruleFindings(result LintScanResult) []LintFinding {
+	var out []LintFinding
+	for _, f := range result.Findings {
+		if f.Rule != maplint.AuditRuleFile {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
 func lintPrefab(path string, kv ...string) *dmmprefab.Prefab {
 	vars := &dmvars.MutableVariables{}
 	for i := 0; i+1 < len(kv); i += 2 {
@@ -225,7 +237,7 @@ func TestLintScanReportsCoordinatesRespectsLimitAndCancel(t *testing.T) {
 	if err != nil || result.Tiles == 0 || len(result.Findings) == 0 {
 		t.Fatalf("scan = %+v err=%v", result, err)
 	}
-	for _, f := range result.Findings {
+	for _, f := range ruleFindings(result) {
 		if f.Coord != (util.Point{X: 1, Y: 1, Z: 1}) || f.Rule != "t.yml" || f.Help != "One table per tile." {
 			t.Fatalf("finding = %+v", f)
 		}

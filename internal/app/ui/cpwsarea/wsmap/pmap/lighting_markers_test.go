@@ -49,6 +49,17 @@ func TestLightingMarkerForOverlaySystemsMatchesApproximation(t *testing.T) {
 	}
 }
 
+// The lighting line sits one gap above the status strip as actually drawn,
+// so it never overlaps it even when the estimate from the pane size is off.
+func TestLightingStatusSitsAboveTheStatusStrip(t *testing.T) {
+	if got := lightingStatusBottom(700, 712); got != 700-panelPadding {
+		t.Fatalf("bottom = %v, want %v", got, 700-panelPadding)
+	}
+	if got := lightingStatusBottom(0, 712); got != 712-panelPadding {
+		t.Fatalf("before layout bottom = %v", got)
+	}
+}
+
 func TestLightingStatusText(t *testing.T) {
 	got := lightingStatusText(maplight.Report{Sources: 12, Starlight: 30, Skipped: 3}, false)
 	if got != "Lighting (approximate): 12 sources, 3 skipped" {

@@ -6,6 +6,9 @@ import (
 	// APHELION EDIT ADDITION START - SELECTION STAMPS
 	"sdmm/internal/aphelion/editing/stamps"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	"sdmm/internal/aphelion/ingame"
+	// APHELION EDIT ADDITION END
 	collabui "sdmm/internal/aphelion/collab/ui"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/prefs"
@@ -130,6 +133,9 @@ type PaneMap struct {
 	panelRightTopSize    imgui.Vec2
 	panelRightBottomSize imgui.Vec2
 	panelBottomSize      imgui.Vec2
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	panelBottomTop float32 // screen Y of the status strip's top edge
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - EDIT STATUS
 	editBubble  editBubbleState
 	areaBorders areaBorderCache
@@ -139,6 +145,9 @@ type PaneMap struct {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
 	lighting lightingPane
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	inGameVersion uint64 // geometry was built for this ingame.Version()
 	// APHELION EDIT ADDITION END
 
 	// The value of the Z-level with which the user is currently working.
@@ -254,6 +263,9 @@ func newPaneMap(app App, dmm *dmmap.Dmm, prepared *editor.PreparedOpen) *PaneMap
 	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
 	p.attachLighting()
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	p.inGameVersion = ingame.Version()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	// Register every Z and build progressively on all open paths.
 	p.canvas.Render().BeginLevelBuild(p.dmm, p.activeLevel)
@@ -322,6 +334,12 @@ func (p *PaneMap) Process() {
 		}
 	}
 	p.canvas.SetTransparent(p.contextTexture != 0)
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	if v := ingame.Version(); v != p.inGameVersion {
+		p.inGameVersion = v
+		p.canvas.Render().InvalidateLevelBuilds(p.dmm)
+	}
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
 	p.processLighting()

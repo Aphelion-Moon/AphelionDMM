@@ -290,6 +290,7 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 		t.Fatalf("Save As produced an unreadable map: %v", err)
 	}
 	app.commands.Push(command.Make("Unsaved verification edit", func() {}, func() {}))
+	workingBackup := mapState.Backup
 	mapState.Backup = filepath.Join(directory, "missing-backup.dmm")
 	beforeFailure, err := os.ReadFile(copyPath)
 	if err != nil {
@@ -301,6 +302,48 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	afterFailure, err := os.ReadFile(copyPath)
 	if err != nil || !bytes.Equal(beforeFailure, afterFailure) || !app.commands.IsModified(copyPath) {
 		t.Fatal("failed save changed file or dirty state")
+	}
+	mapState.Backup = workingBackup
+
+	// Replacing an existing map after the user confirms it. A file that changes
+	// between the confirmation and the write is refused, not overwritten.
+	replacePath := filepath.Join(directory, "existing-map.dmm")
+	if err := os.WriteFile(replacePath, []byte("existing map"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	confirmed, err := diskversion.Capture(replacePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(replacePath, []byte("changed after confirmation"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if awaitSaveResult(t, app.jobs, func(done func(bool)) { ws.saveAsReplacingAsync(replacePath, confirmed, done) }) {
+		t.Fatal("replace overwrote a destination that changed after confirmation")
+	}
+	for drained := false; !drained; {
+		select {
+		case job := <-app.jobs:
+			job()
+		default:
+			drained = true
+		}
+	}
+	if changed, _ := os.ReadFile(replacePath); string(changed) != "changed after confirmation" || ws.CommandStackId() != copyPath {
+		t.Fatal("refused replace changed the destination or the workspace identity")
+	}
+	confirmed, err = diskversion.Capture(replacePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !awaitSaveResult(t, app.jobs, func(done func(bool)) { ws.saveAsReplacingAsync(replacePath, confirmed, done) }) {
+		t.Fatal("confirmed replace of an existing map failed")
+	}
+	if ws.CommandStackId() != replacePath || ws.HasUnsavedChanges() {
+		t.Fatal("confirmed replace did not rebind and acknowledge the workspace")
+	}
+	if _, err := dmmdata.New(replacePath); err != nil {
+		t.Fatalf("replace produced an unreadable map: %v", err)
 	}
 }
 

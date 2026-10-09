@@ -33,9 +33,11 @@ var toolsOrder = []string{
 	tools.TNPick,
 	tools.TNDelete,
 	tools.TNReplace,
+	tools.TNBrush, // APHELION EDIT ADDITION - BRUSH TOOL
 }
 
 var toolsDesc = map[string]toolDesc{
+	tools.TNBrush: {btnIcon: icon.Wrench}, // APHELION EDIT ADDITION - BRUSH TOOL
 	tools.TNAdd:     {btnIcon: icon.Add},
 	tools.TNFill:    {btnIcon: icon.BorderAll},
 	tools.TNGrab:    {btnIcon: icon.BorderStyle},
@@ -306,6 +308,7 @@ func (p *PaneMap) drawToolOptionsPopup() {
 			imgui.Text("Preparing shape… Escape cancels")
 		}
 		p.showRandomFillControls()
+		p.showUtilityControls()
 		p.showAreaSelectionControls()
 		if p.editor != nil {
 			p.showStampControls()

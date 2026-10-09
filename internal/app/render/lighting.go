@@ -102,7 +102,9 @@ void main() {
 	float x = float(tile % Width + (corner & 1));
 	float y = float(tile / Width + (corner >> 1));
 	light = in_light;
-	gl_Position = Transform * vec4(vec2(x, y) * TileSize, 0.0, 1.0);
+	// z = 1 like the brush shader: the shared transform keeps its camera
+	// shift in the z column (Translate2D(...).Mat4()).
+	gl_Position = Transform * vec4(vec2(x, y) * TileSize, 1.0, 1.0);
 }
 ` + "\x00"
 

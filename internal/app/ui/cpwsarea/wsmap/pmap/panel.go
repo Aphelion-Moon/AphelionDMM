@@ -83,6 +83,10 @@ func (p *PaneMap) showPanelV(id string, panelPos panelPos, visible bool, content
 			p.panelRightBottomSize = imgui.WindowSize()
 		case pPosBottom:
 			p.panelBottomSize = imgui.WindowSize()
+			// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+			// Overlays stacked above the status strip anchor to where it really is.
+			p.panelBottomTop = imgui.WindowPos().Y
+			// APHELION EDIT ADDITION END
 		}
 	} else {
 		imgui.PopStyleVar()

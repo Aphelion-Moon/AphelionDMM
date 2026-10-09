@@ -176,6 +176,23 @@ func TestLightingPassInterpolatesCornersWithNorthUp(t *testing.T) {
 	}
 }
 
+// The light must follow the camera like the map units do. The brush transform
+// carries its shift in the z column (Translate2D is a Mat3), so a pass that
+// emits z = 0 stays pinned to the bottom-left of the canvas.
+func TestLightingPassFollowsCameraShift(t *testing.T) {
+	r, read := lightingFixture(t)
+	r.Camera.ShiftX, r.Camera.ShiftY = 32, 32
+	f := &fakeLighting{level: 1, w: 1, h: 1, tiles: uniformTile(0), seq: 1, full: true}
+	drawLit(r, f, 1)
+	px := read()
+	if got := pixel(px, 48, 48); got[0] != 0 {
+		t.Fatalf("shifted tile at (32..64) must be dark, got %v", got)
+	}
+	if got := pixel(px, 16, 16); got[0] != 255 {
+		t.Fatalf("origin must stay unlit once the camera moves, got %v", got)
+	}
+}
+
 // A partial row update must replace only that row's colours.
 func TestLightingPartialUploadUpdatesRows(t *testing.T) {
 	r, read := lightingFixture(t)

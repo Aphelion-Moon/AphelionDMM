@@ -5,6 +5,9 @@ import (
 	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
 	"sdmm/internal/aphelion/rendercache"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	"sdmm/internal/aphelion/ingame"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/render/bucket"
 	"sdmm/internal/dmapi/dmmap"
 	// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
@@ -101,6 +104,12 @@ func (r *Render) SetActiveLevel(dmm *dmmap.Dmm, activeLevel int) {
 
 // UpdateBucketV will update the bucket data by the provided level.
 func (r *Render) UpdateBucketV(dmm *dmmap.Dmm, level int, tilesToUpdate []util.Point) {
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	// A changed tile changes how its neighbours connect and smooth.
+	if ingame.Enabled() {
+		tilesToUpdate = ingame.Neighborhood(dmm, tilesToUpdate)
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
 	r.notifyTiles(level, tilesToUpdate)
 	// APHELION EDIT ADDITION END

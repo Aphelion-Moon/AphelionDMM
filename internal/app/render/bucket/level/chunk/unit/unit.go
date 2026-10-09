@@ -64,6 +64,20 @@ func Make(x, y int, i *dmminstance.Instance, iconSize int) Unit {
 	icon, _ := i.Prefab().Vars().Text("icon")
 	iconState, _ := i.Prefab().Vars().Text("icon_state")
 	dir, _ := i.Prefab().Vars().Int("dir")
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	return MakeWithAppearance(x, y, i, iconSize, icon, iconState, dir)
+}
+
+// MakeWithAppearance builds a unit drawing the given icon state instead of the
+// prefab's own; placement, colour and layer still come from the prefab.
+func MakeWithAppearance(x, y int, i *dmminstance.Instance, iconSize int, icon, iconState string, dir int) Unit {
+	return MakePart(x, y, i, i.Prefab(), iconSize, icon, iconState, dir)
+}
+
+// MakePart draws part (an atom the instance creates in game, such as a window
+// from a spawner) on the instance's tile. Picking the unit selects instance i.
+func MakePart(x, y int, i *dmminstance.Instance, part *dmmprefab.Prefab, iconSize int, icon, iconState string, dir int) Unit {
+	// APHELION EDIT ADDITION END
 	/* APHELION EDIT REMOVAL START - BATCH UNIT PREPARATION
 	pixelX, _ := i.Prefab().Vars().Int("pixel_x")
 	pixelY, _ := i.Prefab().Vars().Int("pixel_y")
@@ -73,7 +87,7 @@ func Make(x, y int, i *dmminstance.Instance, iconSize int) Unit {
 	pixelZ, _ := i.Prefab().Vars().Int("pixel_z")
 	APHELION EDIT REMOVAL END */
 	// APHELION EDIT ADDITION START - BATCH UNIT PREPARATION
-	offset := PlacementOffset(i.Prefab())
+	offset := PlacementOffset(part)
 	// APHELION EDIT ADDITION END
 
 	sp := dmicon.Cache.GetSpriteOrPlaceholderV(icon, iconState, dir)
@@ -83,10 +97,12 @@ func Make(x, y int, i *dmminstance.Instance, iconSize int) Unit {
 	y1 := float32((y-1)*iconSize + offset.Y)
 	x2 := x1 + float32(sp.IconWidth())
 	y2 := y1 + float32(sp.IconHeight())
-	r, g, b, a := parseColor(i.Prefab())
+	// APHELION EDIT CHANGE - IN-GAME LOOK - ORIGINAL: r, g, b, a := parseColor(i.Prefab())
+	r, g, b, a := parseColor(part)
 
 	return Unit{
-		sp, i, countLayer(i.Prefab()),
+		// APHELION EDIT CHANGE - IN-GAME LOOK - ORIGINAL: sp, i, countLayer(i.Prefab()),
+		sp, i, countLayer(part),
 		util.Bounds{X1: x1, Y1: y1, X2: x2, Y2: y2},
 		r, g, b, a,
 	}

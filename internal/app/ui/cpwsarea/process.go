@@ -81,6 +81,9 @@ func (w *WsArea) processWorkspaces(dockId int) {
 	for _, ws := range workspacesToClose {
 		w.closeWorkspaceGently(ws)
 	}
+	// APHELION EDIT ADDITION START - TAB CONTEXT MENU
+	w.runTabActions()
+	// APHELION EDIT ADDITION END
 }
 
 func (w *WsArea) showWorkspaceWindow(dockId int, ws *workspace.Workspace) (open bool) {
@@ -101,6 +104,9 @@ func (w *WsArea) showWorkspaceWindow(dockId int, ws *workspace.Workspace) (open 
 	}
 
 	visible := imgui.BeginV(id, &open, flags)
+	// APHELION EDIT ADDITION START - TAB CONTEXT MENU
+	w.showWorkspaceTabMenu(ws)
+	// APHELION EDIT ADDITION END
 
 	if visible {
 		if ws.Content().Ini().NoPadding {

@@ -13,6 +13,9 @@ import (
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	"sdmm/internal/app/ui/cpmaplint"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLAYTEST
+	"sdmm/internal/app/ui/cpplaytest"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpprefabs"
 	"sdmm/internal/app/ui/cpsearch"
 	"sdmm/internal/app/ui/cpvareditor"
@@ -33,6 +36,9 @@ type app interface {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	cpmaplint.App
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLAYTEST
+	cpplaytest.App
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PATH MIGRATION
 	repathui.App
@@ -85,6 +91,9 @@ type Layout struct {
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	MapLint *cpmaplint.Panel
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLAYTEST
+	Playtest *cpplaytest.Panel
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 	Composition       *mappingui.Hub
 	compositionClosed bool
@@ -113,6 +122,9 @@ func New(app app) *Layout {
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	l.MapLint = new(cpmaplint.Panel)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLAYTEST
+	l.Playtest = new(cpplaytest.Panel)
+	// APHELION EDIT ADDITION END
 
 	l.Environment.Init(app)
 	l.Prefabs.Init(app)
@@ -124,6 +136,9 @@ func New(app app) *Layout {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	l.MapLint.Init(app)
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLAYTEST
+	l.Playtest.Init(app)
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 	l.Composition = mappingui.NewHub(app)
@@ -146,7 +161,10 @@ func (l *Layout) Process() {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	l.showCollaborationNode()
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
-	l.wrapNode(lnode.NameMapLint, l.rightDownNodeId, l.MapLint)
+	l.wrapNode(lnode.NameMapLint, l.leftNodeId, l.MapLint)
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLAYTEST
+	l.wrapNode(lnode.NamePlaytest, l.leftNodeId, l.Playtest)
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 	l.Composition.Advance()
@@ -310,6 +328,20 @@ func (l *Layout) wrapNodeV(id string, dockId int32, node layoutNode, cfg wrapCfg
 	if id == lnode.NameComposition && !l.config().CompositionDocked && l.leftNodeId != 0 {
 		imgui.SetNextWindowDockIDV(int(l.leftNodeId), imgui.ConditionAlways)
 		l.config().CompositionDocked = true
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MAP LINT DOCK
+	// Saved layouts predate the panel; join Environment once instead of
+	// opening as a content-sized floating window.
+	if id == lnode.NameMapLint && !l.config().MapLintDocked && l.leftNodeId != 0 {
+		imgui.SetNextWindowDockIDV(int(l.leftNodeId), imgui.ConditionAlways)
+		l.config().MapLintDocked = true
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLAYTEST
+	if id == lnode.NamePlaytest && !l.config().PlaytestDocked && l.leftNodeId != 0 {
+		imgui.SetNextWindowDockIDV(int(l.leftNodeId), imgui.ConditionAlways)
+		l.config().PlaytestDocked = true
 	}
 	// APHELION EDIT ADDITION END
 	l.processNode(id, dockId, node, cfg)

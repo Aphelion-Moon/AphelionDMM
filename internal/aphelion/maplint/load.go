@@ -77,6 +77,7 @@ type RuleSet struct {
 	files       []*lintFile
 	idx         ruleIndex
 	unsupported []*UnsupportedError
+	audit       *Audit // set only on WithAudit copies
 }
 
 // Files returns the base names of the files that contributed at least one rule or loaded cleanly.

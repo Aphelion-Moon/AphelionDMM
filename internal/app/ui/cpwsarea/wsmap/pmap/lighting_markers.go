@@ -169,6 +169,16 @@ func (p *PaneMap) showLightingOverlay() {
 	}
 }
 
+// lightingStatusBottom is the screen Y of the lighting line's bottom edge: one
+// panel gap above the status strip as drawn this frame, or the estimate before
+// the strip has been laid out.
+func lightingStatusBottom(stripTop, estimate float32) float32 {
+	if stripTop <= 0 {
+		stripTop = estimate
+	}
+	return stripTop - panelPadding
+}
+
 // showLightingStatus shows the source/skip line and, on demand, the aggregated
 // list of skipped atoms.
 func (p *PaneMap) showLightingStatus() {
@@ -179,7 +189,7 @@ func (p *PaneMap) showLightingStatus() {
 	rep := p.lighting.ctl.Report()
 	text := lightingStatusText(rep, p.lighting.ctl.Busy())
 	popup := fmt.Sprintf(lightingStatusPopupFmt, p)
-	pos := imgui.Vec2{X: p.pos.X + panelPadding, Y: p.pos.Y + p.size.Y - p.panelBottomSize.Y - panelPadding*2}
+	pos := imgui.Vec2{X: p.pos.X + panelPadding, Y: lightingStatusBottom(p.panelBottomTop, p.pos.Y+p.size.Y-p.panelBottomSize.Y-panelPadding)}
 	imgui.SetNextWindowPosV(pos, imgui.ConditionAlways, imgui.Vec2{Y: 1})
 	imgui.SetNextWindowBgAlpha(panelAlpha)
 	if imgui.BeginV(fmt.Sprintf("lighting-status-%p", p), nil, panelFlags|imgui.WindowFlagsNoNavInputs|imgui.WindowFlagsNoNavFocus) {

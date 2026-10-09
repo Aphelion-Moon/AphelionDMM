@@ -2,7 +2,6 @@ package maplint
 
 import (
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -24,6 +23,8 @@ const (
 	KindRequiredNeighbor
 	KindBannedVariables // banned_variables: true
 	KindBannedVariable
+	KindInertDir      // audit: dir on a single-direction sprite
+	KindRedundantEdit // audit: an edit equal to the type default
 )
 
 func (k Kind) String() string {
@@ -38,6 +39,10 @@ func (k Kind) String() string {
 		return "banned_variables"
 	case KindBannedVariable:
 		return "banned_variable"
+	case KindInertDir:
+		return "inert_dir"
+	case KindRedundantEdit:
+		return "redundant_edit"
 	}
 	return "unknown"
 }
@@ -342,15 +347,10 @@ func (rs *RuleSet) checkPrepared(file string, tile []pAtom) []Violation {
 			ref.rule.eval(ref.file, ref.fileIdx, ref.ruleIdx, file, tile, i, &out)
 		}
 	}
-	sort.SliceStable(out, func(a, b int) bool {
-		x, y := out[a].order, out[b].order
-		for k := 0; k < 4; k++ {
-			if x[k] != y[k] {
-				return x[k] < y[k]
-			}
-		}
-		return false
-	})
+	if rs.audit != nil {
+		rs.audit.check(tile, &out)
+	}
+	sortViolations(out)
 	return out
 }
 

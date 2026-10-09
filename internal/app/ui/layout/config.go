@@ -13,6 +13,12 @@ type layoutConfig struct {
 	// APHELION EDIT ADDITION START - COMPOSITION DOCK
 	CompositionDocked bool
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MAP LINT DOCK
+	MapLintDocked bool
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLAYTEST
+	PlaytestDocked bool
+	// APHELION EDIT ADDITION END
 	Version uint
 	State   uint // When different with the configState const - layout will be reset.
 }

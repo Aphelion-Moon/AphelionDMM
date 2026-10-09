@@ -7,6 +7,9 @@ import (
 	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
 	"sdmm/internal/aphelion/lighting/maplight"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	"sdmm/internal/aphelion/ingame"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/aphelion/filterprofiles"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/ui/shortcut"
@@ -40,6 +43,9 @@ type app interface {
 	DoClose()
 	DoCloseAll()
 	DoSave()
+	// APHELION EDIT ADDITION START - SAVE AS REPLACE
+	DoSaveAs()
+	// APHELION EDIT ADDITION END
 	DoSaveAll()
 	DoOpenPreferences()
 	DoExit()
@@ -80,6 +86,7 @@ type app interface {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	DoOpenMapLintPanel()
+	DoOpenPlaytestPanel() // APHELION EDIT ADDITION - PLAYTEST
 	// APHELION EDIT ADDITION END
 
 	// Help
@@ -199,6 +206,11 @@ func (m *Menu) Process() {
 				Enabled(m.app.HasActiveMap()).
 				// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: Shortcut(platform.KeyModName(), "S")
 				Shortcut(shortcut.Label("menu#DoSave")),
+			// APHELION EDIT ADDITION START - SAVE AS REPLACE
+			w.MenuItem("Save As...", m.app.DoSaveAs).
+				IconEmpty().
+				Enabled(m.app.HasActiveMap()),
+			// APHELION EDIT ADDITION END
 			w.MenuItem("Save All", m.app.DoSaveAll).
 				Icon(icon.Save).
 				Enabled(m.app.HasActiveMap()).
@@ -353,7 +365,16 @@ func (m *Menu) Process() {
 			// APHELION EDIT ADDITION START - LIGHTING PREVIEW
 			w.MenuItem("Lighting Preview", func() { maplight.SetEnabled(!maplight.Current().Enabled) }).
 				IconEmpty().
+				// APHELION EDIT ADDITION START - IN-GAME LOOK
+				Shortcut(shortcut.Label("menu#ToggleLightingPreview")).
+				// APHELION EDIT ADDITION END
 				Selected(maplight.Current().Enabled),
+			// APHELION EDIT ADDITION END
+			// APHELION EDIT ADDITION START - IN-GAME LOOK
+			w.MenuItem("In-Game Look", func() { ingame.SetEnabled(!ingame.Enabled()) }).
+				IconEmpty().
+				Shortcut(shortcut.Label("menu#ToggleInGameLook")).
+				Selected(ingame.Enabled()),
 			// APHELION EDIT ADDITION END
 			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
 			w.Custom(func() {
@@ -368,6 +389,9 @@ func (m *Menu) Process() {
 			// APHELION EDIT ADDITION END
 			// APHELION EDIT ADDITION START - PLACEMENT LINT
 			w.MenuItem("Map Lint", m.app.DoOpenMapLintPanel).IconEmpty().Enabled(m.app.HasLoadedEnvironment()),
+			// APHELION EDIT ADDITION START - PLAYTEST
+			w.MenuItem("Playtest", m.app.DoOpenPlaytestPanel).IconEmpty().Enabled(m.app.HasLoadedEnvironment()),
+			// APHELION EDIT ADDITION END
 			// APHELION EDIT ADDITION END
 			// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut("F5").
 			w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut(shortcut.Label("menu#DoResetLayout")).

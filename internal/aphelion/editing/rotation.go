@@ -6,6 +6,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap"
@@ -189,7 +190,47 @@ func orientationScopeOf(prefab *dmmprefab.Prefab, lookups []PrefabLookup) orient
 	}
 	_, helper := directionalFamily(path, lookups)
 	_, explicit := vars.ExplicitValue("dir")
-	return orientationScope{dir: explicit || helper || typeOwnsDir(prefab, lookups), helper: helper}
+	// A type-declared dir on a single-direction sprite turns nothing visible;
+	// writing it would only add an inert edit to the map. Machinery is exempt:
+	// its dir often picks a pipe or conveyor side even when the map sprite has
+	// one direction (thermomachines set their icon at runtime).
+	owned := typeOwnsDir(prefab, lookups) && (DirMayBeFunctional(path) || spriteTurns(vars))
+	return orientationScope{dir: explicit || helper || owned, helper: helper}
+}
+
+var spriteDirections atomic.Pointer[func(icon, state string) (int, bool)]
+
+// SetSpriteDirections installs the loaded environment's DMI direction source
+// (nil clears it). It must be safe to call from any goroutine: paste
+// transforms rotate on workers.
+func SetSpriteDirections(dirs func(icon, state string) (int, bool)) {
+	if dirs == nil {
+		spriteDirections.Store(nil)
+		return
+	}
+	spriteDirections.Store(&dirs)
+}
+
+// DirMayBeFunctional reports types whose dir can matter in game even when the
+// map sprite has one direction, so the sprite is no evidence that dir is inert.
+func DirMayBeFunctional(path string) bool {
+	for _, root := range []string{"/obj/machinery", "/mob"} {
+		if path == root || strings.HasPrefix(path, root+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// spriteTurns reports whether turning changes the sprite. Without a source, or
+// for a sprite it cannot read, it answers true and rotation behaves as before.
+func spriteTurns(vars *dmvars.Variables) bool {
+	source := spriteDirections.Load()
+	if source == nil {
+		return true
+	}
+	dirs, ok := (*source)(vars.TextV("icon", ""), vars.TextV("icon_state", ""))
+	return !ok || dirs > 1
 }
 
 // typeOwnsDir reports whether a type's own definition, rather than the root

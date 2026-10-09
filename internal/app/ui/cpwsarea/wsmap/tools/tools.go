@@ -106,6 +106,9 @@ var (
 		TNPick:    newPick(),
 		TNDelete:  newDelete(),
 		TNReplace: newReplace(),
+		// APHELION EDIT ADDITION START - BRUSH TOOL
+		TNBrush: newBrush(),
+		// APHELION EDIT ADDITION END
 	}
 
 	selectedToolName = TNAdd
@@ -253,6 +256,7 @@ func ReleaseEditor(owner editor) {
 	*tools[TNPick].(*ToolPick) = *newPick()
 	*tools[TNDelete].(*ToolDelete) = *newDelete()
 	*tools[TNReplace].(*ToolReplace) = *newReplace()
+	*tools[TNBrush].(*ToolBrush) = *newBrush() // APHELION EDIT ADDITION - BRUSH TOOL
 	ed, cc, cs = nil, nil, nil
 	active, startedTool, oldCoord = false, nil, util.Point{}
 	awaitMouseRelease = false

@@ -17,16 +17,13 @@ const (
 	collaborationPresenceWidth   = 2
 
 	presenceBadgeMaxLabelRunes = 24
-	presencePointerFillAlpha   = 235
+	presenceBadgeGap           = 2
 	presenceTileFillAlpha      = 36
 )
 
 // The palette lives in collab/ui so the panel picker and this overlay agree.
 // Markers are outlined in black so every entry stays visible on light and dark tiles.
 var collaborationPresenceOutline = imgui.Packed(color.RGBA{A: 255})
-
-// presencePointerTriangles triangulates presencePointerPolygon for filling.
-var presencePointerTriangles = [5][3]int{{0, 1, 2}, {0, 2, 5}, {0, 5, 6}, {2, 3, 4}, {2, 4, 5}}
 
 func (p *PaneMap) showCollaborationPresence() {
 	overlays := collabui.BuildPresenceOverlays(
@@ -58,21 +55,15 @@ func (p *PaneMap) showCollaborationPresence() {
 			selectionMin, selectionMax := presenceSelectionScreenBounds(*overlay.Selection, camera.Scale, camera.ShiftX, camera.ShiftY, p.canvasControl.PosMin(), p.canvasControl.PosMax())
 			drawList.AddRectV(selectionMin, selectionMax, styleColor, 0, imgui.DrawFlagsNone, collaborationPresenceWidth)
 		}
-		tip := min.Plus(max).Times(0.5)
-		drawPresencePointer(drawList, tip, fill)
-		drawPresenceBadge(drawList, tip.Plus(imgui.Vec2{X: 14, Y: 16}), overlay, fill)
+		// Presence is tile-granular: the highlighted tile is the cursor, so no
+		// pointer is drawn that would suggest a sub-tile position.
+		drawPresenceBadge(drawList, presenceBadgeAnchor(max), overlay, fill)
 	}
 }
 
-// presencePointerPolygon returns the arrow outline with vertex 0 at tip.
-// Offsets are in screen pixels so the marker stays legible at any map zoom.
-func presencePointerPolygon(tip imgui.Vec2, scale float32) [7]imgui.Vec2 {
-	offsets := [7]imgui.Vec2{{X: 0, Y: 0}, {X: 0, Y: 16}, {X: 4, Y: 12.4}, {X: 7, Y: 18.5}, {X: 9.6, Y: 17.3}, {X: 6.6, Y: 11.3}, {X: 11.5, Y: 11.3}}
-	var vertices [7]imgui.Vec2
-	for index, offset := range offsets {
-		vertices[index] = tip.Plus(imgui.Vec2{X: offset.X * scale, Y: offset.Y * scale})
-	}
-	return vertices
+// presenceBadgeAnchor places the badge just off the tile's lower-right corner.
+func presenceBadgeAnchor(tileMax imgui.Vec2) imgui.Vec2 {
+	return tileMax.Plus(imgui.Vec2{X: presenceBadgeGap, Y: presenceBadgeGap})
 }
 
 // presenceBadgeText is the badge caption: initials, then the bounded name.
@@ -82,18 +73,6 @@ func presenceBadgeText(overlay collabui.PresenceOverlay) string {
 		label = append(label[:presenceBadgeMaxLabelRunes-3], []rune("...")...)
 	}
 	return overlay.Initials + "  " + string(label)
-}
-
-func drawPresencePointer(drawList imgui.DrawList, tip imgui.Vec2, fill color.RGBA) {
-	vertices := presencePointerPolygon(tip, 1)
-	fill.A = presencePointerFillAlpha
-	fillColor := imgui.Packed(fill)
-	for _, triangle := range presencePointerTriangles {
-		drawList.AddTriangleFilled(vertices[triangle[0]], vertices[triangle[1]], vertices[triangle[2]], fillColor)
-	}
-	for index := range vertices {
-		drawList.AddLineV(vertices[index], vertices[(index+1)%len(vertices)], collaborationPresenceOutline, 1.5)
-	}
 }
 
 func drawPresenceBadge(drawList imgui.DrawList, anchor imgui.Vec2, overlay collabui.PresenceOverlay, fill color.RGBA) {

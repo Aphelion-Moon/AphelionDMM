@@ -109,7 +109,7 @@ func TestLintScanReportsWindowSpawnerViolations(t *testing.T) {
 	if err != nil || len(result.Findings) == 0 {
 		t.Fatalf("scan = %+v err=%v", result, err)
 	}
-	for _, f := range result.Findings {
+	for _, f := range ruleFindings(result) {
 		if f.Rule != "window_spawner.yml" || !strings.Contains(f.Message, "/obj/structure/window") {
 			t.Fatalf("finding = %+v", f)
 		}
@@ -121,7 +121,7 @@ func TestLintScanReportsWindowSpawnerViolations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result, err = run(context.Background()); err != nil || len(result.Findings) != 0 {
+	if result, err = run(context.Background()); err != nil || len(ruleFindings(result)) != 0 {
 		t.Fatalf("directional window flagged: %+v err=%v", result, err)
 	}
 }

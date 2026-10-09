@@ -67,7 +67,28 @@ type Editor struct {
 	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
 	Lighting Lighting
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	// InGameLook is the View > In-Game Look toggle: smoothing, cable and pipe
+	// connections drawn as in game. Display only.
+	InGameLook bool
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLAYTEST
+	Playtest Playtest
+	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION START - PLAYTEST
+
+// Playtest configures File > Playtest Map. ByondBin is the trusted local
+// directory holding dm.exe, dreamdaemon.exe and dreamseeker.exe; empty means
+// the usual install location.
+type Playtest struct {
+	ByondBin      string
+	Port          int
+	AlwaysCompile bool
+}
+
+// APHELION EDIT ADDITION END
 
 type Application struct {
 	CheckForUpdates bool

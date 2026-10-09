@@ -12,4 +12,8 @@ type MapperSettings struct {
 	Density          float64
 	Seed             string
 	SeedLock         bool
+	// UtilityBundle is what the Brush tool lays; nil means the defaults.
+	UtilityBundle []UtilityLine
+	// BrushDisposals also lays a disposal pipe along the Brush route.
+	BrushDisposals bool
 }

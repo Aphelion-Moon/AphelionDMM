@@ -143,6 +143,19 @@ func (t *TileMenu) showInstanceControls(i *dmminstance.Instance, idx int) w.Layo
 			Icon(icon.Repeat).
 			Shortcut("R").
 			Enabled(t.app.HasSelectedPrefab()),
+		// APHELION EDIT ADDITION START - MAPPING HELPER FINDER
+		w.Custom(func() { t.showMappingHelpers(i, idx) }),
+		// APHELION EDIT ADDITION END
+		// APHELION EDIT ADDITION START - REPLACE KEEP EDITS
+		w.MenuItem(fmt.Sprint("Replace, Keep Edits##replace_keep_", idx), t.doReplaceKeepingEdits(i)).
+			IconEmpty().
+			Enabled(t.app.HasSelectedPrefab()),
+		w.Custom(func() {
+			if imgui.IsItemHoveredV(imgui.HoveredFlagsAllowWhenDisabled) {
+				imgui.SetTooltip("Replace with the selected prefab, carrying over this instance's variable edits.\nEdits equal to the new type's default (such as a dir the directional variant already has),\nedits the selected prefab sets itself, and variables the new type lacks are left behind.")
+			}
+		}),
+		// APHELION EDIT ADDITION END
 		w.MenuItem(fmt.Sprint("Reset to Default##reset_to_default_", idx), t.doResetToDefault(i)).
 			// APHELION EDIT CHANGE - UNKNOWN TYPES - ORIGINAL: IconEmpty(),
 			IconEmpty().Enabled(dmmap.IsKnownType(p.Path())),
@@ -205,6 +218,28 @@ func (t *TileMenu) doReplace(i *dmminstance.Instance) func() {
 		}
 	}
 }
+
+// APHELION EDIT ADDITION START - REPLACE KEEP EDITS
+func (t *TileMenu) doReplaceKeepingEdits(i *dmminstance.Instance) func() {
+	return func() {
+		prefab, ok := t.app.SelectedPrefab()
+		if !ok {
+			return
+		}
+		log.Printf("do replace instance[%s] with [%s] keeping edits: %d", i.Prefab().Path(), prefab.Path(), i.Id())
+		dropped, err := t.editor.InstanceReplaceKeepingEdits(i, prefab)
+		if err != nil {
+			log.Print("replace keeping edits refused:", err)
+			return
+		}
+		if len(dropped) != 0 {
+			log.Print("edits not carried over:", dropped)
+		}
+		t.editor.CommitOperation("Replace Instance, Keep Edits")
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func (t *TileMenu) doResetToDefault(i *dmminstance.Instance) func() {
 	return func() {

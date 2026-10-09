@@ -483,8 +483,63 @@ func (ws *WsMap) chooseSaveAs() {
 	if filepath.Ext(path) == "" {
 		path += ".dmm"
 	}
-	ws.saveAsTo(path)
+	// APHELION EDIT CHANGE - SAVE AS REPLACE - ORIGINAL: ws.saveAsTo(path)
+	ws.saveAsConfirmingReplace(path)
 }
+
+// APHELION EDIT ADDITION START - SAVE AS REPLACE
+
+// SaveAs asks for a destination and saves the map there.
+func (ws *WsMap) SaveAs() { ws.chooseSaveAs() }
+
+// saveAsConfirmingReplace saves to path, asking first when it already exists.
+// Choosing the map's own file is an ordinary save.
+func (ws *WsMap) saveAsConfirmingReplace(path string) {
+	absolutePath, err := filepath.Abs(path)
+	if err != nil {
+		ws.rejectSave(nil, fmt.Errorf("resolve Save As destination: %w", err))
+		return
+	}
+	if !ws.untitled && filepath.Clean(absolutePath) == filepath.Clean(ws.CommandStackId()) {
+		ws.Save()
+		return
+	}
+	state, err := diskversion.Capture(absolutePath)
+	if err != nil {
+		ws.rejectSave(nil, fmt.Errorf("inspect Save As destination %q: %w", absolutePath, err))
+		return
+	}
+	if !state.Exists() {
+		ws.saveAsTo(absolutePath)
+		return
+	}
+	dialog.Open(dialog.TypeCustom{
+		Title: "Replace existing map?##" + absolutePath,
+		Layout: w.Layout{
+			w.Text("This file already exists. Replace it with the current editor state?"),
+			w.Text(absolutePath),
+			w.Button("Replace", func() {
+				imgui.CloseCurrentPopup()
+				ws.app.RunLater(func() { ws.saveAsReplacingAsync(absolutePath, state, nil) })
+			}),
+			w.SameLine(),
+			w.Button("Cancel", imgui.CloseCurrentPopup),
+		},
+		CloseButton: false,
+	})
+}
+
+// saveAsReplacingAsync replaces an existing destination the user confirmed.
+// expected is the destination's disk state when they confirmed; if the file
+// changes before the atomic replace, the save is refused instead.
+func (ws *WsMap) saveAsReplacingAsync(absolutePath string, expected diskversion.State, callback func(bool)) bool {
+	if !ws.app.CommandStorage().CanRebindStack(ws.CommandStackId(), absolutePath) {
+		return ws.rejectSave(callback, fmt.Errorf("%q is open in another tab; close it before replacing it", absolutePath))
+	}
+	return ws.saveAtPath(absolutePath, expected, true, callback)
+}
+
+// APHELION EDIT ADDITION END
 
 func (ws *WsMap) saveAsTo(path string) bool {
 	return ws.saveAsToAsync(path, nil)

@@ -1,6 +1,10 @@
 package menu
 
 import (
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	"sdmm/internal/aphelion/ingame"
+	"sdmm/internal/aphelion/lighting/maplight"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/shortcut"
 	"sdmm/internal/platform"
 
@@ -150,6 +154,23 @@ func (m *Menu) addShortcuts() {
 		SecondKeyAlt: glfw.KeyKP0,
 		Action:       m.app.DoMultiZRendering,
 	})
+
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	m.shortcuts.Add(shortcut.Shortcut{
+		Name:        "menu#ToggleLightingPreview",
+		FirstKey:    platform.KeyModLeft(),
+		FirstKeyAlt: platform.KeyModRight(),
+		SecondKey:   glfw.KeyL,
+		Action:      func() { maplight.SetEnabled(!maplight.Current().Enabled) },
+	})
+	m.shortcuts.Add(shortcut.Shortcut{
+		Name:        "menu#ToggleInGameLook",
+		FirstKey:    platform.KeyModLeft(),
+		FirstKeyAlt: platform.KeyModRight(),
+		SecondKey:   glfw.KeyI,
+		Action:      func() { ingame.SetEnabled(!ingame.Enabled()) },
+	})
+	// APHELION EDIT ADDITION END
 
 	m.shortcuts.Add(shortcut.Shortcut{
 		Name:     "menu#DoResetLayout",

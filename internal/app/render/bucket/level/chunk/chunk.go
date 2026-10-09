@@ -10,6 +10,10 @@ import (
 	// APHELION EDIT ADDITION START - BATCH UNIT PREPARATION
 	"sdmm/internal/aphelion/renderprep"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	"sdmm/internal/aphelion/ingame"
+	"sdmm/internal/aphelion/spritedirs"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/render/bucket/level/chunk/unit"
 	"sdmm/internal/dmapi/dmmap"
 	// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
@@ -65,6 +69,56 @@ func New(x1, y1, x2, y2, iconSize float32) *Chunk {
 	}
 }
 
+// APHELION EDIT ADDITION START - IN-GAME LOOK
+// inGameAppearance is the in-game icon for instance i at (x, y, level), or
+// false to keep its mapper icon: when the rules do not apply, or the predicted
+// state does not exist (MAP_SWITCH icons whose in-game file the parser never
+// sees, such as mineral walls).
+func inGameAppearance(m ingame.Map, x, y, level int, i *dmminstance.Instance) (icon, state string, dir int, ok bool) {
+	if !ingame.Affects(i.Prefab()) {
+		return "", "", 0, false
+	}
+	o, ok := ingame.Resolve(m, x, y, level, i.Prefab())
+	if !ok {
+		return "", "", 0, false
+	}
+	icon = o.Icon
+	if icon == "" {
+		icon, _ = i.Prefab().Vars().Text("icon")
+	}
+	if index := spritedirs.Active(); index != nil {
+		if _, exists := index.Dirs(icon, o.IconState); !exists {
+			return "", "", 0, false
+		}
+	}
+	return icon, o.IconState, o.Dir, true
+}
+
+// inGameUnits returns what instance i draws in game: one unit per atom a
+// structure spawner creates, a connected appearance, or mapper (unchanged).
+// Every unit keeps i, so picking a spawned window selects its spawner.
+func inGameUnits(m ingame.Map, x, y, level int, i *dmminstance.Instance, mapper []unit.Unit) []unit.Unit {
+	if parts := ingame.Expand(m, x, y, level, i.Prefab()); parts != nil {
+		index := spritedirs.Active()
+		units := make([]unit.Unit, 0, len(parts))
+		for _, part := range parts {
+			if index != nil {
+				if _, ok := index.Dirs(part.Override.Icon, part.Override.IconState); !ok {
+					return mapper // one unreadable part: show the spawner as mapped
+				}
+			}
+			units = append(units, unit.MakePart(x, y, i, part.Prefab, dmmap.WorldIconSize, part.Override.Icon, part.Override.IconState, part.Override.Dir))
+		}
+		return units
+	}
+	if icon, state, dir, ok := inGameAppearance(m, x, y, level, i); ok {
+		return []unit.Unit{unit.MakeWithAppearance(x, y, i, dmmap.WorldIconSize, icon, state, dir)}
+	}
+	return mapper
+}
+
+// APHELION EDIT ADDITION END
+
 // Update will update internal data of the current chunk.
 // Basically, we will create units for every tile in the chunk.
 // APHELION EDIT CHANGE - OCCURRENCE GEOMETRY - ORIGINAL: func (c *Chunk) Update(dmm *dmmap.Dmm, level int) {
@@ -84,6 +138,10 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int, filters ...func(*dmminstance.I
 	// APHELION EDIT ADDITION START - BATCH UNIT PREPARATION
 	var batch renderprep.UnitBatch
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	inGame := ingame.Enabled()
+	inGameMap := ingame.DmmMap(dmm)
+	// APHELION EDIT ADDITION END
 	for x := c.MapBounds.X1; x <= c.MapBounds.X2; x++ {
 		for y := c.MapBounds.Y1; y <= c.MapBounds.Y2; y++ {
 			x, y := int(x), int(y)
@@ -95,18 +153,30 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int, filters ...func(*dmminstance.I
 				// APHELION EDIT ADDITION END
 				// APHELION EDIT CHANGE - BATCH UNIT PREPARATION - ORIGINAL: u := unit.Make(x, y, i, dmmap.WorldIconSize)
 				u := batch.Make(x, y, i, dmmap.WorldIconSize)
-				// APHELION EDIT ADDITION START - LIVE CHUNK LAYERS
-				// Retain capacity hints only for layers still present in this rebuild.
-				layer := u.Layer()
-				units, exists := unitsByLayers[layer]
-				if !exists {
-					units = make([]unit.Unit, 0, len(c.UnitsByLayers[layer]))
+				// APHELION EDIT ADDITION START - IN-GAME LOOK
+				// Connected atoms depend on their neighbours, so they bypass the
+				// per-prefab appearance reuse above.
+				drawn := []unit.Unit{u}
+				if inGame {
+					drawn = inGameUnits(inGameMap, x, y, level, i, drawn)
 				}
-				// APHELION EDIT ADDITION END
-				// APHELION EDIT CHANGE - LIVE CHUNK LAYERS - ORIGINAL: unitsByLayers[u.Layer()] = append(unitsByLayers[u.Layer()], u)
-				unitsByLayers[layer] = append(units, u)
-				// APHELION EDIT ADDITION START - RENDER CULLING
-				viewBounds = includeViewBounds(viewBounds, u.ViewBounds())
+				for _, u := range drawn {
+					// APHELION EDIT ADDITION END
+					// APHELION EDIT ADDITION START - LIVE CHUNK LAYERS
+					// Retain capacity hints only for layers still present in this rebuild.
+					layer := u.Layer()
+					units, exists := unitsByLayers[layer]
+					if !exists {
+						units = make([]unit.Unit, 0, len(c.UnitsByLayers[layer]))
+					}
+					// APHELION EDIT ADDITION END
+					// APHELION EDIT CHANGE - LIVE CHUNK LAYERS - ORIGINAL: unitsByLayers[u.Layer()] = append(unitsByLayers[u.Layer()], u)
+					unitsByLayers[layer] = append(units, u)
+					// APHELION EDIT ADDITION START - RENDER CULLING
+					viewBounds = includeViewBounds(viewBounds, u.ViewBounds())
+					// APHELION EDIT ADDITION END
+					// APHELION EDIT ADDITION START - IN-GAME LOOK
+				}
 				// APHELION EDIT ADDITION END
 			}
 		}

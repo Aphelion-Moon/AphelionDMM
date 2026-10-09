@@ -55,6 +55,9 @@ type editor interface {
 	InstanceDelete(i *dmminstance.Instance)
 	InstanceReplace(i *dmminstance.Instance, prefab *dmmprefab.Prefab)
 	InstanceReset(i *dmminstance.Instance)
+	// APHELION EDIT ADDITION START - REPLACE KEEP EDITS
+	InstanceReplaceKeepingEdits(i *dmminstance.Instance, prefab *dmmprefab.Prefab) ([]string, error)
+	// APHELION EDIT ADDITION END
 
 	UpdateCanvasByCoords([]util.Point)
 }

@@ -62,6 +62,47 @@ func TestRotateAndMirrorLeavePlainAtomsIdentical(t *testing.T) {
 	}
 }
 
+// A type that declares dir but whose sprite has a single direction gains
+// nothing visible from a turn, so rotation leaves it alone instead of adding
+// an edit. An explicit dir edit, or an unknown sprite, still turns.
+func TestTypeOwnedDirTurnsOnlyWhenTheSpriteHasDirections(t *testing.T) {
+	lookup := scopeFixture()
+	sprites := map[string]int{"wall": 1, "chair": 4}
+	SetSpriteDirections(func(icon, state string) (int, bool) { d, ok := sprites[state]; return d, ok })
+	t.Cleanup(func() { SetSpriteDirections(nil) })
+	owned := func(state string) *dmmprefab.Prefab {
+		return dmmprefab.New(0, "/obj/chair", dmvars.Set(dmvars.FromParent(lookup("/obj/chair")), "icon_state", `"`+state+`"`))
+	}
+	for state, turns := range map[string]bool{"wall": false, "chair": true, "unknown": true} {
+		source := owned(state)
+		got, err := rotatePrefab(source, true, lookup)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if turned := got != source; turned != turns {
+			t.Fatalf("%s: turned=%v want %v", state, turned, turns)
+		}
+		mirrored, _ := mirrorPrefab(source, MirrorVertical, lookup)
+		if mirroredTurned := mirrored != source; mirroredTurned != turns {
+			t.Fatalf("%s mirror: turned=%v want %v", state, mirroredTurned, turns)
+		}
+	}
+	// Machinery dir picks pipe sides even with a one-direction map sprite.
+	machine := dmmprefab.New(0, "/obj/machinery/freezer", dmvars.Set(dmvars.FromParent(lookup("/obj/chair")), "icon_state", `"wall"`))
+	if got, _ := rotatePrefab(machine, true, func(path string) *dmvars.Variables {
+		if path == "/obj/machinery/freezer" || path == "/obj/machinery" {
+			return lookup("/obj/chair")
+		}
+		return lookup(path)
+	}); got == machine {
+		t.Fatal("machinery with a single-direction map sprite must still turn")
+	}
+	explicit := dmmprefab.New(0, "/obj/chair", dmvars.Set(owned("wall").Vars(), "dir", "4"))
+	if got, _ := rotatePrefab(explicit, true, lookup); got == explicit || got.Vars().ValueV("dir", "") != "2" {
+		t.Fatal("an explicit dir edit on a single-direction sprite must still turn")
+	}
+}
+
 func TestRotateAndMirrorNeverWriteDirOntoArea(t *testing.T) {
 	lookup := scopeFixture()
 	explicit := dmvars.Set(dmvars.FromParent(lookup("/area/station")), "dir", "1")
