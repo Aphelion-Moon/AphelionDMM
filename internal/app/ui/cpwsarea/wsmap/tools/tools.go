@@ -256,7 +256,11 @@ func ReleaseEditor(owner editor) {
 	*tools[TNPick].(*ToolPick) = *newPick()
 	*tools[TNDelete].(*ToolDelete) = *newDelete()
 	*tools[TNReplace].(*ToolReplace) = *newReplace()
-	*tools[TNBrush].(*ToolBrush) = *newBrush() // APHELION EDIT ADDITION - BRUSH TOOL
+	// APHELION EDIT ADDITION START - BRUSH TOOL
+	if brush, ok := tools[TNBrush].(*ToolBrush); ok {
+		*brush = *newBrush()
+	}
+	// APHELION EDIT ADDITION END
 	ed, cc, cs = nil, nil, nil
 	active, startedTool, oldCoord = false, nil, util.Point{}
 	awaitMouseRelease = false

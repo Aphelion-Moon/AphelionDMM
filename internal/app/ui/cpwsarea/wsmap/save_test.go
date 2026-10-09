@@ -304,6 +304,15 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 		t.Fatal("failed save changed file or dirty state")
 	}
 	mapState.Backup = workingBackup
+	// The failed staging above queued its error notification; drop it unshown
+	// so the pumps below never open a native dialog.
+	for drained := false; !drained; {
+		select {
+		case <-app.jobs:
+		default:
+			drained = true
+		}
+	}
 
 	// Replacing an existing map after the user confirms it. A file that changes
 	// between the confirmation and the write is refused, not overwritten.
@@ -318,16 +327,15 @@ func TestSaveAcknowledgementBoundaries(t *testing.T) {
 	if err := os.WriteFile(replacePath, []byte("changed after confirmation"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if awaitSaveResult(t, app.jobs, func(done func(bool)) { ws.saveAsReplacingAsync(replacePath, confirmed, done) }) {
+	refused := make(chan bool, 1)
+	if ws.saveAsReplacingAsync(replacePath, confirmed, func(saved bool) { refused <- saved }) || <-refused {
 		t.Fatal("replace overwrote a destination that changed after confirmation")
 	}
-	for drained := false; !drained; {
-		select {
-		case job := <-app.jobs:
-			job()
-		default:
-			drained = true
-		}
+	// The refusal queues only its error notification; consume it unshown.
+	select {
+	case <-app.jobs:
+	default:
+		t.Fatal("refused replace did not queue its error notification")
 	}
 	if changed, _ := os.ReadFile(replacePath); string(changed) != "changed after confirmation" || ws.CommandStackId() != copyPath {
 		t.Fatal("refused replace changed the destination or the workspace identity")

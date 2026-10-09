@@ -536,6 +536,11 @@ func (ws *WsMap) saveAsReplacingAsync(absolutePath string, expected diskversion.
 	if !ws.app.CommandStorage().CanRebindStack(ws.CommandStackId(), absolutePath) {
 		return ws.rejectSave(callback, fmt.Errorf("%q is open in another tab; close it before replacing it", absolutePath))
 	}
+	// Fail fast when the file changed since the confirmation; the atomic
+	// replace re-checks expected anyway.
+	if err := expected.Check(absolutePath); err != nil {
+		return ws.rejectSave(callback, fmt.Errorf("%q changed after you confirmed replacing it; choose Save As again: %w", absolutePath, err))
+	}
 	return ws.saveAtPath(absolutePath, expected, true, callback)
 }
 

@@ -697,7 +697,7 @@ func (a *app) PlaytestMap() (string, bool, bool) {
 }
 
 // PlaytestSettings are the persisted playtest settings.
-func (a *app) PlaytestSettings() *prefs.Playtest { return &a.preferencesConfig().Prefs.Editor.Playtest }
+func (a *app) PlaytestSettings() *prefs.Playtest { return &a.preferencesConfig().Editor.Playtest }
 
 // APHELION EDIT ADDITION END
 

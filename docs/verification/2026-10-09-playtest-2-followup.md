@@ -1,6 +1,7 @@
 # October 9 play-test 2 follow-up: implementation evidence
 
-Baseline `c6a6f662`. All changes are uncommitted. Automated evidence only;
+Baseline `c6a6f662`. Rounds 1–4 are in `4a9a5738`; the Round 4 gate fixes
+are uncommitted. Automated evidence only;
 **nothing here has been exercised in an interactive desktop session.**
 
 | Report | Cause and change | Evidence | Open human checks |
@@ -62,6 +63,40 @@ Known gaps:
 
 Evidence: `ingame` tests and `chunk/ingame_test.go` (the shipped `inGameAppearance` path, including the missing-state gate).
 
+## Round 4: spawners, brush, helpers, playtest
+
+**Window spawners (in-game look).** Static structure spawners draw what `spawn_list` creates, each part with its own layer and colour, and picking a part selects the spawner. Spawned windows join neighbour smoothing. Dir-dependent hollow window ends, middles and directionals, and `flipped_table`, keep the mapper icon.
+
+- Fixed: `PARSE_CAN_SMOOTH_WITH` turns on `SMOOTH_OBJ` when `canSmoothWith` holds an object group. Walls therefore smooth with windows, which the earlier port missed.
+- Real MiniStation: 317 spawners give 634 parts, all present in their DMIs; 1,457 walls, 0 missing states.
+- Evidence: `ingame` tests and the GL test `chunk/ingame_test.go`.
+
+**Brush tool (key 8).** One tool replaces the separate utilities and disposals tools, at the user's request.
+
+- It lays the configured bundle (default: supply layer 4, scrubbers layer 2, cable) and, optionally, a disposal pipe along a 4-connected route. Dragging back retracts the route.
+- On release the run applies as one edit. If the disposal plan fails, nothing changes.
+- Disposal connections port `pipe.dm` Initialize, so sorting junctions, y-junctions and multi-z trunks need no special cases. Unedited pipes (`dir = NONE`) face SOUTH.
+- Evidence: `disposals` tests and `tools/brush_test.go`.
+
+**Map Lint disposal network check.** Reports pipes open to nothing and trunks without a bin, chute or outlet.
+
+- Real MiniStation: 87 pipe tiles, 13 findings. All inspected findings are genuine stray or disconnected segments.
+
+**Mapping helper finder.** Right-click an object → Mapping Helpers.
+
+- An index reads the helpers' own DM procs for `locate(<type>) in loc` and `for(var/<type>/x in loc)`.
+- Real environment: 340 helper types. APC: 10 helpers; airlock: 236; air alarm: 13; mail sorting pipe: 37.
+- Windoors list the airlock helpers too, because those helpers can be set to apply to windoors.
+- Evidence: `helpers` tests and `tilemenu/helpers_test.go`.
+
+**Playtest panel** (Window → Playtest).
+
+- Writes `data/next_map.json`, reusing the station's `_maps/*.json` when one names the map.
+- Compiles only when `.dm`, `.dme`, `.dmf` or `.dmi` files are newer than the `.dmb`, or when "Always recompile" is on.
+- Starts DreamDaemon on a local port, waits for it to accept connections, then opens DreamSeeker on `127.0.0.1`.
+- Uses fixed executables from one configured BYOND folder, with no shell.
+- Evidence: `playtest` tests with `-race`, using a helper process in place of BYOND. **No real BYOND launch has been run.**
+
 ## Gates run (Windows)
 
 - `go build ./...`: clean.
@@ -74,3 +109,6 @@ Evidence: `ingame` tests and `chunk/ingame_test.go` (the shipped `inGameAppearan
   - `golangci-lint` on `./internal/aphelion/... ./internal/app/...`: 0 issues.
   - `APHELIONDMM_GL_TEST=1 go test ./...`: all packages passed except the known `TestSessionClientRecoversDuringIndependentLoad/sqlite` load-timing flake, which passed alone.
   - `task build` (`RUST_TARGET=1.82.0-x86_64-pc-windows-gnu`) produced `dst/AphelionDMM.exe`. It has not been launched.
+- Round 4, after commit `4a9a5738`:
+  - `golangci-lint` on `./internal/aphelion/... ./internal/app/...`: 0 issues.
+  - `APHELIONDMM_GL_TEST=1 go test ./... -count=1`: every package passed, after fixing a Brush teardown panic, a missing Brush case in a test helper, and a timing-dependent hang in the save test (it pumped a native error dialog).

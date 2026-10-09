@@ -60,6 +60,8 @@ func actionContextForTest(current Tool) ActionContext {
 		return typed.actionContext
 	case *ToolReplace:
 		return typed.actionContext
+	case *ToolBrush:
+		return typed.actionContext
 	default:
 		return ActionContext{}
 	}

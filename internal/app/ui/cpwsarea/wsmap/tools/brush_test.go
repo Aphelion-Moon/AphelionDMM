@@ -18,10 +18,10 @@ type brushEditor struct {
 	commits int
 }
 
-func (e *brushEditor) Dmm() *dmmap.Dmm                     { return e.m }
+func (e *brushEditor) Dmm() *dmmap.Dmm                       { return e.m }
 func (e *brushEditor) TryBeginTileChange(...util.Point) bool { return true }
-func (e *brushEditor) UpdateCanvasByCoords([]util.Point)   {}
-func (e *brushEditor) CommitOperation(string)              { e.commits++ }
+func (e *brushEditor) UpdateCanvasByCoords([]util.Point)     {}
+func (e *brushEditor) CommitOperation(string)                { e.commits++ }
 
 func brushFixture(t *testing.T) *brushEditor {
 	t.Helper()
