@@ -10,6 +10,10 @@ import (
 	// APHELION EDIT ADDITION START - IN-GAME LOOK
 	"sdmm/internal/aphelion/ingame"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/aphelion/theme"
+	"sdmm/internal/app/window"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/aphelion/filterprofiles"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/ui/shortcut"
@@ -438,6 +442,15 @@ func (m *Menu) Process() {
 				m.showUpdateMenu()
 			}
 		}),
+		// APHELION EDIT ADDITION START - MERIDIAN THEME
+		w.Custom(func() {
+			if theme.IsMeridian() {
+				pos, size := imgui.WindowPos(), imgui.WindowSize()
+				height := max(1, 2*window.PointSize())
+				theme.DrawSpectrumStripe(imgui.WindowDrawList(), imgui.Vec2{X: pos.X, Y: pos.Y + size.Y - height}, imgui.Vec2{X: pos.X + size.X, Y: pos.Y + size.Y})
+			}
+		}),
+		// APHELION EDIT ADDITION END
 	}).Build()
 	// APHELION EDIT ADDITION START - SHORTCUT REFERENCE
 	if m.showHotkeys {

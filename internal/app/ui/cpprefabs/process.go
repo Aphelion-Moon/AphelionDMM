@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"strings"
 
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/app/ui/uikit"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dmvars"
 	w "sdmm/internal/imguiext/widget"
 
@@ -61,7 +64,8 @@ func (p *Prefabs) Process(int32) {
 		imgui.BeginGroup()
 		imgui.PushStyleVarVec2(imgui.StyleVarItemSpacing, imgui.Vec2{X: 0, Y: 0})
 		imgui.Text(node.name)
-		imgui.TextColored(imgui.Vec4{X: 0.6, Y: 0.6, Z: 0.6, W: 1}, describeVars(node.orig.Vars()))
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextColored(imgui.Vec4{X: 0.6, Y: 0.6, Z: 0.6, W: 1}, describeVars(node.orig.Vars()))
+		imgui.TextDisabled(describeVars(node.orig.Vars()))
 		imgui.PopStyleVar()
 		imgui.EndGroup()
 
@@ -75,7 +79,8 @@ APHELION EDIT REMOVAL END */
 // APHELION EDIT ADDITION START - PREFAB PANEL CLIPPING
 func (p *Prefabs) Process(int32) {
 	if len(p.nodes) == 0 {
-		imgui.TextDisabled("No prefab selected")
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextDisabled("No prefab selected")
+		uikit.EmptyState("Pick a type in Environment, or an object on the map, to list its prefabs.")
 		return
 	}
 
@@ -132,7 +137,8 @@ func (p *Prefabs) rowHeight() float32 {
 
 func prefabRowHeight(iconSize float32) float32 {
 	contentHeight := iconSize
-	textHeight := imgui.TextLineHeight() * 2
+	// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: textHeight := imgui.TextLineHeight() * 2
+	textHeight := imgui.TextLineHeight() * float32(prefabTextLines())
 	if textHeight > contentHeight {
 		contentHeight = textHeight
 	}
@@ -151,10 +157,18 @@ func drawPrefabRowContent(texture imgui.TextureID, iconSize float32, uv0, uv1 im
 	imgui.BeginGroup()
 	w.Image(texture, iconSize, iconSize).Uv(uv0, uv1).TintColor(color).Build()
 	imgui.SameLine()
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	if prefabTextLines() == 1 {
+		drawPrefabRowInline(iconSize, name, description)
+		imgui.EndGroup()
+		return imgui.ItemRectMax().Y - imgui.ItemRectMin().Y
+	}
+	// APHELION EDIT ADDITION END
 	imgui.BeginGroup()
 	imgui.PushStyleVarVec2(imgui.StyleVarItemSpacing, imgui.Vec2{X: 0, Y: 0})
 	imgui.Text(name)
-	imgui.TextColored(imgui.Vec4{X: 0.6, Y: 0.6, Z: 0.6, W: 1}, description)
+	// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextColored(imgui.Vec4{X: 0.6, Y: 0.6, Z: 0.6, W: 1}, description)
+	imgui.TextDisabled(description)
 	imgui.PopStyleVar()
 	imgui.EndGroup()
 	imgui.EndGroup()

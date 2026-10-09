@@ -15,43 +15,48 @@ import (
 	"sdmm/internal/aphelion/filterprofiles"
 	"sdmm/internal/app/ui/dialog"
 	"sdmm/internal/dmapi/dmenv"
+	"sdmm/internal/imguiext/icon"
 )
 
 const filterProfilesPopup = "Environment Filter Profiles"
 
+// showFilterProfiles is the visibility toolbar: one row of compact controls
+// with tooltips, then the current visibility state as secondary text.
 func (e *Environment) showFilterProfiles() {
-	if imgui.Button("Profiles...") {
-		e.openFilterProfiles()
-	}
-	imgui.SameLine()
-	if imgui.Button("Unhide Last") {
-		if err := e.UnhideLastFilterVisibility(); err != nil {
-			e.filterProfileStatus = err.Error()
-		}
-	}
-	if imgui.Button("Show All") {
-		if err := e.ShowAllFilterVisibility(); err != nil {
-			e.filterProfileStatus = err.Error()
-		}
-	}
 	history := e.filterProfiles.HistoryStatus()
-	imgui.BeginDisabledV(history.Position <= 1 || e.filterCompilePending)
-	if imgui.Button("Undo visibility") {
-		if err := e.enqueueVisibility(visibilityCommand{kind: "undo-visibility"}); err != nil {
-			e.filterProfileStatus = err.Error()
+	first := true
+	toolbarButton := func(label, tip string, disabled bool, action func() error) {
+		width := imgui.CalcTextSize(label, true, 0).X + imgui.CurrentStyle().FramePadding().X*2
+		if !first && imgui.ContentRegionAvail().X < width {
+			imgui.NewLine() // wrap in a narrow panel
 		}
-	}
-	imgui.EndDisabled()
-	imgui.SameLine()
-	imgui.BeginDisabledV(history.Position >= history.Count || e.filterCompilePending)
-	if imgui.Button("Redo visibility") {
-		if err := e.enqueueVisibility(visibilityCommand{kind: "redo-visibility"}); err != nil {
-			e.filterProfileStatus = err.Error()
+		first = false
+		imgui.BeginDisabledV(disabled)
+		if imgui.Button(label) {
+			if err := action(); err != nil {
+				e.filterProfileStatus = err.Error()
+			}
 		}
+		imgui.EndDisabled()
+		if imgui.IsItemHoveredV(imgui.HoveredFlagsAllowWhenDisabled) {
+			imgui.SetTooltip(tip)
+		}
+		imgui.SameLine()
 	}
-	imgui.EndDisabled()
+	toolbarButton(icon.FilterAlt+" Profiles", "Saved visibility profiles", false, func() error { e.openFilterProfiles(); return nil })
+	toolbarButton(icon.Eye+" Show All", "Show every type", false, e.ShowAllFilterVisibility)
+	toolbarButton("Unhide Last", "Show the most recently hidden types again", false, e.UnhideLastFilterVisibility)
+	toolbarButton(icon.Undo+"##undo_visibility", "Undo visibility", history.Position <= 1 || e.filterCompilePending, func() error {
+		return e.enqueueVisibility(visibilityCommand{kind: "undo-visibility"})
+	})
+	toolbarButton(icon.Redo+"##redo_visibility", "Redo visibility", history.Position >= history.Count || e.filterCompilePending, func() error {
+		return e.enqueueVisibility(visibilityCommand{kind: "redo-visibility"})
+	})
+	imgui.NewLine()
 	if history.Count > 0 {
-		imgui.TextWrapped(fmt.Sprintf("Visibility %d/%d: %s", history.Position, history.Count, history.Label))
+		imgui.PushTextWrapPos()
+		imgui.TextDisabled(fmt.Sprintf("Visibility %d/%d: %s", history.Position, history.Count, history.Label))
+		imgui.PopTextWrapPos()
 	}
 	if history.Trimmed {
 		imgui.TextWrapped("Oldest visibility history expired (256 states / 4 MiB description budget).")

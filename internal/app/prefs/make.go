@@ -8,6 +8,9 @@ import (
 	// APHELION EDIT ADDITION START - PATH MIGRATION
 	"sdmm/internal/aphelion/repath"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/aphelion/theme"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/ui/cpwsarea/wsprefs"
 	"sdmm/internal/app/window"
@@ -152,6 +155,24 @@ func Make(app App, prefs *Prefs) wsprefs.Prefs {
 				value: &prefs.Interface.Fps,
 				post:  window.SetFps,
 			},
+			// APHELION EDIT ADDITION START - MERIDIAN THEME
+			optionPrefPrefab{
+				name:    "Theme",
+				desc:    "Controls the interface colours and spacing.",
+				label:   "##theme",
+				value:   &prefs.Interface.Theme,
+				options: theme.Names,
+				help:    "Meridian - the Meridian Rift palette: warm dark surfaces, cyan accent, roomier spacing\nClassic - the original StrongDMM theme",
+				post:    window.SetTheme,
+			},
+			boolPrefPrefab{
+				name:  "Compact Layout",
+				desc:  "Tighter spacing for small screens (Meridian theme).",
+				label: "##compact_layout",
+				value: &prefs.Interface.Compact,
+				post:  theme.SetCompact,
+			},
+			// APHELION EDIT ADDITION END
 		},
 
 		wsprefs.GPApplication: {

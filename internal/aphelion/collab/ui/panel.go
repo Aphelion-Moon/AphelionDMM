@@ -6,6 +6,7 @@ import (
 
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/app/ui/component"
+	"sdmm/internal/app/ui/uikit"
 	w "sdmm/internal/imguiext/widget"
 
 	"github.com/SpaiR/imgui-go"
@@ -49,7 +50,7 @@ func (panel *Panel) Init(app PanelApp) {
 func (panel *Panel) Process(int32) {
 	if !panel.app.HasActiveCollaboration() {
 		panel.conflictPage, panel.sessionID = 0, ""
-		imgui.TextDisabled("No active collaboration session")
+		uikit.EmptyState("No active collaboration session. Host or join one from the Collaboration menu.")
 		return
 	}
 	view := panel.app.CollaborationViewModel(panel.conflictPage)

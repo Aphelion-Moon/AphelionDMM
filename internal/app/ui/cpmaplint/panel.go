@@ -10,6 +10,7 @@ import (
 	"sdmm/internal/aphelion/maplint"
 	"sdmm/internal/app/ui/component"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/editor"
+	"sdmm/internal/app/ui/uikit"
 )
 
 const findingsLimit = 2000
@@ -117,7 +118,7 @@ func (p *Panel) Process(int32) {
 	}
 	ed := p.app.CurrentEditor()
 	if ed == nil {
-		imgui.TextDisabled("No map opened")
+		uikit.EmptyState("Open a map to scan it against the lint rules.")
 		return
 	}
 	if p.scan != nil {

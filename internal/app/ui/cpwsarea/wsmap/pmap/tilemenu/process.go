@@ -4,6 +4,10 @@ import (
 	"fmt"
 
 	"sdmm/internal/app/ui/layout/lnode"
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/aphelion/theme"
+	"sdmm/internal/app/ui/uikit"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SHORTCUT FOCUS
 	"sdmm/internal/app/ui/shortcut"
 	// APHELION EDIT ADDITION END
@@ -108,7 +112,21 @@ func (t *TileMenu) showInstance(i *dmminstance.Instance, idx int) {
 			)
 		}),
 		w.SameLine(),
+		/* APHELION EDIT REMOVAL START - MERIDIAN THEME
 		w.Text(fmt.Sprintf("[%s]\t\t", p.Path())),
+		APHELION EDIT REMOVAL END */
+		// APHELION EDIT ADDITION START - MERIDIAN THEME
+		// Long paths made the menu very wide; keep root and leaf, full path on hover.
+		w.Custom(func() {
+			if theme.IsMeridian() {
+				uikit.TruncatedMono(p.Path(), imgui.FontSize()*22)
+				imgui.SameLine()
+				imgui.Dummy(imgui.Vec2{X: imgui.FontSize()})
+				return
+			}
+			imgui.Text(fmt.Sprintf("[%s]\t\t", p.Path()))
+		}),
+		// APHELION EDIT ADDITION END
 	}.Build()
 }
 
@@ -143,12 +161,6 @@ func (t *TileMenu) showInstanceControls(i *dmminstance.Instance, idx int) w.Layo
 			Icon(icon.Repeat).
 			Shortcut("R").
 			Enabled(t.app.HasSelectedPrefab()),
-		// APHELION EDIT ADDITION START - MAPPING HELPER FINDER
-		w.Custom(func() { t.showMappingHelpers(i, idx) }),
-		// APHELION EDIT ADDITION END
-		// APHELION EDIT ADDITION START - LIGHT SWITCH
-		w.Custom(func() { t.showLightSwitch(i, idx) }),
-		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - REPLACE KEEP EDITS
 		w.MenuItem(fmt.Sprint("Replace, Keep Edits##replace_keep_", idx), t.doReplaceKeepingEdits(i)).
 			IconEmpty().
@@ -167,6 +179,16 @@ func (t *TileMenu) showInstanceControls(i *dmminstance.Instance, idx int) w.Layo
 			if !dmmap.IsKnownType(p.Path()) && imgui.IsItemHoveredV(imgui.HoveredFlagsAllowWhenDisabled) {
 				imgui.SetTooltip(fmt.Sprintf("Unavailable: %s is not defined by the loaded environment, so it has no defaults to reset to.", p.Path()))
 			}
+		}),
+		// APHELION EDIT ADDITION END
+		// APHELION EDIT ADDITION START - MERIDIAN THEME
+		// Object-specific actions form their own group, shown only when they apply.
+		w.Custom(func() {
+			if t.helperCount(i) != 0 || t.isLight(i) {
+				imgui.Separator()
+			}
+			t.showMappingHelpers(i, idx)
+			t.showLightSwitch(i, idx)
 		}),
 		// APHELION EDIT ADDITION END
 		w.Separator(),

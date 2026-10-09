@@ -8,6 +8,9 @@ import (
 	"github.com/SpaiR/imgui-go"
 	// APHELION EDIT ADDITION END
 
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/aphelion/theme"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpwsarea/wsmap/tools"
 	"sdmm/internal/app/ui/shortcut"
 	"sdmm/internal/imguiext/icon"
@@ -169,6 +172,12 @@ func toolContextTooltip(context tools.ActionContext) w.Layout {
 
 func (p *PaneMap) showStatusPanel() {
 	context := tools.CurrentActionContext()
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	if theme.IsMeridian() {
+		p.showStatusSegments(context)
+		return
+	}
+	// APHELION EDIT ADDITION END
 	status := statusToolSummary(context)
 	if p.canvasState.HoverOutOfBounds() {
 		status = "out of bounds · " + status

@@ -11,6 +11,9 @@ import (
 
 	"sdmm/internal/app/ui/cpwsarea/workspace"
 	"sdmm/internal/app/ui/shortcut"
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/app/ui/uikit"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/window"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/imguiext"
@@ -274,7 +277,8 @@ func (ws *WsEmpty) showAvailableMaps() {
 				Transparent(true),
 			w.Tooltip(availableMapsTooltip()),
 			w.SameLine(),
-			w.TextColored("Available Maps", style.ColorGold),
+			// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: w.TextColored("Available Maps", style.ColorGold),
+			w.Custom(func() { uikit.SectionLabel("Available Maps") }),
 			w.SameLine(),
 			w.Disabled(len(ws.selectedMaps) == 0, ws.openSelectedMapsButton()),
 			w.Separator(),
@@ -413,7 +417,8 @@ func showHeaderRecent(disabled bool, label string, action func()) {
 				Tooltip("Clear").
 				Style(style.ButtonRed{})),
 		w.SameLine(),
-		w.TextColored(label, style.ColorGold),
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: w.TextColored(label, style.ColorGold),
+		w.Custom(func() { uikit.SectionLabel(label) }),
 		w.Separator(),
 	}.Build()
 }

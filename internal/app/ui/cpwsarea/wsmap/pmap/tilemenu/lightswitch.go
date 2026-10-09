@@ -39,6 +39,12 @@ func (t *TileMenu) lightSwitchLabel(i *dmminstance.Instance) (string, string) {
 	}
 }
 
+// isLight reports whether instance i offers the light switch.
+func (t *TileMenu) isLight(i *dmminstance.Instance) bool {
+	label, _ := t.lightSwitchLabel(i)
+	return label != ""
+}
+
 func (t *TileMenu) showLightSwitch(i *dmminstance.Instance, idx int) {
 	label, tip := t.lightSwitchLabel(i)
 	if label == "" {

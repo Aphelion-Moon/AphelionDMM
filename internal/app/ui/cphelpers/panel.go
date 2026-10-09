@@ -13,12 +13,16 @@ import (
 
 	"sdmm/internal/aphelion/helpers"
 	"sdmm/internal/app/ui/component"
+	"sdmm/internal/app/ui/uikit"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmicon"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 	"sdmm/internal/util"
 )
+
+// probe, when set by a test, observes each group header as it is drawn.
+var probe func(key string, open bool, min, max imgui.Vec2)
 
 // largeBranch is the branch size that earns its own category chip; on an
 // airlock only access (222 of 236) qualifies.
@@ -46,6 +50,10 @@ type Panel struct {
 
 	query    string
 	category string
+	// filterChanged is true for the frame after the query or category
+	// changed; lastFilter is what was drawn before.
+	filterChanged bool
+	lastFilter    [2]string
 
 	env   *dmenv.Dme
 	cache map[string][]helpers.Helper // target path -> offerable helpers
@@ -98,10 +106,10 @@ func (p *Panel) Process(int32) {
 	i, list := p.target()
 	switch {
 	case p.app.LoadedEnvironment() == nil:
-		imgui.TextDisabled("Open an environment first.")
+		uikit.EmptyState("Open an environment to find mapping helpers.")
 		return
 	case i == nil:
-		imgui.TextWrapped("Select an object on the map to see the mapping helpers that act on it: use the Select tool, or right-click an object and choose Select.")
+		uikit.EmptyState("Select an object on the map to see the mapping helpers that act on it: use the Select tool, or right-click an object and choose Select.")
 		return
 	}
 	name := i.Prefab().Vars().TextV("name", lastSegment(i.Prefab().Path()))
@@ -109,7 +117,7 @@ func (p *Panel) Process(int32) {
 	imgui.SameLine()
 	imgui.TextDisabled(i.Prefab().Path())
 	if len(list) == 0 {
-		imgui.TextDisabled("No mapping helpers act on this object.")
+		uikit.EmptyState("No mapping helpers act on this object.")
 		return
 	}
 
@@ -118,6 +126,8 @@ func (p *Panel) Process(int32) {
 	p.showFilters(list)
 
 	imgui.BeginChild("helpers_tree")
+	current := [2]string{p.query, p.category}
+	p.filterChanged, p.lastFilter = current != p.lastFilter, current
 	root := helpers.Browse(list, helpers.Filter{Query: p.query, Category: p.category, Large: largeBranch})
 	if root.Count == 0 {
 		imgui.TextDisabled("No helpers match.")
@@ -212,11 +222,18 @@ func (p *Panel) showNode(n *helpers.Node, target *dmminstance.Instance, present 
 		p.showHelper(n, target, present)
 		return
 	}
-	// Searching opens every matching group; a category opens its first level.
-	if p.query != "" || (p.category != "" && depth == 0) {
+	// A new search opens every matching group, and a new category its first
+	// level, once; afterwards the user's own open and close clicks stand.
+	if p.filterChanged && (p.query != "" || (p.category != "" && depth == 0)) {
 		imgui.SetNextItemOpen(true, imgui.ConditionAlways)
 	}
-	if imgui.TreeNodeV(fmt.Sprintf("%s (%d)##group_%p", n.Name, n.Count, n), imgui.TreeNodeFlagsSpanAvailWidth) {
+	// The tree is rebuilt every frame, so the ID is the group's path; "###"
+	// keeps it fixed while the count in the label changes.
+	open := imgui.TreeNodeV(fmt.Sprintf("%s (%d)###group_%s", n.Name, n.Count, n.Key), imgui.TreeNodeFlagsSpanAvailWidth)
+	if probe != nil {
+		probe(n.Key, open, imgui.ItemRectMin(), imgui.ItemRectMax())
+	}
+	if open {
 		for _, c := range n.Children {
 			p.showNode(c, target, present, depth+1)
 		}

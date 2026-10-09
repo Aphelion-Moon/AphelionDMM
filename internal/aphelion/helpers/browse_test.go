@@ -68,6 +68,43 @@ func TestCategoriesSplitLargeBranchesFromGeneral(t *testing.T) {
 	}
 }
 
+// The tree is rebuilt every frame; UI open state is keyed on Node.Key, so a
+// group's key must not change between rebuilds or with filtering.
+func TestBrowseKeysAreStableAcrossRebuilds(t *testing.T) {
+	list := Offerable(airlockFixture())
+	keys := func(root *Node) map[string]bool {
+		out := map[string]bool{}
+		var walk func(*Node)
+		walk = func(n *Node) {
+			for _, c := range n.Children {
+				if c.Helper == nil {
+					out[c.Key] = true
+				}
+				walk(c)
+			}
+		}
+		walk(root)
+		return out
+	}
+	first, second := keys(Browse(list, Filter{Large: 8})), keys(Browse(list, Filter{Large: 8}))
+	if len(first) == 0 || len(first) != len(second) {
+		t.Fatalf("group keys = %v then %v", first, second)
+	}
+	for k := range first {
+		if !second[k] {
+			t.Fatalf("group key %q changed between rebuilds", k)
+		}
+	}
+	if !first["airlock/access/all/engineering"] {
+		t.Fatalf("keys are not paths: %v", first)
+	}
+	for k := range keys(Browse(list, Filter{Query: "medical", Large: 8})) {
+		if !first[k] {
+			t.Fatalf("filtering produced a new key %q", k)
+		}
+	}
+}
+
 func TestBrowseTreeFiltersAndOrdersTogglesFirst(t *testing.T) {
 	list := Offerable(airlockFixture())
 	root := Browse(list, Filter{Large: 8})

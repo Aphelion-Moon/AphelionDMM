@@ -16,6 +16,10 @@ import (
 	"sdmm/internal/dmapi/dmicon"
 	// APHELION EDIT ADDITION END
 	"sdmm/internal/imguiext/icon"
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/app/ui/uikit"
+	"sdmm/internal/imguiext/style"
+	// APHELION EDIT ADDITION END
 	w "sdmm/internal/imguiext/widget"
 
 	"github.com/SpaiR/imgui-go"
@@ -42,7 +46,8 @@ func (e *Environment) Process(int32) {
 	environment := e.app.LoadedEnvironment()
 	e.process(environment)
 	if environment == nil {
-		imgui.TextDisabled("No environment loaded")
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextDisabled("No environment loaded")
+		uikit.EmptyState("Open an environment (File → Open...) to browse its types.")
 	} else {
 		e.showControls()
 		// APHELION EDIT ADDITION START - FILTER PROFILES
@@ -386,7 +391,8 @@ func (e *Environment) showIcon(node *treeNode) {
 		switch node.load.State {
 		case dmicon.SpriteFailed:
 			imgui.SameLine()
-			imgui.TextColored(imgui.Vec4{X: 1, Y: .25, Z: .2, W: 1}, "!")
+			// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextColored(imgui.Vec4{X: 1, Y: .25, Z: .2, W: 1}, "!")
+			imgui.TextColored(style.ColorRed, "!")
 			if imgui.IsItemHovered() && node.load.Err != nil {
 				imgui.SetTooltip(node.load.Err.Error())
 			}

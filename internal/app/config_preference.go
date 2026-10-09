@@ -15,6 +15,9 @@ import (
 	// APHELION EDIT ADDITION START - IN-GAME LOOK
 	"sdmm/internal/aphelion/ingame"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/aphelion/theme"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PATH MIGRATION
 	"sdmm/internal/aphelion/repath"
 	// APHELION EDIT ADDITION END
@@ -141,6 +144,13 @@ func (a *app) loadPreferencesConfig() {
 
 	// APHELION EDIT CHANGE - STATIC_ANALYSIS - ORIGINAL: window.SetFps(cfg.Prefs.Interface.Fps)
 	window.SetFps(cfg.Interface.Fps)
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	if cfg.Interface.Theme == "" {
+		cfg.Interface.Theme = theme.NameMeridian
+	}
+	window.SetTheme(cfg.Interface.Theme)
+	theme.SetCompact(cfg.Interface.Compact)
+	// APHELION EDIT ADDITION END
 }
 
 // Ensure code editor is in PATH otherwise default

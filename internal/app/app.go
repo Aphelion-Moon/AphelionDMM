@@ -210,6 +210,10 @@ func (a *app) Process() {
 	}
 	APHELION EDIT REMOVAL END */
 
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	// Theme spacing and radii apply to every panel and dialog this frame.
+	themeMetrics := window.PushThemeMetrics()
+	// APHELION EDIT ADDITION END
 	a.menu.Process()
 	a.layout.Process()
 	// APHELION EDIT ADDITION START - LOADING RESPONSIVENESS
@@ -224,6 +228,9 @@ func (a *app) Process() {
 	dialog.Process()
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	a.showMapOpenStatus()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	imgui.PopStyleVarV(themeMetrics)
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
 	// Panels and dialogs establish this frame's text/modal/document ownership.

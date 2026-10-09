@@ -6,7 +6,9 @@ import (
 	"strings"
 
 	"sdmm/internal/aphelion/repath"
+	"sdmm/internal/aphelion/theme"
 	"sdmm/internal/app/ui/component"
+	"sdmm/internal/app/ui/uikit"
 
 	"github.com/SpaiR/imgui-go"
 	native "github.com/sqweek/dialog"
@@ -43,11 +45,33 @@ var tierColors = map[repath.Tier]imgui.Vec4{
 	repath.Lossy:   {X: 0.9, Y: 0.4, Z: 0.4, W: 1},
 }
 
+// tierColor is the confidence colour: the status spectrum under the Meridian
+// theme (green certain through red lossy), the original colours otherwise.
+func tierColor(t repath.Tier) imgui.Vec4 {
+	if !theme.IsMeridian() {
+		return tierColors[t]
+	}
+	p := theme.Meridian
+	switch t {
+	case repath.Certain:
+		return p.Green
+	case repath.High:
+		return theme.Mix(p.Green, p.Yellow, 0.45)
+	case repath.Medium:
+		return p.Yellow
+	case repath.Low:
+		return p.Orange
+	case repath.Lossy:
+		return p.Red
+	}
+	return p.Text
+}
+
 func (p *Panel) Process(int32) {
 	c := p.Controller
 	c.Update()
 	if c.app.LoadedEnvironment() == nil {
-		imgui.TextDisabled("Open an environment to resolve unknown types.")
+		uikit.EmptyState("Open an environment to resolve unknown types.")
 		return
 	}
 	overview := c.Overview()
@@ -107,7 +131,7 @@ func (p *Panel) sources(overview Overview) {
 	imgui.Text(fmt.Sprintf("UpdatePaths: %d scripts, %d rules", overview.Scripts, overview.Rules))
 	if len(overview.ScriptErrors) != 0 {
 		imgui.SameLine()
-		imgui.TextColored(tierColors[repath.Low], fmt.Sprintf("%d errors", len(overview.ScriptErrors)))
+		imgui.TextColored(tierColor(repath.Low), fmt.Sprintf("%d errors", len(overview.ScriptErrors)))
 		if imgui.IsItemHovered() {
 			var lines []string
 			for n, err := range overview.ScriptErrors {
@@ -304,7 +328,7 @@ func (p *Panel) choiceCombo(row Row) {
 		}
 	}
 	if current != nil {
-		imgui.PushStyleColor(imgui.StyleColorText, tierColors[current.Tier])
+		imgui.PushStyleColor(imgui.StyleColorText, tierColor(current.Tier))
 	}
 	imgui.SetNextItemWidth(-1)
 	open := imgui.BeginComboV("##choice", preview, imgui.ComboFlagsHeightLarge)
@@ -316,7 +340,7 @@ func (p *Panel) choiceCombo(row Row) {
 	}
 	if open {
 		for n, candidate := range row.Proposal.Candidates {
-			imgui.PushStyleColor(imgui.StyleColorText, tierColors[candidate.Tier])
+			imgui.PushStyleColor(imgui.StyleColorText, tierColor(candidate.Tier))
 			selected := row.Choice.Kind == ChoiceCandidate && row.Choice.Candidate == n
 			if imgui.SelectableV(fmt.Sprintf("%s##%d", candidateLabel(candidate), n), selected, imgui.SelectableFlagsNone, imgui.Vec2{}) {
 				if candidate.Decision.Kind == repath.Delete {
@@ -357,7 +381,7 @@ func (p *Panel) choiceCombo(row Row) {
 		p.customEditor(row)
 	}
 	if p.confirmDelete == path {
-		imgui.TextColored(tierColors[repath.Lossy], fmt.Sprintf("Delete all %d instances?", row.Proposal.Entry.Count))
+		imgui.TextColored(tierColor(repath.Lossy), fmt.Sprintf("Delete all %d instances?", row.Proposal.Entry.Count))
 		imgui.SameLine()
 		if imgui.Button("Delete") {
 			c.Choose(path, Choice{Kind: ChoiceDelete})
@@ -475,7 +499,7 @@ func (p *Panel) messages() {
 		imgui.TextWrapped(c.Status)
 	}
 	if c.Error != "" {
-		imgui.PushStyleColor(imgui.StyleColorText, tierColors[repath.Lossy])
+		imgui.PushStyleColor(imgui.StyleColorText, tierColor(repath.Lossy))
 		imgui.TextWrapped(c.Error)
 		imgui.PopStyleColor()
 	}

@@ -12,6 +12,7 @@ import (
 	"sdmm/internal/aphelion/playtest"
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/ui/component"
+	"sdmm/internal/app/ui/uikit"
 	"sdmm/internal/dmapi/dmenv"
 )
 
@@ -116,7 +117,7 @@ func (p *Panel) Process(int32) {
 	if ok {
 		imgui.TextWrapped("Map: " + filepath.Base(path))
 	} else {
-		imgui.TextDisabled("No map open")
+		uikit.EmptyState("Open and save a map to playtest it.")
 	}
 	imgui.Text("Status: " + phase.String())
 	busy := p.runner.Busy()

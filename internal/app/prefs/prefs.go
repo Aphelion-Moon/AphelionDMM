@@ -42,6 +42,10 @@ type Collaboration struct {
 type Interface struct {
 	Scale int
 	Fps   int
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	Theme   string // theme.Names; empty selects Meridian
+	Compact bool   // tighter spacing under the Meridian theme
+	// APHELION EDIT ADDITION END
 }
 
 type Controls struct {

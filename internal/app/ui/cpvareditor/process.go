@@ -10,6 +10,9 @@ import (
 	// APHELION EDIT ADDITION START - COLOR PICKER
 	"sdmm/internal/aphelion/colorvar"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/app/ui/uikit"
+	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/imguiext/icon"
@@ -23,7 +26,8 @@ import (
 
 func (v *VarEditor) Process(int32) {
 	if len(v.variablesNames) == 0 {
-		imgui.TextDisabled("No instance/prefab selected")
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextDisabled("No instance/prefab selected")
+		uikit.EmptyState("Select an object on the map or a prefab to edit its variables.")
 		return
 	}
 
@@ -62,7 +66,8 @@ func (v *VarEditor) showEditModeToggle() {
 func (v *VarEditor) showInstanceModeButton() {
 	var buttonStyle w.ButtonStyle
 	if v.sessionEditMode == emInstance {
-		buttonStyle = style.ButtonGreen{}
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: buttonStyle = style.ButtonGreen{}
+		buttonStyle = style.ButtonSelected{}
 	} else {
 		buttonStyle = style.ButtonDefault{}
 	}
@@ -76,7 +81,8 @@ func (v *VarEditor) showInstanceModeButton() {
 func (v *VarEditor) showPrefabModeButton() {
 	var buttonStyle w.ButtonStyle
 	if v.sessionEditMode == emPrefab {
-		buttonStyle = style.ButtonGreen{}
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: buttonStyle = style.ButtonGreen{}
+		buttonStyle = style.ButtonSelected{}
 	} else {
 		buttonStyle = style.ButtonDefault{}
 	}
@@ -177,7 +183,8 @@ func (v *VarEditor) showVariablesByType() {
 
 		variablesNames := v.variablesNamesByPaths[path]
 
-		imgui.TextColored(style.ColorGold, path)
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextColored(style.ColorGold, path)
+		uikit.Mono(func() { imgui.TextColored(style.ColorGold, path) })
 		imgui.SameLine()
 		imgui.TextDisabled(fmt.Sprintf("(%d)", len(variablesNames)))
 
@@ -192,13 +199,15 @@ func (v *VarEditor) showAllVariables() {
 	cfg := v.config()
 
 	if len(cfg.PinnedVarNames) != 0 {
-		imgui.TextColored(style.ColorGold, "Pinned")
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextColored(style.ColorGold, "Pinned")
+		uikit.SectionLabel("Pinned")
 		if imgui.BeginTableV("variables", 2, varsTableFlags, imgui.Vec2{}, 0) {
 			v.showVariablesNames(cfg.PinnedVarNames)
 			imgui.EndTable()
 		}
 		imgui.NewLine()
-		imgui.TextDisabled("Other")
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextDisabled("Other")
+		uikit.SectionLabel("Other")
 	}
 
 	if imgui.BeginTableV("variables", 2, varsTableFlags, imgui.Vec2{}, 0) {
@@ -275,6 +284,9 @@ func (v *VarEditor) showVarPin(varName string) {
 }
 
 func (v *VarEditor) showVarName(varName string) {
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	imgui.AlignTextToFramePadding() // centre the name on its value field
+	// APHELION EDIT ADDITION END
 	if !v.isCurrentVarInitial(varName) {
 		imgui.TextColored(style.ColorGreen3, varName)
 	} else {
@@ -300,14 +312,17 @@ func (v *VarEditor) showVarInput(varName string) {
 		imgui.SameLine()
 	}
 	// APHELION EDIT ADDITION END
-	w.InputText(fmt.Sprint("##", v.prefab.Id(), varName), &varValue).
-		Button(resetBtn).
-		Width(-1).
-		Flags(varsInputFlags).
-		OnDeactivatedAfterEdit(func() {
-			v.setCurrentVariable(varName, varValue)
-		}).
-		Build()
+	// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: w.InputText(...).Build() without uikit.Mono
+	uikit.Mono(func() {
+		w.InputText(fmt.Sprint("##", v.prefab.Id(), varName), &varValue).
+			Button(resetBtn).
+			Width(-1).
+			Flags(varsInputFlags).
+			OnDeactivatedAfterEdit(func() {
+				v.setCurrentVariable(varName, varValue)
+			}).
+			Build()
+	})
 }
 
 func (v *VarEditor) setCurrentVariable(varName, varValue string) {

@@ -99,7 +99,10 @@ type Filter struct {
 
 // Node is one level of the browse tree: a family, a path segment, or a helper.
 type Node struct {
-	Name     string
+	Name string
+	// Key is the node's path from the root ("airlock/access/all"). It is
+	// stable across rebuilds and filters, so UIs can key open state on it.
+	Key      string
 	Helper   *Helper
 	Children []*Node
 	Count    int // helpers at or below this node
@@ -159,7 +162,11 @@ func (n *Node) child(name string) *Node {
 			return c
 		}
 	}
-	c := &Node{Name: name}
+	key := name
+	if n.Key != "" {
+		key = n.Key + "/" + name
+	}
+	c := &Node{Name: name, Key: key}
 	n.Children = append(n.Children, c)
 	return c
 }

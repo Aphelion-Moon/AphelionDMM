@@ -8,6 +8,9 @@ import (
 	APHELION EDIT REMOVAL END */
 
 	"sdmm/internal/app/ui/layout/lnode"
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	"sdmm/internal/app/ui/uikit"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SEARCH CAPTURE OWNERSHIP
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 	// APHELION EDIT ADDITION END
@@ -28,7 +31,8 @@ func (s *Search) Process(int32) {
 		// APHELION EDIT ADDITION START - SEARCH VIEW OWNERSHIP
 		s.ensureCurrent()
 		// APHELION EDIT ADDITION END
-		imgui.TextDisabled("No map opened")
+		// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: imgui.TextDisabled("No map opened")
+		uikit.EmptyState("Open a map to search its instances.")
 		return
 	}
 

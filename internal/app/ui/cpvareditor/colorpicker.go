@@ -7,6 +7,7 @@ import (
 	"github.com/SpaiR/imgui-go"
 
 	"sdmm/internal/aphelion/colorvar"
+	"sdmm/internal/app/ui/uikit"
 	"sdmm/internal/dmapi/dmvars"
 )
 
@@ -67,7 +68,7 @@ func (v *VarEditor) showColorPopup() {
 	swatch := imgui.FrameHeight() * 0.9
 
 	imgui.BeginGroup()
-	imgui.Text("Basic colors:")
+	uikit.SectionLabel("Basic colors")
 	for i, c := range colorvar.BasicColors {
 		if i%8 != 0 {
 			imgui.SameLine()
@@ -75,7 +76,7 @@ func (v *VarEditor) showColorPopup() {
 		v.colorSwatchButton(fmt.Sprintf("##basic_%d", i), c, swatch)
 	}
 	imgui.Spacing()
-	imgui.Text("Custom colors:")
+	uikit.SectionLabel("Custom colors")
 	recent := v.config().RecentColors
 	for i := 0; i < colorvar.MaxRecent; i++ {
 		if i%8 != 0 {

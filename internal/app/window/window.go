@@ -168,7 +168,8 @@ func (w *Window) setupImGui() {
 	io.SetIniFilename(w.application.LayoutIniPath())
 	io.SetConfigFlags(imgui.ConfigFlagsDockingEnable)
 
-	w.setDefaultTheme()
+	// APHELION EDIT CHANGE - MERIDIAN THEME - ORIGINAL: w.setDefaultTheme()
+	applyTheme()
 }
 
 func (*Window) disposeImGui() {

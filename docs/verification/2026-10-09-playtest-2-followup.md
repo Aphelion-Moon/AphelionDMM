@@ -1,7 +1,8 @@
 # October 9 play-test 2 follow-up: implementation evidence
 
-Baseline `c6a6f662`. Rounds 1–4 are in `4a9a5738` and `8b3d10a0`; Rounds 5
-and 6 are uncommitted. Automated evidence only;
+Baseline `c6a6f662`. Rounds 1–6 are in `4a9a5738`, `8b3d10a0` and
+`b281ed07`. The Meridian UI refresh that followed is uncommitted and recorded
+in `docs/design/2026-10-09-ui-review.md`. Automated evidence only;
 **nothing here has been exercised in an interactive desktop session.**
 
 | Report | Cause and change | Evidence | Open human checks |
@@ -137,6 +138,7 @@ Play-test result: lighting and spawner visuals confirmed fine. The tile menu's M
 - **Tile menu:** "Mapping Helpers (N)..." selects the object and opens the tab, replacing the nested submenu.
 - Layout follows common large-catalogue patterns: a live filter that keeps category context and opens matches, collapsible groups, chips with counts, and applied items surfaced first.
 - Evidence: `helpers/browse_test.go`, `cphelpers/panel_test.go` (a headless imgui frame, and removal through the editor), `layout/tab_highlight_test.go`. Adding through the panel reuses the earlier tile-menu code and is not driven by a test.
+- **Fix (play-test: group arrows flickered and did not open):** group IDs came from the node's address, and the tree is rebuilt every frame, so a clicked group's open state was lost on the next frame. IDs are now the group's path (`Node.Key`, with `###` so the count can change). A search or category change opens matching groups once, instead of forcing them open every frame. Evidence: `cphelpers/tree_state_test.go` simulates the click and fails with the old ID; `helpers/browse_test.go` checks the keys stay stable.
 
 ## Gates run (Windows)
 

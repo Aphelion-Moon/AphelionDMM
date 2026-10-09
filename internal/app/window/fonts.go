@@ -50,6 +50,9 @@ func configureFonts() {
 	FontH2 = createFont(fontSizeH2, fontAtlas)
 	// APHELION EDIT CHANGE - FONT METRICS - ORIGINAL: FontH3 = createFont(fontSizeH3, fontAtlas, fontConfig)
 	FontH3 = createFont(fontSizeH3, fontAtlas)
+	// APHELION EDIT ADDITION START - MERIDIAN THEME
+	createAphelionFonts(fontAtlas)
+	// APHELION EDIT ADDITION END
 
 	imgui.CurrentIO().SetFontDefault(FontDefault)
 }
