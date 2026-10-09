@@ -7,10 +7,11 @@ import (
 )
 
 const (
-	defaultMaxConnections     = 256
-	defaultRateEntries        = 4096
-	defaultDurableQueueDepth  = 64
-	defaultPresenceQueueDepth = 1
+	defaultMaxConnections       = 256
+	defaultRateEntries          = 4096
+	defaultDurableQueueDepth    = 64
+	defaultPresenceQueueDepth   = 1
+	defaultPresenceAbuseWindows = 5
 )
 
 type RateLimit struct {
@@ -30,6 +31,10 @@ type Limits struct {
 	JoinRate                 RateLimit
 	DurableRate              RateLimit
 	PresenceRate             RateLimit
+	// PresenceAbuseWindows is how many consecutive PresenceRate windows a single
+	// connection may exceed before it is closed with CloseRateLimited. Excess
+	// presence inside a tolerated window is dropped, not applied.
+	PresenceAbuseWindows int
 }
 
 func DefaultLimits() Limits {
@@ -45,6 +50,7 @@ func DefaultLimits() Limits {
 		JoinRate:                 RateLimit{Burst: 30, Window: time.Minute},
 		DurableRate:              RateLimit{Burst: 120, Window: time.Second},
 		PresenceRate:             RateLimit{Burst: 120, Window: time.Second},
+		PresenceAbuseWindows:     defaultPresenceAbuseWindows,
 	}
 }
 
@@ -77,6 +83,9 @@ func (limits Limits) withDefaults() Limits {
 	limits.JoinRate = limits.JoinRate.withDefault(defaults.JoinRate)
 	limits.DurableRate = limits.DurableRate.withDefault(defaults.DurableRate)
 	limits.PresenceRate = limits.PresenceRate.withDefault(defaults.PresenceRate)
+	if limits.PresenceAbuseWindows <= 0 {
+		limits.PresenceAbuseWindows = defaults.PresenceAbuseWindows
+	}
 	return limits
 }
 

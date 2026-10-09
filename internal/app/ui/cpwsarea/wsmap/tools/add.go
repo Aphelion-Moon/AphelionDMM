@@ -3,6 +3,7 @@ package tools
 import (
 	// APHELION EDIT ADDITION START - HELD ROTATION
 	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/aphelion/maplint"
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	// APHELION EDIT ADDITION END
@@ -28,6 +29,10 @@ type ToolAdd struct {
 	shapeFilter   dm.PathsFilter
 	shapeReplace  bool
 	shapeReleased bool
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	lint        maplint.PlacementReport
+	lintSkipped map[util.Point]bool
 	// APHELION EDIT ADDITION END
 }
 
@@ -101,6 +106,11 @@ func (t *ToolAdd) onMove(coord util.Point) {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - HELD ROTATION - ORIGINAL: if prefab, ok := ed.SelectedPrefab(); ok && !t.editedTiles[coord] {
 	if prefab, ok := t.HeldPrefab(); ok && !t.editedTiles[coord] {
+		// APHELION EDIT ADDITION START - PLACEMENT LINT
+		if t.lintGuard(coord, prefab) {
+			return
+		}
+		// APHELION EDIT ADDITION END
 		t.editedTiles[coord] = true // Don't add to the same tile twice
 
 		tile := ed.Dmm().GetTile(coord)
@@ -116,6 +126,9 @@ func (t *ToolAdd) onStop(util.Point) {
 		t.shapeReleased = true
 		return
 	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	t.lint, t.lintSkipped = maplint.PlacementReport{}, nil
 	// APHELION EDIT ADDITION END
 	if len(t.editedTiles) != 0 {
 		t.editedTiles = make(map[util.Point]bool, len(t.editedTiles))
@@ -136,6 +149,42 @@ func (t *ToolAdd) finishShape() {
 		}
 	}
 	t.shapePrefab = nil
+}
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT ADDITION START - PLACEMENT LINT
+// lintGuard checks one stroke tile against the repository lint rules before it
+// is edited. Violations only warn; an exact duplicate under an `identical: true`
+// rule is skipped. It reports true when the tile must be left untouched.
+func (t *ToolAdd) lintGuard(coord util.Point, prefab *dmmprefab.Prefab) bool {
+	linter, ok := ed.(placementLinter)
+	if !ok {
+		return false
+	}
+	if t.lintSkipped[coord] {
+		return true
+	}
+	verdict := linter.EvaluatePlacement(coord, prefab, t.AltBehaviour())
+	if len(verdict.Violations) == 0 {
+		return false
+	}
+	if verdict.Skip {
+		if t.lintSkipped == nil {
+			t.lintSkipped = make(map[util.Point]bool)
+		}
+		t.lintSkipped[coord] = true
+		t.lint.Skipped++
+		t.lint.SkippedPath = prefab.Path()
+	} else {
+		t.lint.Warned++
+		t.lint.X, t.lint.Y, t.lint.Z = coord.X, coord.Y, coord.Z
+		t.lint.Placed = maplint.AtomFromPrefab(prefab)
+		t.lint.Summary = verdict.Summary()
+		t.lint.CanReplace = len(verdict.Replace) != 0
+	}
+	linter.RecordPlacementLint(t.lint)
+	return verdict.Skip
 }
 
 // APHELION EDIT ADDITION END

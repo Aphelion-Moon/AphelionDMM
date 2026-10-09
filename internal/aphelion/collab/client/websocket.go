@@ -438,7 +438,7 @@ func (transport *WebSocketTransport) sendFailure(ctx context.Context) error {
 func (transport *WebSocketTransport) finish(err error) {
 	transport.errorOnce.Do(func() {
 		transport.mutex.Lock()
-		transport.terminalErr = err
+		transport.terminalErr = ClassifyCloseError(err)
 		cancel := transport.cancel
 		transport.mutex.Unlock()
 		if cancel != nil {

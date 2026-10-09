@@ -270,11 +270,7 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		}
 		finishReplay(nil)
 	}
-	participants := make([]protocol.ParticipantPresence, 0, len(presenceSnapshot))
-	for _, presence := range presenceSnapshot {
-		participants = append(participants, protocol.ParticipantPresence{ActorID: presence.ActorID, DisplayName: presence.DisplayName, Sequence: presence.Sequence, Cursor: presence.Cursor, Selection: presence.Selection, Status: presence.Status})
-	}
-	if err := writeServerEnvelope(parent, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "presence-snapshot-" + decoded.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerPresenceSnapshot}, protocol.PresenceSnapshotPayload{Participants: participants}); err != nil {
+	if err := writeServerEnvelope(parent, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "presence-snapshot-" + decoded.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerPresenceSnapshot}, protocol.PresenceSnapshotPayload{Participants: presenceParticipants(presenceSnapshot)}); err != nil { // APHELION EDIT CHANGE - COLLABORATION CURSOR COLOR - ORIGINAL: inline participant loop
 		return fmt.Errorf("write presence snapshot: %w", err)
 	}
 
@@ -296,6 +292,9 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		defer reauthorizationTicker.Stop()
 		reauthorization = reauthorizationTicker.C
 	}
+	// Presence is budgeted per connection, not per actor, so a stale socket and its
+	// reconnect do not share one allowance.
+	presenceGate := newPresenceGate(service.limits.PresenceRate, service.limits.PresenceAbuseWindows)
 	sentRevision := snapshot.Revision
 	writeAccepted := func(event *durableEvent) error {
 		accepted := event.accepted
@@ -362,12 +361,16 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 			if !open {
 				return nil
 			}
-			payload := protocol.ServerPresenceUpdatePayload{ActorID: presence.ActorID, DisplayName: presence.DisplayName, Sequence: presence.Sequence, Cursor: presence.Cursor, Selection: presence.Selection, Status: presence.Status}
+			payload := protocol.ServerPresenceUpdatePayload{ActorID: presence.ActorID, DisplayName: presence.DisplayName, Sequence: presence.Sequence, Cursor: presence.Cursor, Selection: presence.Selection, Status: presence.Status, CursorColor: presence.CursorColor} // APHELION EDIT CHANGE - COLLABORATION CURSOR COLOR - ORIGINAL: no CursorColor field
 			if err := writeServerEnvelope(parent, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: fmt.Sprintf("presence-%s-%d", presence.ActorID, presence.Sequence), SessionID: auth.sessionID, Type: protocol.ServerPresenceUpdate}, payload); err != nil {
 				return fmt.Errorf("write presence update: %w", err)
 			}
 		case message := <-incoming:
-			if auth.hosted {
+			// APHELION EDIT CHANGE - COLLABORATION READ LOOP - ORIGINAL: if auth.hosted {
+			// Lossy messages (presence, ping, acknowledgement) have no durable
+			// effect, so they rely on the periodic reauthorization above. A
+			// registry round trip per presence update stalled this loop.
+			if auth.hosted && reauthorizeBeforeHandling(message.decoded.Envelope.Type) {
 				auth, err = service.reauthorizeHosted(parent, auth.hostedCredential, auth.sessionID)
 				if err != nil {
 					message.release()
@@ -375,7 +378,7 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 					return fmt.Errorf("reauthorize hosted message: %w", err)
 				}
 			}
-			err := service.handleClientMessage(parent, connection, session, auth, message.decoded, flushThrough)
+			err := service.handleClientMessage(parent, connection, session, auth, message.decoded, presenceGate, flushThrough)
 			message.release()
 			if err != nil {
 				return err
@@ -384,10 +387,40 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 	}
 }
 
+// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+
+// presenceParticipants builds wire participants, including cursor_color when set.
+func presenceParticipants(snapshot []Presence) []protocol.ParticipantPresence {
+	participants := make([]protocol.ParticipantPresence, 0, len(snapshot))
+	for _, presence := range snapshot {
+		participant := protocol.ParticipantPresence{ActorID: presence.ActorID, DisplayName: presence.DisplayName, Sequence: presence.Sequence, Cursor: presence.Cursor, Selection: presence.Selection, Status: presence.Status, CursorColor: presence.CursorColor}
+		participants = append(participants, participant)
+	}
+	return participants
+}
+
+// APHELION EDIT ADDITION END
+
 func (service *Service) validateJoinCompatibility(snapshot engine.Metadata) error {
 	_, err := service.compatibility.Negotiate(snapshot.ProtocolVersion, snapshot.SchemaVersion)
 	return err
 }
+
+// APHELION EDIT ADDITION START - COLLABORATION READ LOOP
+
+// reauthorizeBeforeHandling reports whether a hosted message needs a fresh
+// authorization before it is handled. Durable edits and profile writes do;
+// ping, presence and acknowledgements do not.
+func reauthorizeBeforeHandling(kind protocol.ClientType) bool {
+	switch kind {
+	case protocol.ClientPing, protocol.ClientPresenceUpdate, protocol.ClientAcknowledgedRevision:
+		return false
+	default:
+		return true
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 type incomingMessage struct {
 	decoded protocol.DecodedClient
@@ -445,15 +478,20 @@ func readClientMessages(ctx context.Context, connection *websocket.Conn, session
 	}
 }
 
-func (service *Service) handleClientMessage(ctx context.Context, connection *websocket.Conn, session sessionRecord, auth tokenRecord, message protocol.DecodedClient, flushThrough func(model.Revision) error) error {
+func (service *Service) handleClientMessage(ctx context.Context, connection *websocket.Conn, session sessionRecord, auth tokenRecord, message protocol.DecodedClient, presenceGate *presenceGate, flushThrough func(model.Revision) error) error {
 	switch message.Envelope.Type {
 	case protocol.ClientPing:
 		ping := message.Payload.(*protocol.PingPayload)
 		return writeServerEnvelope(ctx, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "pong-" + message.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerPong}, protocol.PongPayload{Nonce: ping.Nonce})
 	case protocol.ClientPresenceUpdate:
-		if !service.presenceLimiter.Allow(string(auth.principal.ActorID()), service.config.Now()) {
+		allowed, abuse := presenceGate.Allow(service.config.Now())
+		if abuse {
 			_ = connection.Close(CloseRateLimited, "presence rate exceeded")
 			return fmt.Errorf("presence rate exceeded for actor %q", auth.principal.ActorID())
+		}
+		if !allowed {
+			// Lossy presence beyond the budget is dropped; the next update supersedes it.
+			return nil
 		}
 		presence := message.Payload.(*protocol.PresenceUpdatePayload)
 		if err := service.hub.UpdatePresence(auth.sessionID, auth.principal, PresenceUpdate{Sequence: presence.Sequence, Cursor: presence.Cursor, Selection: presence.Selection, Status: presence.Status}); err != nil {
@@ -462,14 +500,31 @@ func (service *Service) handleClientMessage(ctx context.Context, connection *web
 		return nil
 	case protocol.ClientProfileUpdate:
 		profile := message.Payload.(*protocol.ProfileUpdatePayload)
-		if auth.hosted && service.config.HostedRegistry != nil {
-			if err := service.config.HostedRegistry.UpdateHostedMemberDisplayName(ctx, auth.sessionID, auth.principal.ActorID(), profile.DisplayName); err != nil {
-				return fmt.Errorf("persist hosted display name: %w", err)
+		// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+		// cursor_color is ephemeral presence: validated here, answered with a
+		// bounded notice when out of range, and never persisted.
+		if profile.CursorColor != nil && !protocol.ValidCursorColor(*profile.CursorColor) {
+			return writeServerEnvelope(ctx, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "cursor-color-" + message.Envelope.MessageID, SessionID: auth.sessionID, Type: protocol.ServerSessionNotice}, protocol.SessionNoticePayload{Code: protocol.NoticeInvalidCursorColor, Message: "cursor color is outside the palette"})
+		}
+		// APHELION EDIT ADDITION END
+		// APHELION EDIT CHANGE - COLLABORATION CURSOR COLOR - ORIGINAL: unconditional display name update
+		if profile.DisplayName != "" {
+			if auth.hosted && service.config.HostedRegistry != nil {
+				if err := service.config.HostedRegistry.UpdateHostedMemberDisplayName(ctx, auth.sessionID, auth.principal.ActorID(), profile.DisplayName); err != nil {
+					return fmt.Errorf("persist hosted display name: %w", err)
+				}
+			}
+			if err := service.hub.UpdateDisplayName(auth.sessionID, auth.principal, profile.DisplayName); err != nil {
+				return fmt.Errorf("update display name: %w", err)
 			}
 		}
-		if err := service.hub.UpdateDisplayName(auth.sessionID, auth.principal, profile.DisplayName); err != nil {
-			return fmt.Errorf("update display name: %w", err)
+		// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+		if profile.CursorColor != nil {
+			if err := service.hub.UpdateCursorColor(auth.sessionID, auth.principal, *profile.CursorColor); err != nil {
+				return fmt.Errorf("update cursor color: %w", err)
+			}
 		}
+		// APHELION EDIT ADDITION END
 		return nil
 	case protocol.ClientOperationSubmit:
 		submission := message.Payload.(*protocol.OperationSubmitPayload)

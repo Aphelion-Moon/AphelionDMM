@@ -7,7 +7,9 @@ import (
 	// APHELION EDIT ADDITION END
 	"strings"
 
+	/* APHELION EDIT REMOVAL START - ENVIRONMENT TYPES FILTER
 	"sdmm/internal/imguiext/style"
+	APHELION EDIT REMOVAL END */
 
 	"sdmm/internal/dmapi/dmenv"
 	// APHELION EDIT ADDITION START - ICON RECOVERY
@@ -17,6 +19,9 @@ import (
 	w "sdmm/internal/imguiext/widget"
 
 	"github.com/SpaiR/imgui-go"
+	// APHELION EDIT ADDITION START - ICON VISIBILITY
+	"github.com/go-gl/glfw/v3.3/glfw"
+	// APHELION EDIT ADDITION END
 )
 
 /* APHELION EDIT REMOVAL START - OBJECT TREE FILTER CLIPPING
@@ -58,8 +63,10 @@ func (e *Environment) showControls() {
 		Tooltip("Collapse All").
 		Round(true).
 		Build()
+	/* APHELION EDIT REMOVAL START - ENVIRONMENT TYPES FILTER
 	imgui.SameLine()
 	e.showTypesFilterButton()
+	APHELION EDIT REMOVAL END */
 	imgui.SameLine()
 	e.showSettingsButton()
 	imgui.SameLine()
@@ -71,6 +78,7 @@ func (e *Environment) showControls() {
 	imgui.Separator()
 }
 
+/* APHELION EDIT REMOVAL START - ENVIRONMENT TYPES FILTER
 func (e *Environment) showTypesFilterButton() {
 	var bStyle w.ButtonStyle
 
@@ -92,6 +100,7 @@ func (e *Environment) showTypesFilterButton() {
 		),
 	}.Build()
 }
+APHELION EDIT REMOVAL END */
 
 func (e *Environment) showSettingsButton() {
 	w.Layout{
@@ -241,6 +250,7 @@ func (e *Environment) scrollToSelectedPath(node *treeNode) {
 	}
 }
 
+/* APHELION EDIT REMOVAL START - ICON VISIBILITY
 func (e *Environment) showAttachment(node *treeNode) bool {
 	if e.typesFilterEnabled {
 		e.showVisibilityCheckbox(node)
@@ -250,6 +260,50 @@ func (e *Environment) showAttachment(node *treeNode) bool {
 		return false
 	}
 }
+APHELION EDIT REMOVAL END */
+
+// APHELION EDIT ADDITION START - ICON VISIBILITY
+// showAttachment always renders the visibility control followed by the type
+// icon. showIcon ends with a SameLine, so the caller needs no extra SameLine
+// and false is returned.
+func (e *Environment) showAttachment(node *treeNode) bool {
+	e.showVisibilityCheckbox(node)
+	imgui.SameLine()
+	e.showIcon(node)
+	return false
+}
+
+// hiddenIconAlpha is the tint alpha multiplier applied to icons of hidden paths.
+const hiddenIconAlpha = .35
+
+// iconTint returns the node tint, with alpha dimmed when the path is hidden.
+func iconTint(color imgui.Vec4, hidden bool) imgui.Vec4 {
+	if hidden {
+		color.W *= hiddenIconAlpha
+	}
+	return color
+}
+
+func (e *Environment) nodeTint(node *treeNode) imgui.Vec4 {
+	return iconTint(node.color, !e.app.PathsFilter().IsVisiblePath(node.orig.Path))
+}
+
+// altDown reports whether either Alt key is held. ImGui's KeyAlt mapping is
+// disabled in platform/glfw.go, so the raw GLFW keys are checked instead.
+func altDown() bool {
+	return imgui.IsKeyDown(int(glfw.KeyLeftAlt)) || imgui.IsKeyDown(int(glfw.KeyRightAlt))
+}
+
+// toggleNodeVisibility flips the subtree visibility of path, matching the
+// checkbox action in filterprofiles.
+func (e *Environment) toggleNodeVisibility(path string) {
+	visible := e.app.PathsFilter().IsVisiblePath(path)
+	if err := e.SetFilterVisibility(path, filterprofiles.ScopeSubtree, !visible); err != nil {
+		e.filterProfileStatus = err.Error()
+	}
+}
+
+// APHELION EDIT ADDITION END
 
 func (e *Environment) showVisibilityCheckbox(node *treeNode) {
 	/* APHELION EDIT REMOVAL START - EXACT VISIBILITY SUMMARY
@@ -273,6 +327,11 @@ func (e *Environment) showVisibilityCheckbox(node *treeNode) {
 			e.filterProfileStatus = err.Error()
 		}
 	}
+	// APHELION EDIT ADDITION START - ICON VISIBILITY
+	if imgui.IsItemHovered() {
+		imgui.SetTooltip("Show/hide this type and its subtypes (Alt+click icon also toggles)")
+	}
+	// APHELION EDIT ADDITION END
 
 	imgui.PopStyleVar()
 
@@ -312,9 +371,15 @@ func (e *Environment) showIcon(node *treeNode) {
 		// APHELION EDIT ADDITION END
 	}
 	w.Image(imgui.TextureID(s.Texture()), e.iconSize(), e.iconSize()).
-		TintColor(node.color).
+		// APHELION EDIT CHANGE - ICON VISIBILITY - ORIGINAL: TintColor(node.color).
+		TintColor(e.nodeTint(node)).
 		Uv(imgui.Vec2{X: s.U1, Y: s.V1}, imgui.Vec2{X: s.U2, Y: s.V2}).
 		Build()
+	// APHELION EDIT ADDITION START - ICON VISIBILITY
+	if imgui.IsItemClicked() && altDown() {
+		e.toggleNodeVisibility(node.orig.Path)
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - ICON RECOVERY
 	if imgui.IsItemVisible() {
 		node.sprite, node.load = dmicon.Cache.RequestSpriteV(node.icon, node.state, node.dir, dmicon.RequestVisible)

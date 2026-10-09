@@ -12,6 +12,7 @@ import (
 
 	"sdmm/internal/aphelion/collab/model"
 	collabstore "sdmm/internal/aphelion/collab/store"
+	"sdmm/internal/aphelion/repoinfo"
 )
 
 func TestHostedRegistryPersistsSessionMembershipAndOneUseInvitation(t *testing.T) {
@@ -366,4 +367,126 @@ func waitForHostedRowLockWait(t *testing.T, ctx context.Context, dsn, queryFragm
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
+}
+
+func TestHostedRepositoryDescriptorPersistsAndInvalidReadsAsUnknown(t *testing.T) {
+	dsn, schema := isolatedSchema(t)
+	value, fixtures := openHostedTestStore(t, dsn, schema, 3)
+	ctx := context.Background()
+	descriptor := &repoinfo.Descriptor{DMEName: "game.dme", EnvironmentHash: strings.Repeat("a", 64), GitBranch: "play-test", GitCommit: strings.Repeat("b", 40)}
+	hashOnly := &repoinfo.Descriptor{DMEName: "other.dme", EnvironmentHash: strings.Repeat("c", 64)}
+	create := func(sessionID string, fixture collabstore.ConformanceFixture, repository *repoinfo.Descriptor) error {
+		actor, err := model.NewActorID()
+		if err != nil {
+			t.Fatal(err)
+		}
+		owner := collabstore.HostedMember{SessionID: sessionID, Issuer: "https://issuer.example", Subject: sessionID, ActorID: actor, DisplayName: "Owner", Role: collabstore.HostedRoleOwner}
+		return value.CreateHostedSession(ctx, collabstore.HostedSession{SessionID: sessionID, DocumentID: fixture.Initial.DocumentID, CreatedAt: time.Unix(1000, 0).UTC(), Repository: repository}, owner)
+	}
+	if err := create("with-git", fixtures[0], descriptor); err != nil {
+		t.Fatal(err)
+	}
+	if err := create("hash-only", fixtures[1], hashOnly); err != nil {
+		t.Fatal(err)
+	}
+	if err := create("unknown", fixtures[2], nil); err != nil {
+		t.Fatal(err)
+	}
+	// Invalid descriptors are rejected on write.
+	if err := create("bad", fixtures[2], &repoinfo.Descriptor{DMEName: `C:\work\game.dme`, EnvironmentHash: "zz"}); err == nil {
+		t.Fatal("invalid descriptor was accepted on write")
+	}
+	// A restarted store (fresh pool) lists the persisted descriptors.
+	if err := value.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(ctx, Config{DSN: dsn, Schema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	listed := func() map[string]*repoinfo.Descriptor {
+		sessions, err := reopened.ListHostedSessions(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := map[string]*repoinfo.Descriptor{}
+		for _, session := range sessions {
+			result[session.SessionID] = session.Repository
+		}
+		return result
+	}
+	got := listed()
+	if len(got) != 3 || got["with-git"] == nil || *got["with-git"] != *descriptor || got["hash-only"] == nil || *got["hash-only"] != *hashOnly || got["unknown"] != nil {
+		t.Fatalf("recovered descriptors = %#v", got)
+	}
+	// A value that is valid for the column constraints but not for the
+	// descriptor rules (branch without commit) reads as unknown.
+	connection, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = connection.Close(ctx) }()
+	if _, err := connection.Exec(ctx, "SET search_path TO "+pgx.Identifier{schema}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.Exec(ctx, `UPDATE collaboration_hosted_sessions SET repository_git_branch = 'main' WHERE session_id = 'hash-only'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := listed(); got["hash-only"] != nil || got["with-git"] == nil {
+		t.Fatalf("invalid stored descriptor not treated as unknown: %#v", got)
+	}
+	// The database refuses structurally impossible rows outright.
+	if _, err := connection.Exec(ctx, `UPDATE collaboration_hosted_sessions SET repository_git_commit = 'nothex' WHERE session_id = 'unknown'`); err == nil {
+		t.Fatal("database accepted a malformed commit")
+	}
+	if _, err := connection.Exec(ctx, `UPDATE collaboration_hosted_sessions SET repository_environment_hash = repeat('a', 64) WHERE session_id = 'unknown'`); err == nil {
+		t.Fatal("database accepted a half-populated descriptor")
+	}
+}
+
+func TestHostedRepositoryMigrationAppliesToExistingVersion5Schema(t *testing.T) {
+	dsn, schema := isolatedLegacySchema(t)
+	ctx := context.Background()
+	connection, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = connection.Close(ctx) }()
+	if _, err := connection.Exec(ctx, "SET search_path TO "+pgx.Identifier{schema}.Sanitize()); err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		hostedSessionMetadataSchema,
+		`INSERT INTO collaboration_schema_migrations(version) VALUES (5)`,
+		`INSERT INTO collaboration_documents(document_id, snapshot, snapshot_revision, snapshot_hash, current_revision, current_hash) VALUES('v5-doc', '{}'::jsonb, 0, repeat('0', 64), 0, repeat('0', 64))`,
+		`INSERT INTO collaboration_hosted_sessions(session_id, document_id, created_at, visibility, title) VALUES('v5-session', 'v5-doc', CURRENT_TIMESTAMP, 'community', 'Existing')`,
+	} {
+		if _, err := connection.Exec(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ownerActor, _ := model.NewActorID()
+	if _, err := connection.Exec(ctx, `INSERT INTO collaboration_hosted_members(session_id, issuer, subject, actor_id, display_name, role) VALUES('v5-session', 'https://issuer.example', 'owner', $1, 'Owner', 'owner')`, ownerActor); err != nil {
+		t.Fatal(err)
+	}
+	value, err := Open(ctx, Config{DSN: dsn, Schema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = value.Close() })
+	var version int
+	if err := connection.QueryRow(ctx, `SELECT MAX(version) FROM collaboration_schema_migrations`).Scan(&version); err != nil || version != 6 || postgresSchemaVersion != 6 {
+		t.Fatalf("schema version = %d, %v; want 6", version, err)
+	}
+	sessions, err := value.ListHostedSessions(ctx)
+	if err != nil || len(sessions) != 1 || sessions[0].Title != "Existing" || sessions[0].Repository != nil {
+		t.Fatalf("migrated sessions = %#v, %v; want existing row with unknown repository", sessions, err)
+	}
+	// Re-opening is idempotent.
+	again, err := Open(ctx, Config{DSN: dsn, Schema: schema})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = again.Close()
 }

@@ -49,6 +49,9 @@ const (
 	ServerPong              ServerType = "pong"
 
 	NoticeSnapshotRequired = "snapshot_required"
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	NoticeInvalidCursorColor = "invalid_cursor_color"
+	// APHELION EDIT ADDITION END
 )
 
 type ClientEnvelope struct {
@@ -101,8 +104,19 @@ type PresenceUpdatePayload struct {
 	Status    string             `json:"status"`
 }
 
+// APHELION EDIT CHANGE - COLLABORATION CURSOR COLOR - ORIGINAL: DisplayName string `json:"display_name"`
+// CursorColorPaletteSize is the number of cursor palette entries. cursor_color is
+// an index in [0, CursorColorPaletteSize). Absence means the viewer derives a
+// default from the actor ID. The value is ephemeral presence, never durable.
+const CursorColorPaletteSize = 12
+
+// ValidCursorColor reports whether index names a palette entry.
+func ValidCursorColor(index int) bool { return index >= 0 && index < CursorColorPaletteSize }
+
 type ProfileUpdatePayload struct {
-	DisplayName string `json:"display_name"`
+	// DisplayName is optional when CursorColor is present.
+	DisplayName string `json:"display_name,omitempty"`
+	CursorColor *int   `json:"cursor_color,omitempty"`
 }
 
 type PresenceSelection struct {
@@ -156,6 +170,9 @@ type ParticipantPresence struct {
 	Cursor      *model.Coord       `json:"cursor,omitempty"`
 	Selection   *PresenceSelection `json:"selection,omitempty"`
 	Status      string             `json:"status"`
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	CursorColor *int `json:"cursor_color,omitempty"`
+	// APHELION EDIT ADDITION END
 }
 
 type PresenceSnapshotPayload struct {
@@ -301,9 +318,12 @@ func validateClientPayload(payload any, bulk bool) error {
 		}
 		return validateIdentifier("status", value.Status)
 	case *ProfileUpdatePayload:
-		if strings.TrimSpace(value.DisplayName) == "" || len(value.DisplayName) > MaxDisplayNameBytes {
+		// APHELION EDIT CHANGE - COLLABORATION CURSOR COLOR - ORIGINAL: unconditional display name check
+		if (value.DisplayName != "" || value.CursorColor == nil) && (strings.TrimSpace(value.DisplayName) == "" || len(value.DisplayName) > MaxDisplayNameBytes) {
 			return fmt.Errorf("display name length is %d, want 1..%d non-whitespace bytes", len(value.DisplayName), MaxDisplayNameBytes)
 		}
+		// cursor_color range is enforced by the server handler so an out-of-range
+		// index yields a bounded notice instead of closing the connection.
 		return nil
 	case *AcknowledgedRevisionPayload:
 		return nil

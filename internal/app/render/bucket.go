@@ -54,6 +54,9 @@ func (r *Render) batchLevel(pass *brush.DrawPass, level int, viewBounds util.Bou
 	// Retained map-space submissions remain valid across camera movement; the
 	// current viewport culls chunks and the current camera matrix transforms them.
 	policyRevision, cacheable := r.retainedPolicyRevision()
+	// APHELION EDIT ADDITION START - AREA PRESENTATION
+	areaPolicy := CurrentAreaPolicy()
+	// APHELION EDIT ADDITION END
 	var highlightedUnits map[uint64]HighlightUnit
 	if withUnitHighlight && r.overlay != nil {
 		// The UI owns this map and flushes it after all levels finish drawing.
@@ -104,9 +107,16 @@ func (r *Render) batchLevel(pass *brush.DrawPass, level int, viewBounds util.Bou
 					continue
 				}
 
+				// APHELION EDIT ADDITION START - AREA PRESENTATION
+				unitAlpha, unitVisible := areaPolicy.ApplyUnit(u)
+				if !unitVisible {
+					continue
+				}
+				// APHELION EDIT ADDITION END
 				brush.RectTexturedV(
 					u.ViewBounds().X1, u.ViewBounds().Y1, u.ViewBounds().X2, u.ViewBounds().Y2,
-					u.R(), u.G(), u.B(), u.A(),
+					// APHELION EDIT CHANGE - AREA PRESENTATION - ORIGINAL: u.R(), u.G(), u.B(), u.A(),
+					u.R(), u.G(), u.B(), unitAlpha,
 					u.Sprite().Texture(),
 					u.Sprite().U1, u.Sprite().V1, u.Sprite().U2, u.Sprite().V2,
 				)
@@ -153,14 +163,20 @@ func (r *Render) ReleaseRetainedSubmissionsStep() bool {
 	return r.retained != nil && r.retained.DisposeRetiredStep()
 }
 func (r *Render) retainedPolicyRevision() (uint64, bool) {
+	// APHELION EDIT ADDITION START - AREA PRESENTATION
+	// The area presentation policy is part of every retained submission's version.
+	areaRevision := AreaPolicyRevision() * 0x9E3779B97F4A7C15
+	// APHELION EDIT ADDITION END
 	if r.unitProcessor == nil {
-		return 0, true
+		// APHELION EDIT CHANGE - AREA PRESENTATION - ORIGINAL: return 0, true
+		return areaRevision, true
 	}
 	versioned, ok := r.unitProcessor.(interface{ RenderPolicyRevision() uint64 })
 	if !ok {
 		return 0, false
 	}
-	return versioned.RenderPolicyRevision(), true
+	// APHELION EDIT CHANGE - AREA PRESENTATION - ORIGINAL: return versioned.RenderPolicyRevision(), true
+	return versioned.RenderPolicyRevision() ^ areaRevision, true
 }
 func (r *Render) retainedEntry(key rendercache.Key, versions rendercache.Versions) (*rendercache.Entry, bool) {
 	var visible func(unit.Unit) bool
@@ -213,6 +229,9 @@ func (r *Render) drawRetainedChunkLayer(pass *brush.DrawPass, c *chunk.Chunk, la
 func (r *Render) prepareRetainedChunkLayer(c *chunk.Chunk, layer float32, key rendercache.Key, versions rendercache.Versions) {
 	unitIDs := make([]uint64, 0, min(len(c.UnitsByLayers[layer]), rendercache.MaxIndexedUnitsPerEntry))
 	indexComplete := true
+	// APHELION EDIT ADDITION START - AREA PRESENTATION
+	areaPolicy := CurrentAreaPolicy()
+	// APHELION EDIT ADDITION END
 	dependencies := rendercache.Dependencies{IconLifetime: dmicon.Cache.Lifetime(), Icons: make(map[string]uint64)}
 	// One rectangle uses 152 GPU bytes. This upper estimate also admits
 	// transient staging, worst-case draw calls, and retained unit IDs.
@@ -221,6 +240,12 @@ func (r *Render) prepareRetainedChunkLayer(c *chunk.Chunk, layer float32, key re
 			if r.unitProcessor != nil && !r.unitProcessor.ProcessUnit(u) {
 				continue
 			}
+			// APHELION EDIT ADDITION START - AREA PRESENTATION
+			unitAlpha, unitVisible := areaPolicy.ApplyUnit(u)
+			if !unitVisible {
+				continue
+			}
+			// APHELION EDIT ADDITION END
 			if indexComplete {
 				if len(unitIDs) == rendercache.MaxIndexedUnitsPerEntry {
 					unitIDs = nil
@@ -232,7 +257,8 @@ func (r *Render) prepareRetainedChunkLayer(c *chunk.Chunk, layer float32, key re
 			icon, _ := u.Instance().Prefab().Vars().Text("icon")
 			dependencies.Icons[icon] = dmicon.Cache.IconRevision(icon)
 			bounds := u.ViewBounds()
-			brush.RectTexturedV(bounds.X1, bounds.Y1, bounds.X2, bounds.Y2, u.R(), u.G(), u.B(), u.A(), u.Sprite().Texture(), u.Sprite().U1, u.Sprite().V1, u.Sprite().U2, u.Sprite().V2)
+			// APHELION EDIT CHANGE - AREA PRESENTATION - ORIGINAL: u.A()
+			brush.RectTexturedV(bounds.X1, bounds.Y1, bounds.X2, bounds.Y2, u.R(), u.G(), u.B(), unitAlpha, u.Sprite().Texture(), u.Sprite().U1, u.Sprite().V1, u.Sprite().U2, u.Sprite().V2)
 		}
 	})
 	if err != nil {

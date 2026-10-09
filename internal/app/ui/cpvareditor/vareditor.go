@@ -11,6 +11,9 @@ import (
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 	"sdmm/internal/dmapi/dmvars"
+	// APHELION EDIT ADDITION START - OFFSET REFRESH
+	"sdmm/internal/util"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/util/slice"
 	"strings"
 
@@ -202,6 +205,12 @@ func (v *VarEditor) setInstanceVariable(varName, varValue string) {
 	}
 
 	v.instance.SetPrefab(newPrefab)
+	// APHELION EDIT ADDITION START - OFFSET REFRESH
+	// Presentation publication skips a tile whose edited state equals its opened
+	// state, which would leave a stale sprite after reverting pixel/step offsets.
+	// Rebuild the edited tile's geometry directly instead of relying on it.
+	currentEditor.UpdateCanvasByCoords([]util.Point{v.instance.Coord()})
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - PROPERTY CAPTURE - ORIGINAL: v.app.CurrentEditor().CommitOperation("Edit Variable")
 	currentEditor.CommitOperation("Edit Variable")
 	v.app.DoSelectPrefab(newPrefab)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	// APHELION EDIT ADDITION START - DISK_VERSION
 	"sdmm/internal/aphelion/diskversion"
+	"sdmm/internal/aphelion/mapsave"
 	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/dmapi/dmenv"
@@ -68,6 +69,16 @@ func saveV(dme *dmenv.Dme, dmm *dmmap.Dmm, path string, cfg Config, expected *di
 		log.Print("unable to handle locations without keys:", err)
 		return diskversion.State{}, fmt.Errorf("assign map keys: %w", err)
 	}
+	// APHELION EDIT ADDITION START - KEY_LENGTH_WARNING
+	if cfg.ConfirmKeyLengthChange != nil && sp.output.KeyLength > sp.initial.KeyLength {
+		plan := mapsave.PlanKeyLength(len(sp.output.Dictionary), sp.initial.KeyLength)
+		plan.Required = sp.output.KeyLength // The allocator's decision is authoritative.
+		if !cfg.ConfirmKeyLengthChange(KeyLengthChange{Path: path, Plan: plan}) {
+			log.Print("save canceled: key length change declined")
+			return diskversion.State{}, ErrKeyLengthChangeDeclined
+		}
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - EXPECTED INPUT VALIDATION - ORIGINAL: if err := sp.output.Save(); err != nil {
 	var saved diskversion.State
 	if expected == nil {

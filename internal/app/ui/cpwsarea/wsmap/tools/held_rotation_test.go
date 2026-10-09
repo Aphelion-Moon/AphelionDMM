@@ -159,6 +159,32 @@ func TestFillAndReplaceCommitRotatedHeldPrefab(t *testing.T) {
 	}
 }
 
+type heldSelectingEditor struct{ *heldAddEditor }
+
+func (e *heldSelectingEditor) SelectHeldPrefab(p *dmmprefab.Prefab) { e.prefab = p }
+
+func TestPaletteRotationPublishesRotatedSelection(t *testing.T) {
+	_, base := lifecycleFixture(t)
+	source := dmmprefab.New(0, "/obj/held", dmvars.Set((&dmvars.MutableVariables{}).ToImmutable(), "dir", "2"))
+	owner := &heldSelectingEditor{&heldAddEditor{base, source}}
+	ed = owner
+	oldTool, oldName, oldActive, oldStarted := tools[TNAdd], selectedToolName, active, startedTool
+	t.Cleanup(func() { tools[TNAdd], selectedToolName, active, startedTool = oldTool, oldName, oldActive, oldStarted })
+	add := newAdd()
+	tools[TNAdd], selectedToolName, active, startedTool = add, TNAdd, false, nil
+	for _, want := range []string{"8", "1"} {
+		if err := RotateHeld(true); err != nil {
+			t.Fatal(err)
+		}
+		if owner.prefab == source || owner.prefab.Vars().ValueV("dir", "") != want {
+			t.Fatalf("selection did not follow held rotation, want dir %s", want)
+		}
+		if held, _ := add.HeldPrefab(); held.Vars().ValueV("dir", "") != want {
+			t.Fatalf("held value diverged from published selection, want dir %s", want)
+		}
+	}
+}
+
 type heldShapeEditor struct{ *heldPaletteEditor }
 
 func (*heldShapeEditor) BrushShape() editing.ShapeDescriptor {

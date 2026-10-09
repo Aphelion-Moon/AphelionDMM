@@ -34,6 +34,20 @@ type Browser struct {
 	cancel     context.CancelFunc
 	title      string
 	community  bool
+	// APHELION EDIT ADDITION START - REPOSITORY ALIGNMENT
+	// JoinNewTab opens the session as an untitled document instead of replacing
+	// the open map. When nil the browser behaves as before.
+	JoinNewTab    func(ctx context.Context, id string, host *protocol.RepositoryDescriptor, done func(error))
+	CanJoinNewTab func() string
+	// LocalEnvironment runs on the UI thread and returns an inspection bound to
+	// the environment loaded at that moment. The inspection runs off the UI
+	// thread through Run (a goroutine when nil).
+	LocalEnvironment func() func(context.Context) (LocalEnvironment, error)
+	CopyText         func(string)
+	Run              func(func())
+	replaceOpenMap   bool
+	repo             browserRepository
+	// APHELION EDIT ADDITION END
 }
 
 func (b *Browser) Name() string         { return "Browse Hosted Sessions" }
@@ -64,6 +78,7 @@ func (b *Browser) refresh(cursor string) {
 	b.busy = true
 	b.err = ""
 	b.joinErr = ""
+	b.Recheck() // APHELION EDIT ADDITION - REPOSITORY ALIGNMENT
 	if b.scope == "" {
 		b.scope = "community"
 	}
@@ -177,7 +192,14 @@ func (b *Browser) Process() {
 	}
 	if selected != nil {
 		imgui.TextWrapped("Map: " + selected.MapLabel + "   Environment: " + selected.EnvironmentLabel)
-		imgui.TextWrapped("Compatibility is checked when opening. Load a compatible local environment and map first.")
+		// APHELION EDIT CHANGE - REPOSITORY ALIGNMENT - ORIGINAL: imgui.TextWrapped("Compatibility is checked when opening. Load a compatible local environment and map first.")
+		if b.JoinNewTab != nil {
+			imgui.TextWrapped("Compatibility is checked when opening. Load the same environment first; the session opens in a new untitled tab and Save asks where to write it.")
+			imgui.Checkbox("Replace the open map instead", &b.replaceOpenMap)
+		} else {
+			imgui.TextWrapped("Compatibility is checked when opening. Load a compatible local environment and map first.")
+		}
+		b.showRepository(selected) // APHELION EDIT ADDITION - REPOSITORY ALIGNMENT
 		reason = ""
 		if !selected.Available {
 			reason = "The session document is unavailable."
@@ -238,8 +260,17 @@ func (b *Browser) joinSelected() {
 	// action, never the immediate-mode render loop. A failed local preflight
 	// must not invalidate a successfully loaded session list.
 	b.joinErr = ""
-	if b.CanJoin != nil {
-		if reason := b.CanJoin(); reason != "" {
+	// APHELION EDIT ADDITION START - REPOSITORY ALIGNMENT
+	newTab := b.JoinNewTab != nil && !b.replaceOpenMap
+	canJoin := b.CanJoin
+	if newTab {
+		canJoin = b.CanJoinNewTab
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - REPOSITORY ALIGNMENT - ORIGINAL: if b.CanJoin != nil {
+	if canJoin != nil {
+		// APHELION EDIT CHANGE - REPOSITORY ALIGNMENT - ORIGINAL: if reason := b.CanJoin(); reason != "" {
+		if reason := canJoin(); reason != "" {
 			b.joinErr = reason
 			return
 		}
@@ -252,7 +283,21 @@ func (b *Browser) joinSelected() {
 	b.busy = true
 	b.generation++
 	generation := b.generation
-	b.Join(ctx, b.selected, func(err error) {
+	// APHELION EDIT ADDITION START - REPOSITORY ALIGNMENT
+	join := func(ctx context.Context, id string, done func(error)) {
+		if newTab {
+			var host *protocol.RepositoryDescriptor
+			if summary := b.selectedSummary(); summary != nil {
+				host = summary.Repository
+			}
+			b.JoinNewTab(ctx, id, host, done)
+			return
+		}
+		b.Join(ctx, id, done)
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - REPOSITORY ALIGNMENT - ORIGINAL: b.Join(ctx, b.selected, func(err error) {
+	join(ctx, b.selected, func(err error) {
 		cancel()
 		if b.closed || b.generation != generation {
 			return

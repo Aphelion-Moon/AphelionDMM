@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/rs/zerolog/log"
 
 	collabclient "sdmm/internal/aphelion/collab/client"
 	"sdmm/internal/aphelion/collab/executor"
@@ -52,6 +53,7 @@ type SessionClient struct {
 	presenceInterval        time.Duration
 	presenceSequence        uint64
 	profileSequence         uint64
+	cursorColor             *int // APHELION EDIT ADDITION - COLLABORATION CURSOR COLOR
 	nextPresenceAt          time.Time
 	pendingPresence         *protocol.PresenceUpdatePayload
 	cancelPresence          func()
@@ -67,6 +69,7 @@ type SessionClient struct {
 	hostedSession           bool
 	hostedGeneration        uint64
 	hostedSnapshotGzip      bool
+	hostedRepository        bool // APHELION EDIT ADDITION - REPOSITORY ALIGNMENT: negotiated per capability probe.
 	hostedActorID           model.ActorID
 	baseURL                 string
 	origin                  string
@@ -77,6 +80,9 @@ type SessionClient struct {
 	reconnecting            bool
 	newTransport            func() SessionTransport
 	lastErr                 error
+	// rateLimited is set while the current reconnect cycle began with a 4429
+	// close, so later unrelated attempt failures do not hide the cause.
+	rateLimited bool
 }
 
 // SessionTransport is a collaboration transport whose terminal result can be observed by the session lifecycle.
@@ -159,6 +165,7 @@ func (client *SessionClient) CreateNamed(ctx context.Context, baseURL, launchTok
 	if created.SessionID == "" || created.OwnerToken == "" || created.DocumentID != snapshot.DocumentID {
 		return Invitation{}, fmt.Errorf("collaboration session response is incompatible with the requested document")
 	}
+	log.Info().Str("session_id", created.SessionID).Uint64("revision", uint64(created.Revision)).Msg("collab: session created")
 	return Invitation{BaseURL: strings.TrimRight(baseURL, "/"), Origin: strings.TrimRight(baseURL, "/"), SessionID: created.SessionID, Token: created.OwnerToken, TokenExpiresAt: created.OwnerTokenExpiresAt}, nil
 }
 
@@ -217,10 +224,12 @@ func (client *SessionClient) joinSession(ctx context.Context, invitation connect
 	client.administrationToken = ""
 	client.administrationExpiresAt = time.Time{}
 	client.lastErr = nil
+	client.rateLimited = false
 	client.reconnecting = false
 	if client.cancelReconnect != nil {
 		client.cancelReconnect()
 	}
+	log.Info().Str("session_id", invitation.SessionID).Bool("hosted", invitation.Hosted).Msg("collab: join started")
 	reconnectContext, cancelReconnect := context.WithCancel(context.Background())
 	client.reconnectContext = reconnectContext
 	client.cancelReconnect = cancelReconnect
@@ -448,6 +457,14 @@ joinAttempts:
 	client.mutex.Unlock()
 	client.recordSynchronized(machine, synchronizedRevision)
 	joined = true
+	client.mutex.Lock()
+	log.Info().Str("session_id", client.sessionID).Str("actor_id", string(client.actorID)).Str("role", client.role).Uint64("revision", uint64(synchronizedRevision)).Msg("collab: joined")
+	client.mutex.Unlock()
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	// Best effort and lossy like presence: the server forgets the colour on
+	// disconnect, so republish the local choice after every successful join.
+	go client.publishCursorColor()
+	// APHELION EDIT ADDITION END
 	go func() {
 		transportErr := <-joinedTransportEnded
 		cancelJoinedTransportWait()
@@ -492,6 +509,10 @@ func (client *SessionClient) Leave(context.Context) error {
 	client.network = nil
 	client.joining = false
 	machine := client.machine
+	if client.sessionID != "" {
+		log.Info().Str("session_id", client.sessionID).Str("actor_id", string(client.actorID)).Msg("collab: leave")
+	}
+	client.rateLimited = false
 	client.participants = make(map[model.ActorID]ObservedPresence)
 	client.stopPresencePublicationLocked()
 	client.presenceInterval = 0
@@ -759,7 +780,63 @@ func (client *SessionClient) UpdateDisplayName(ctx context.Context, displayName 
 	if displayName == "" || len(displayName) > protocol.MaxDisplayNameBytes {
 		return fmt.Errorf("collaboration display name is invalid")
 	}
-	payload, err := json.Marshal(protocol.ProfileUpdatePayload{DisplayName: displayName})
+	return client.sendProfileUpdate(ctx, protocol.ProfileUpdatePayload{DisplayName: displayName})
+}
+
+// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+
+// UpdateCursorColor remembers the local cursor palette index and, when
+// connected, broadcasts it as an ephemeral profile update. While disconnected
+// the choice is retained and sent after the next join.
+func (client *SessionClient) UpdateCursorColor(ctx context.Context, index int) error {
+	if !protocol.ValidCursorColor(index) {
+		return fmt.Errorf("collaboration cursor color is invalid")
+	}
+	client.mutex.Lock()
+	client.cursorColor = &index
+	connected := client.transport != nil && client.sessionID != ""
+	client.mutex.Unlock()
+	if !connected {
+		return nil
+	}
+	return client.sendProfileUpdate(ctx, protocol.ProfileUpdatePayload{CursorColor: &index})
+}
+
+// CursorColor returns the remembered local palette index, if one was chosen.
+func (client *SessionClient) CursorColor() *int {
+	client.mutex.Lock()
+	defer client.mutex.Unlock()
+	if client.cursorColor == nil {
+		return nil
+	}
+	index := *client.cursorColor
+	return &index
+}
+
+// resendCursorColor republishes the remembered colour on a fresh connection,
+// since the server forgets ephemeral presence attributes on disconnect.
+func (client *SessionClient) resendCursorColor(ctx context.Context) error {
+	index := client.CursorColor()
+	if index == nil {
+		return nil
+	}
+	return client.sendProfileUpdate(ctx, protocol.ProfileUpdatePayload{CursorColor: index})
+}
+
+// publishCursorColor resends the remembered colour with a bounded timeout. It
+// sends nothing when the user has not chosen a colour (automatic).
+func (client *SessionClient) publishCursorColor() {
+	resendContext, cancelResend := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelResend()
+	if err := client.resendCursorColor(resendContext); err != nil {
+		log.Debug().Err(err).Msg("collab: unable to publish cursor color")
+	}
+}
+
+// APHELION EDIT ADDITION END
+
+func (client *SessionClient) sendProfileUpdate(ctx context.Context, profile protocol.ProfileUpdatePayload) error {
+	payload, err := json.Marshal(profile)
 	if err != nil {
 		return err
 	}
@@ -875,6 +952,7 @@ func (client *SessionClient) recordSynchronized(machine *collabclient.StateMachi
 	}
 	if machine.State() == collabclient.StateSynchronizing {
 		_ = machine.Apply(collabclient.EventSynchronized)
+		log.Info().Str("state", string(machine.State())).Uint64("revision", uint64(revision)).Msg("collab: state change")
 	}
 	client.mutex.Lock()
 	if client.machine == machine && machine.State() != collabclient.StateClosed {
@@ -907,6 +985,7 @@ func (client *SessionClient) recordOperation(machine *collabclient.StateMachine,
 	client.mutex.Unlock()
 	if messageType == protocol.ServerOperationRejected && (machine.State() == collabclient.StateSynchronizing || machine.State() == collabclient.StateCaughtUp) {
 		_ = machine.Apply(collabclient.EventConflict)
+		log.Info().Str("state", string(machine.State())).Int("conflict_drafts", network.ConflictCount()).Msg("collab: state change")
 	}
 }
 
@@ -928,7 +1007,7 @@ func (client *SessionClient) recordPresenceUpdate(machine *collabclient.StateMac
 	if client.machine != machine || machine.State() == collabclient.StateClosed {
 		return
 	}
-	participant := protocol.ParticipantPresence{ActorID: payload.ActorID, DisplayName: payload.DisplayName, Sequence: payload.Sequence, Cursor: payload.Cursor, Selection: payload.Selection, Status: payload.Status}
+	participant := protocol.ParticipantPresence{ActorID: payload.ActorID, DisplayName: payload.DisplayName, Sequence: payload.Sequence, Cursor: payload.Cursor, Selection: payload.Selection, Status: payload.Status, CursorColor: payload.CursorColor} // APHELION EDIT CHANGE - COLLABORATION CURSOR COLOR - ORIGINAL: no CursorColor field
 	client.participants[payload.ActorID] = ObservedPresence{Presence: cloneParticipantPresence(participant), ObservedAt: client.config.Now()}
 }
 
@@ -936,18 +1015,63 @@ func (client *SessionClient) recordConnectionFailure(machine *collabclient.State
 	if machine.State() == collabclient.StateClosed {
 		return
 	}
-	switch machine.State() {
+	from := machine.State()
+	switch from {
 	case collabclient.StateConnecting, collabclient.StateSynchronizing, collabclient.StateCaughtUp, collabclient.StateReadOnly, collabclient.StateConflict:
 		_ = machine.Apply(collabclient.EventConnectionLost)
 	}
 	client.mutex.Lock()
 	if client.machine == machine && machine.State() != collabclient.StateClosed {
-		client.lastErr = err
+		client.lastErr = client.connectionErrorLocked(err)
 		client.participants = make(map[model.ActorID]ObservedPresence)
 		client.stopPresencePublicationLocked()
 		client.presenceInterval = 0
+		logConnectionFailure(client.sessionID, client.actorID, from, machine.State(), err)
 	}
 	client.mutex.Unlock()
+}
+
+// suspendCause keeps edits refused during a rate-limited reconnect reporting that cause.
+func (client *SessionClient) suspendCause(err error) error {
+	client.mutex.Lock()
+	defer client.mutex.Unlock()
+	return client.connectionErrorLocked(err)
+}
+
+// connectionErrorLocked classifies a failure for status display. A rate-limited
+// close stays the visible cause until the session recovers or fails permanently,
+// even when later reconnect attempts fail for unrelated reasons.
+func (client *SessionClient) connectionErrorLocked(err error) error {
+	err = collabclient.ClassifyCloseError(err)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, collabclient.ErrRateLimited):
+		client.rateLimited = true
+	case errors.Is(err, collabclient.ErrAuthenticationDenied) || errors.Is(err, collabclient.ErrIncompatibleProtocol):
+		client.rateLimited = false
+	case client.rateLimited && !errors.Is(err, context.Canceled):
+		return fmt.Errorf("%w (last attempt: %v)", collabclient.ErrRateLimited, err)
+	}
+	return err
+}
+
+// logConnectionFailure records the close code and reason, never message content
+// or credentials. The reason is a short server-chosen string.
+func logConnectionFailure(sessionID string, actorID model.ActorID, from, to collabclient.State, err error) {
+	// Each failed reconnect attempt repeats the failure; only the first loss warns.
+	logger := log.Warn()
+	if from == collabclient.StateReconnecting {
+		logger = log.Debug()
+	}
+	event := logger.Str("session_id", sessionID).Str("actor_id", string(actorID)).Str("from", string(from)).Str("to", string(to)).Bool("rate_limited", errors.Is(collabclient.ClassifyCloseError(err), collabclient.ErrRateLimited))
+	var closeErr websocket.CloseError
+	if errors.As(err, &closeErr) {
+		event = event.Int("close_code", int(closeErr.Code)).Str("close_reason", closeErr.Reason)
+	} else {
+		event = event.Err(err)
+	}
+	event.Msg("collab: connection lost")
 }
 
 func (client *SessionClient) monitorTransport(machine *collabclient.StateMachine, transport sessionTransport, network *collabclient.NetworkExecutor) {
@@ -962,7 +1086,7 @@ func (client *SessionClient) monitorTransportResult(machine *collabclient.StateM
 	if !current || machine.State() == collabclient.StateClosed {
 		return
 	}
-	network.Suspend(err)
+	network.Suspend(client.suspendCause(err))
 	client.recordConnectionFailure(machine, err)
 	_ = client.startReconnect(machine, network)
 }
@@ -1013,15 +1137,27 @@ func (client *SessionClient) runReconnect(ctx context.Context, machine *collabcl
 	client.mutex.Lock()
 	revision := client.revision
 	client.mutex.Unlock()
+	client.mutex.Lock()
+	sessionID, actorID := client.sessionID, client.actorID
+	client.mutex.Unlock()
+	attempts := 0
 	err := client.config.Reconnect.Reconnect(ctx, revision, func(attemptContext context.Context, _ model.Revision) error {
+		attempts++
 		// A fallback may advance authority between attempts. Pin its revision
 		// again without materializing every tile or building panel previews.
 		current, captureErr := network.CaptureProjection(attemptContext)
 		if captureErr != nil {
 			return captureErr
 		}
-		return client.reconnectAttempt(attemptContext, machine, network, current.BaseRevision())
+		attemptErr := client.reconnectAttempt(attemptContext, machine, network, current.BaseRevision())
+		if attemptErr == nil {
+			log.Info().Str("session_id", sessionID).Str("actor_id", string(actorID)).Int("attempt", attempts).Msg("collab: reconnect attempt succeeded")
+		} else {
+			log.Debug().Str("session_id", sessionID).Str("actor_id", string(actorID)).Int("attempt", attempts).Err(attemptErr).Msg("collab: reconnect attempt failed")
+		}
+		return attemptErr
 	})
+	drafts := network.ConflictCount()
 	client.mutex.Lock()
 	if client.machine == machine && machine.State() != collabclient.StateClosed {
 		client.reconnecting = false
@@ -1030,7 +1166,8 @@ func (client *SessionClient) runReconnect(ctx context.Context, machine *collabcl
 			client.resumptionExpiresAt = time.Time{}
 		}
 		if err != nil {
-			client.lastErr = err
+			client.lastErr = client.connectionErrorLocked(err)
+			log.Warn().Str("session_id", sessionID).Str("actor_id", string(actorID)).Int("attempts", attempts).Bool("rate_limited", client.rateLimited).Bool("manual_retry_available", client.resumptionToken != "").Int("conflict_drafts", drafts).Err(err).Msg("collab: reconnect gave up")
 		}
 	}
 	client.mutex.Unlock()
@@ -1108,7 +1245,7 @@ func (client *SessionClient) reconnectAttempt(ctx context.Context, machine *coll
 		}
 	}
 	if err := transport.Connect(ctx, protocol.JoinRequest{BaseURL: baseURL, Origin: origin, Token: token, SessionID: sessionID, AcknowledgedRevision: acknowledged}, receive); err != nil {
-		network.Suspend(err)
+		network.Suspend(client.suspendCause(err))
 		client.recordConnectionFailure(machine, err)
 		return err
 	}
@@ -1127,20 +1264,26 @@ func (client *SessionClient) reconnectAttempt(ctx context.Context, machine *coll
 		}
 		client.transport = transport
 		client.lastErr = nil
+		client.rateLimited = false
 		client.mutex.Unlock()
 		client.recordSynchronized(machine, synchronizedRevision)
+		// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+		// The server forgets the colour on disconnect; republish after resume too.
+		// Does nothing for an automatic colour, so older servers see no new field.
+		go client.publishCursorColor()
+		// APHELION EDIT ADDITION END
 		go client.monitorTransport(machine, transport, network)
 		return nil
 	case reconnectErr := <-errorsFound:
 		_ = transport.Close(websocket.StatusPolicyViolation, "reconnect failed")
-		network.Suspend(reconnectErr)
+		network.Suspend(client.suspendCause(reconnectErr))
 		client.recordConnectionFailure(machine, reconnectErr)
 		return reconnectErr
 	case reconnectErr := <-transportEnded:
 		if reconnectErr == nil {
 			reconnectErr = collabclient.ErrTransportNotConnected
 		}
-		network.Suspend(reconnectErr)
+		network.Suspend(client.suspendCause(reconnectErr))
 		client.recordConnectionFailure(machine, reconnectErr)
 		return reconnectErr
 	case <-ctx.Done():
@@ -1180,6 +1323,12 @@ func cloneParticipantPresence(participant protocol.ParticipantPresence) protocol
 		selection := *participant.Selection
 		participant.Selection = &selection
 	}
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	if participant.CursorColor != nil {
+		color := *participant.CursorColor
+		participant.CursorColor = &color
+	}
+	// APHELION EDIT ADDITION END
 	return participant
 }
 

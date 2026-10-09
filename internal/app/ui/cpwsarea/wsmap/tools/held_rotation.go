@@ -6,6 +6,7 @@ import (
 	"github.com/SpaiR/imgui-go"
 	"sdmm/internal/aphelion/editing"
 	"sdmm/internal/app/prefs"
+	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/util"
 )
@@ -107,7 +108,21 @@ func rotateHeldValue(held *editing.HeldPrefab, source *dmmprefab.Prefab, clockwi
 	if held.Value() != source {
 		held.SetSource(source)
 	}
-	return held.Rotate(clockwise, rotationLookup())
+	if err := held.Rotate(clockwise, rotationLookup()); err != nil {
+		return err
+	}
+	publishHeldSelection(held)
+	return nil
+}
+
+// publishHeldSelection makes the rotated palette value the global selection, so
+// the environment tree, prefab list and variables show the resulting helper path.
+func publishHeldSelection(held *editing.HeldPrefab) {
+	owner, ok := ed.(interface{ SelectHeldPrefab(*dmmprefab.Prefab) })
+	if !ok || held.Value() == nil {
+		return
+	}
+	owner.SelectHeldPrefab(dmmap.PrefabStorage.Put(held.Value()))
 }
 
 func selectedHeldPrefab(held *editing.HeldPrefab) (*dmmprefab.Prefab, bool) {

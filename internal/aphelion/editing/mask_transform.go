@@ -85,7 +85,7 @@ func RotateMask(m *dmmap.Dmm, s Selection, clockwise bool, visible func(string) 
 		return util.Point{X: int(a.X1) + dx, Y: int(a.Y1) + dy, Z: p.Z}
 	}, func(p *dmmprefab.Prefab) (*dmmprefab.Prefab, error) { return rotatePrefab(p, clockwise, lookup...) }, visible)
 }
-func MirrorMask(m *dmmap.Dmm, s Selection, axis MirrorAxis, visible func(string) bool) (Transform, error) {
+func MirrorMask(m *dmmap.Dmm, s Selection, axis MirrorAxis, visible func(string) bool, lookup ...PrefabLookup) (Transform, error) {
 	if axis != MirrorHorizontal && axis != MirrorVertical {
 		return Transform{}, fmt.Errorf("unknown mirror axis")
 	}
@@ -97,5 +97,5 @@ func MirrorMask(m *dmmap.Dmm, s Selection, axis MirrorAxis, visible func(string)
 			p.Y = int(a.Y1+a.Y2) - p.Y
 		}
 		return p
-	}, func(p *dmmprefab.Prefab) (*dmmprefab.Prefab, error) { return mirrorPrefab(p, axis) }, visible)
+	}, func(p *dmmprefab.Prefab) (*dmmprefab.Prefab, error) { return mirrorPrefab(p, axis, lookup...) }, visible)
 }

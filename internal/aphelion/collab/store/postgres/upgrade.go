@@ -162,18 +162,19 @@ func copyPostgresV3(ctx context.Context, source queryer, target pgx.Tx) error {
 	if err := documentsErr; err != nil {
 		return fmt.Errorf("read PostgreSQL source documents: %w", err)
 	}
-	hostedSessions, err := source.Query(ctx, `SELECT session_id, document_id, created_at, visibility, title, map_label, environment_label FROM collaboration_hosted_sessions ORDER BY session_id`)
+	hostedSessions, err := source.Query(ctx, `SELECT session_id, document_id, created_at, visibility, title, map_label, environment_label, repository_dme_name, repository_environment_hash, repository_git_branch, repository_git_commit FROM collaboration_hosted_sessions ORDER BY session_id`)
 	if err != nil {
 		return err
 	}
 	for hostedSessions.Next() {
 		var sessionID, documentID, visibility, title, mapLabel, environmentLabel string
 		var createdAt any
-		if err := hostedSessions.Scan(&sessionID, &documentID, &createdAt, &visibility, &title, &mapLabel, &environmentLabel); err != nil {
+		var dmeName, environmentHash, gitBranch, gitCommit *string
+		if err := hostedSessions.Scan(&sessionID, &documentID, &createdAt, &visibility, &title, &mapLabel, &environmentLabel, &dmeName, &environmentHash, &gitBranch, &gitCommit); err != nil {
 			hostedSessions.Close()
 			return err
 		}
-		if _, err := target.Exec(ctx, `INSERT INTO collaboration_hosted_sessions(session_id, document_id, created_at, visibility, title, map_label, environment_label) VALUES($1, $2, $3, $4, $5, $6, $7)`, sessionID, documentID, createdAt, visibility, title, mapLabel, environmentLabel); err != nil {
+		if _, err := target.Exec(ctx, `INSERT INTO collaboration_hosted_sessions(session_id, document_id, created_at, visibility, title, map_label, environment_label, repository_dme_name, repository_environment_hash, repository_git_branch, repository_git_commit) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, sessionID, documentID, createdAt, visibility, title, mapLabel, environmentLabel, dmeName, environmentHash, gitBranch, gitCommit); err != nil {
 			hostedSessions.Close()
 			return fmt.Errorf("copy PostgreSQL hosted session: %w", err)
 		}

@@ -22,7 +22,7 @@ func (e *Editor) MirrorSelection(area util.Bounds, z int, axis editing.MirrorAxi
 	if selection := editing.RectangleSelection(area, z); selection.Len() > directLocalTiles {
 		return e.MirrorSelectionMask(selection, axis)
 	}
-	plan, err := editing.Mirror(e.dmm, area, z, axis, e.app.PathsFilter().IsVisiblePath)
+	plan, err := editing.Mirror(e.dmm, area, z, axis, e.app.PathsFilter().IsVisiblePath, e.RotationLookup())
 	if err != nil {
 		return area, err
 	}

@@ -71,7 +71,9 @@ type Environment struct {
 
 	shortcuts shortcut.Shortcuts
 
+	/* APHELION EDIT REMOVAL START - ENVIRONMENT TYPES FILTER
 	typesFilterEnabled bool
+	APHELION EDIT REMOVAL END */
 
 	treeId uint
 
@@ -290,7 +292,35 @@ func (e *Environment) doCollapseAll() {
 	e.tmpDoCollapseAll = true
 }
 
+/* APHELION EDIT REMOVAL START - ENVIRONMENT TYPES FILTER
 func (e *Environment) doToggleTypesFilter() {
 	e.typesFilterEnabled = !e.typesFilterEnabled
 	log.Print("do toggle types filter:", e.typesFilterEnabled)
 }
+APHELION EDIT REMOVAL END */
+
+// APHELION EDIT ADDITION START - ENVIRONMENT TYPES FILTER
+// doToggleSelectedVisibility is bound to F. It toggles the selected type with
+// the same subtree target as Alt+click on its icon. It does nothing without a
+// selection.
+func (e *Environment) doToggleSelectedVisibility() {
+	path, visible, ok := selectedVisibilityToggle(e.selectedPath, e.app.PathsFilter().IsVisiblePath)
+	if !ok {
+		return
+	}
+	log.Print("do toggle selected visibility: ", path, " ", visible)
+	if err := e.SetFilterVisibility(path, filterprofiles.ScopeSubtree, visible); err != nil {
+		e.filterProfileStatus = err.Error()
+	}
+}
+
+// selectedVisibilityToggle returns the visibility that toggling the selected
+// path produces, and false when nothing is selected.
+func selectedVisibilityToggle(selected string, isVisible func(string) bool) (path string, visible, ok bool) {
+	if selected == "" {
+		return "", false, false
+	}
+	return selected, !isVisible(selected), true
+}
+
+// APHELION EDIT ADDITION END

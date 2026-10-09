@@ -4,6 +4,9 @@ import (
 	// APHELION EDIT ADDITION START - HELD ROTATION
 	"sdmm/internal/aphelion/editing"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	"sdmm/internal/aphelion/maplint"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap"
@@ -13,6 +16,10 @@ import (
 	// APHELION EDIT REMOVAL START - SHARED TOOL FEEDBACK
 	// "sdmm/internal/imguiext"
 	// APHELION EDIT REMOVAL END
+	// APHELION EDIT ADDITION START - HELD SHIFT OFFSET
+	"sdmm/internal/app/ui/shortcut"
+	"sdmm/internal/imguiext"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/util"
 	"strconv"
 
@@ -28,6 +35,10 @@ type ToolMove struct {
 	lastOffsets     [2]int
 	// APHELION EDIT ADDITION START - HELD ROTATION
 	held editing.HeldPrefab
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	lint        maplint.PlacementReport
+	lintSkipped map[util.Point]bool
 	// APHELION EDIT ADDITION END
 }
 
@@ -69,6 +80,9 @@ func (t *ToolMove) onStart(util.Point) {
 		// APHELION EDIT ADDITION END
 		ed.InstanceSelect(hoveredInstance)
 		t.instance = hoveredInstance
+		// APHELION EDIT ADDITION START - PLACEMENT LINT
+		t.lint, t.lintSkipped = maplint.PlacementReport{}, nil
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - HELD ROTATION
 		t.held = editing.HeldPrefab{}
 		t.held.SetSource(hoveredInstance.Prefab())
@@ -97,9 +111,23 @@ func setCompositionRootGesture(instance *dmminstance.Instance, active bool) {
 
 // APHELION EDIT ADDITION END
 
+// APHELION EDIT ADDITION START - HELD SHIFT OFFSET
+// shiftHeld reports Shift for an in-flight gesture. The shared action context
+// withholds modifiers while any ImGui item is active, and the canvas press that
+// owns this drag makes one active, so it would hide Shift for the whole offset
+// drag. Text entry and popups still suppress it.
+func (t *ToolMove) shiftHeld() bool {
+	if t.actionContext.Modifiers.Shift {
+		return true
+	}
+	return imguiext.IsShiftDown() && !imgui.CurrentIO().WantTextInput() && !shortcut.BackgroundInputBlocked()
+}
+
+// APHELION EDIT ADDITION END
+
 func (t *ToolMove) process() {
-	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if t.instance == nil || !imguiext.IsShiftDown() {
-	if t.instance == nil || !t.actionContext.Modifiers.Shift {
+	// APHELION EDIT CHANGE - HELD SHIFT OFFSET - ORIGINAL: if t.instance == nil || !t.actionContext.Modifiers.Shift {
+	if t.instance == nil || !t.shiftHeld() {
 		return
 	}
 	xAxis := "pixel_x"
@@ -133,8 +161,8 @@ func (t *ToolMove) process() {
 }
 
 func (t *ToolMove) onMove(coord util.Point) {
-	// APHELION EDIT CHANGE - SHARED TOOL FEEDBACK - ORIGINAL: if t.instance == nil || imguiext.IsShiftDown() {
-	if t.instance == nil || t.actionContext.Modifiers.Shift {
+	// APHELION EDIT CHANGE - HELD SHIFT OFFSET - ORIGINAL: if t.instance == nil || t.actionContext.Modifiers.Shift {
+	if t.instance == nil || t.shiftHeld() {
 		return
 	}
 
@@ -142,6 +170,14 @@ func (t *ToolMove) onMove(coord util.Point) {
 	sourceCoord := t.instance.Coord()
 	// APHELION EDIT ADDITION START - INSTANCE MOVE IDENTITY
 	if sourceCoord == coord {
+		return
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	// A tile move is checked like an Add of the same prefab on the destination.
+	// An identical duplicate refuses this hop: the instance stays on its last
+	// valid tile. Other violations are allowed and reported.
+	if t.lintGuard(coord) {
 		return
 	}
 	// APHELION EDIT ADDITION END
@@ -182,6 +218,9 @@ func (t *ToolMove) onStop(util.Point) {
 	// APHELION EDIT ADDITION START - COMPOSITION ROOT MOVE
 	defer setCompositionRootGesture(nil, false)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	t.lint, t.lintSkipped = maplint.PlacementReport{}, nil
+	// APHELION EDIT ADDITION END
 	if t.instance == nil {
 		return
 	}
@@ -203,3 +242,39 @@ func (t *ToolMove) onStop(util.Point) {
 	t.lastTile = nil
 	ed.CommitOperation("Moved Prefab")
 }
+
+// APHELION EDIT ADDITION START - PLACEMENT LINT
+// lintGuard evaluates moving the held instance onto coord with the same
+// semantics as ToolAdd.lintGuard. It reports true when the hop must be refused.
+func (t *ToolMove) lintGuard(coord util.Point) bool {
+	linter, ok := ed.(placementLinter)
+	if !ok {
+		return false
+	}
+	if t.lintSkipped[coord] {
+		return true
+	}
+	prefab := t.instance.Prefab()
+	verdict := linter.EvaluatePlacement(coord, prefab, false)
+	if len(verdict.Violations) == 0 {
+		return false
+	}
+	if verdict.Skip {
+		if t.lintSkipped == nil {
+			t.lintSkipped = make(map[util.Point]bool)
+		}
+		t.lintSkipped[coord] = true
+		t.lint.Skipped++
+		t.lint.SkippedPath = prefab.Path()
+	} else {
+		t.lint.Warned++
+		t.lint.X, t.lint.Y, t.lint.Z = coord.X, coord.Y, coord.Z
+		t.lint.Placed = maplint.AtomFromPrefab(prefab)
+		t.lint.Summary = verdict.Summary()
+		t.lint.CanReplace = len(verdict.Replace) != 0
+	}
+	linter.RecordPlacementLint(t.lint)
+	return verdict.Skip
+}
+
+// APHELION EDIT ADDITION END

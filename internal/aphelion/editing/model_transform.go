@@ -83,9 +83,9 @@ func TransformModelSelection(ctx context.Context, selection Selection, transform
 				case PlacementRotateRight, PlacementRotateLeft:
 					result, failure = rotatePrefab(prefab, transform == PlacementRotateRight, parent)
 				case PlacementMirrorHorizontal:
-					result, failure = mirrorPrefab(prefab, MirrorHorizontal)
+					result, failure = mirrorPrefab(prefab, MirrorHorizontal, parent)
 				case PlacementMirrorVertical:
-					result, failure = mirrorPrefab(prefab, MirrorVertical)
+					result, failure = mirrorPrefab(prefab, MirrorVertical, parent)
 				}
 				if failure != nil {
 					return

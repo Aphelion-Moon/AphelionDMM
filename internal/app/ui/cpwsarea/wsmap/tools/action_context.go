@@ -53,6 +53,7 @@ type ActionContext struct {
 	Scope              string
 	Target             string
 	Reason             string
+	LintWarning        string
 	ModifierHelp       string
 	Available          bool
 	Modifiers          ToolModifiers
@@ -71,6 +72,13 @@ type ActionContext struct {
 	prefab             *dmmprefab.Prefab
 }
 
+// modifiersSuppressed reports whether modifier keys must be ignored. ImGui
+// marks the canvas as the active item for the whole mouse drag, so an active
+// item only suppresses modifiers when the map canvas is not the one dragging.
+func modifiersSuppressed(backgroundBlocked, anyItemActive, wantTextInput, canvasDragging bool) bool {
+	return backgroundBlocked || wantTextInput || anyItemActive && !canvasDragging
+}
+
 func currentActionInput(alt bool) ActionInput {
 	input := ActionInput{}
 	if cs != nil {
@@ -80,7 +88,8 @@ func currentActionInput(alt bool) ActionInput {
 	if input.InBounds && ed != nil {
 		input.Target = ed.HoveredInstance()
 	}
-	if shortcut.BackgroundInputBlocked() || imgui.IsAnyItemActive() || imgui.CurrentIO().WantTextInput() ||
+	// APHELION EDIT CHANGE - MODIFIER ROOT CAUSE - ORIGINAL: if shortcut.BackgroundInputBlocked() || imgui.IsAnyItemActive() || imgui.CurrentIO().WantTextInput() ||
+	if modifiersSuppressed(shortcut.BackgroundInputBlocked(), imgui.IsAnyItemActive(), imgui.CurrentIO().WantTextInput(), cc != nil && cc.Dragging()) ||
 		!imgui.IsWindowFocusedV(imgui.FocusedFlagsAnyWindow) {
 		return input
 	}
@@ -203,6 +212,9 @@ func (t *ToolAdd) ActionContext(input ActionInput) ActionContext {
 	} else if prefab, ok := t.HeldPrefab(); ok && prefab != nil {
 		context.Target = prefab.Path()
 		context.prefab = prefab
+		if t.shapeStroke == nil {
+			applyLintHover(&context, input.Position, input.InBounds, prefab, input.Modifiers.Alt)
+		}
 	} else {
 		setUnavailable(&context, "Select a prefab before placing")
 	}
@@ -321,6 +333,9 @@ func (t *ToolFill) ActionContext(input ActionInput) ActionContext {
 		if prefab, ok := t.HeldPrefab(); ok && prefab != nil {
 			context.Target = prefab.Path()
 			context.prefab = prefab
+			if !randomEnabled && !t.gestureCaptured {
+				applyLintHover(&context, input.Position, input.InBounds, prefab, context.Alternate)
+			}
 		} else if !randomEnabled {
 			if randomSettings == nil || !randomSettings.RandomFill {
 				setUnavailable(&context, "Select a prefab or enable Random Fill")

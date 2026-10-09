@@ -3,6 +3,8 @@ info:
   title: AphelionDMM Collaboration Stream API
   version: 1.0.0
   description: Bounded JSON durable-operation and lossy-presence stream, with negotiated bulk-edit-v2 transaction frames. Compression is disabled.
+x-repository-descriptor:
+  scope: No stream message changed. The optional host repository descriptor (dme_name, environment_hash, git_branch, git_commit) travels only on the hosted HTTP control plane (see openapi.yaml RepositoryDescriptor), after capability negotiation, so older strict stream decoders are unaffected. Environment hash agreement remains enforced by the snapshot and operation environment_hash fields, never by the descriptor.
 x-bulk-edit-v2:
   subprotocol: apheliondmm.collaboration.bulk-edit-v2
   negotiation: Required at join for the entire lifetime of a bulk session, even before its first edit. Legacy sessions retain their existing JSON contract. Canonical map hash, stable IDs, and operation protocol version remain unchanged.
@@ -150,8 +152,34 @@ components:
           type: string
           minLength: 1
           maxLength: 128
-          description: snapshot_required instructs a stale client to fetch the authenticated HTTP snapshot and reconnect from that revision.
+          description: snapshot_required instructs a stale client to fetch the authenticated HTTP snapshot and reconnect from that revision. invalid_cursor_color reports an out-of-range profile_update cursor_color; the connection stays open and the colour is ignored.
         message: { type: string, minLength: 1, maxLength: 512 }
+    ProfileUpdatePayload:
+      type: object
+      additionalProperties: false
+      anyOf: [{ required: [display_name] }, { required: [cursor_color] }]
+      properties:
+        display_name: { type: string, minLength: 1, maxLength: 128 }
+        cursor_color: { $ref: '#/components/schemas/CursorColor' }
+      description: Payload of a profile_update client message. cursor_color is additive and optional; a colour-only update leaves the display name unchanged.
+    CursorColor:
+      type: integer
+      minimum: 0
+      maximum: 11
+      description: Cursor palette index (palette size 12). Ephemeral presence only; it is held in server memory, never persisted, never part of map hashes, and cleared when the participant leaves. Absence means the viewer derives a default from the actor ID. The server answers an out-of-range index with an invalid_cursor_color session_notice. A viewer ignores indices it cannot render.
+    ParticipantPresence:
+      type: object
+      additionalProperties: false
+      required: [actor_id, display_name, sequence, status]
+      properties:
+        actor_id: { type: string, minLength: 1, maxLength: 128 }
+        display_name: { type: string, minLength: 1, maxLength: 128 }
+        sequence: { type: integer, minimum: 1 }
+        cursor: { $ref: '#/components/schemas/Coord' }
+        selection: { $ref: '#/components/schemas/PresenceSelection' }
+        status: { type: string, minLength: 1, maxLength: 128 }
+        cursor_color: { $ref: '#/components/schemas/CursorColor' }
+      description: Payload of a server presence_update and each presence_snapshot participant.
     Coord:
       type: object
       additionalProperties: false

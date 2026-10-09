@@ -45,6 +45,10 @@ type Render struct {
 	geometryWaiting bool
 	geometryDrawn   time.Time
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	tileObserver func(level int, points []util.Point)
+	lighting     lightingState
+	// APHELION EDIT ADDITION END
 }
 
 func New() *Render {
@@ -97,6 +101,9 @@ func (r *Render) SetActiveLevel(dmm *dmmap.Dmm, activeLevel int) {
 
 // UpdateBucketV will update the bucket data by the provided level.
 func (r *Render) UpdateBucketV(dmm *dmmap.Dmm, level int, tilesToUpdate []util.Point) {
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	r.notifyTiles(level, tilesToUpdate)
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - FRAME GEOMETRY BATCH
 	r.ensureLevelBuildMap(dmm)
 	if r.queueBucketUpdate(level, tilesToUpdate) {
@@ -157,6 +164,16 @@ func (r *Render) draw(width, height float32) {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - SHARED BRUSH PASS - ORIGINAL: r.batchBucketUnits(r.viewportBounds(width, height))
 	r.batchBucketUnits(&pass, r.viewportBounds(width, height))
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	// Light multiplies the map units only. Area overlays and selection fills
+	// below, and every ImGui overlay drawn later, stay unlit.
+	if r.lightingActive() {
+		pass.Flush()
+		pass.End()
+		r.drawLighting(width, height, r.viewportBounds(width, height))
+		pass = brush.NewDrawPass(width, height, r.Camera.ShiftX, r.Camera.ShiftY, r.Camera.Scale)
+	}
+	// APHELION EDIT ADDITION END
 	//r.batchChunksVisuals()
 	// APHELION EDIT CHANGE - BORDER CULLING - ORIGINAL: r.batchOverlayAreasBorders()
 	r.batchOverlayAreasBorders(r.viewportBounds(width, height))
@@ -187,3 +204,4 @@ func (r *Render) viewportBounds(width, height float32) util.Bounds {
 		Y2: y2,
 	}
 }
+

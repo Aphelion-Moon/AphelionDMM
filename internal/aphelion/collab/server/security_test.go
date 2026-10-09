@@ -13,7 +13,6 @@ import (
 
 	"github.com/coder/websocket"
 
-	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 )
 
@@ -119,35 +118,6 @@ func TestDurableRateLimitClosesActorWithoutMutatingSecondOperation(t *testing.T)
 	}
 	if current.Revision != accepted.Operation.Revision {
 		t.Fatalf("revision after rate-limited operation = %d, want %d", current.Revision, accepted.Operation.Revision)
-	}
-}
-
-func TestPresenceRateLimitClosesActorWithoutChangingDurableState(t *testing.T) {
-	t.Parallel()
-
-	service, created, testServer := startHTTPTestSessionWithConfig(t, ServiceConfig{
-		AllowedOrigins: []string{"http://127.0.0.1"},
-		Limits: Limits{
-			PresenceRate: RateLimit{Burst: 1, Window: time.Minute},
-		},
-	})
-	connection := connectTestClient(t, testServer.URL, created.SessionID, created.OwnerToken, 0)
-	defer func() { _ = connection.CloseNow() }()
-	writeClientEnvelope(t, connection, protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "presence-1", SessionID: created.SessionID, Type: protocol.ClientPresenceUpdate}, protocol.PresenceUpdatePayload{Sequence: 1, Status: "active"})
-	_ = readServerEnvelopeType(t, connection, protocol.ServerPresenceUpdate)
-	writeClientEnvelope(t, connection, protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "presence-2", SessionID: created.SessionID, Type: protocol.ClientPresenceUpdate}, protocol.PresenceUpdatePayload{Sequence: 2, Status: "active"})
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	_, _, err := connection.Read(ctx)
-	if websocket.CloseStatus(err) != CloseRateLimited {
-		t.Fatalf("presence rate-limit close status = %d from %v, want %d", websocket.CloseStatus(err), err, CloseRateLimited)
-	}
-	current, err := service.sessions[created.SessionID].owner.Snapshot(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if current.Revision != 0 {
-		t.Fatalf("durable revision after presence flood = %d, want 0", current.Revision)
 	}
 }
 

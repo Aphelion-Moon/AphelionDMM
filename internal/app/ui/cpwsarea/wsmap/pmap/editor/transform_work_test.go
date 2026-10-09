@@ -69,9 +69,9 @@ func TestLargeMaskTransformsPrepareWithoutDisplayCapture(t *testing.T) {
 			// Compare the worker's model result with the established sparse planner.
 			var expected editing.Transform
 			if rotate {
-				expected, err = editing.RotateMask(e.dmm, selection, true, e.app.PathsFilter().IsVisiblePath)
+				expected, err = editing.RotateMask(e.dmm, selection, true, e.app.PathsFilter().IsVisiblePath, e.RotationLookup())
 			} else {
-				expected, err = editing.MirrorMask(e.dmm, selection, editing.MirrorHorizontal, e.app.PathsFilter().IsVisiblePath)
+				expected, err = editing.MirrorMask(e.dmm, selection, editing.MirrorHorizontal, e.app.PathsFilter().IsVisiblePath, e.RotationLookup())
 			}
 			if err != nil {
 				t.Fatal(err)

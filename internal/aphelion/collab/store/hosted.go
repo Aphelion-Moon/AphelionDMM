@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/repoinfo"
 )
 
 type HostedRole string
@@ -71,6 +72,10 @@ type HostedSession struct {
 	MapLabel         string
 	EnvironmentLabel string
 	OwnerDisplayName string
+	// Repository is the optional host-published repository descriptor. Nil means
+	// unknown. Stores validate it on write and treat an invalid stored value as
+	// unknown on read.
+	Repository *repoinfo.Descriptor
 }
 
 // Notification summaries expose bounded Community metadata and Private totals.

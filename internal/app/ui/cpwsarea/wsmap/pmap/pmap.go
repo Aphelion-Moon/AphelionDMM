@@ -134,6 +134,12 @@ type PaneMap struct {
 	editBubble  editBubbleState
 	areaBorders areaBorderCache
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - DOCKING OVERLAY
+	dockingOverlay dockingOverlayCache
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	lighting lightingPane
+	// APHELION EDIT ADDITION END
 
 	// The value of the Z-level with which the user is currently working.
 	activeLevel int
@@ -245,6 +251,9 @@ func newPaneMap(app App, dmm *dmmap.Dmm, prepared *editor.PreparedOpen) *PaneMap
 
 	p.canvas.Render().SetOverlay(p.canvasOverlay)
 	p.canvas.Render().SetUnitProcessor(p)
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	p.attachLighting()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	// Register every Z and build progressively on all open paths.
 	p.canvas.Render().BeginLevelBuild(p.dmm, p.activeLevel)
@@ -314,6 +323,9 @@ func (p *PaneMap) Process() {
 	}
 	p.canvas.SetTransparent(p.contextTexture != 0)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	p.processLighting()
+	// APHELION EDIT ADDITION END
 	p.canvas.Process(p.size)
 
 	/* APHELION EDIT REMOVAL START - CURRENT FRAME INPUT
@@ -336,6 +348,9 @@ func (p *PaneMap) Process() {
 	p.showPanel("canvasStat_"+p.dmm.Name, pPosBottom, p.showStatusPanel)
 	// APHELION EDIT ADDITION START - EDIT STATUS
 	p.showEditStatus()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	p.showLightingStatus()
 	// APHELION EDIT ADDITION END
 }
 
@@ -363,6 +378,9 @@ func (p *PaneMap) Dispose() {
 
 	p.syncActiveCamera()
 	p.syncActivePane()
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	p.closeLighting()
+	// APHELION EDIT ADDITION END
 	p.canvas.Dispose()
 	p.app.RemoveMouseChangeCallback(p.mouseChangeCbId)
 	p.tileMenu.Dispose()
@@ -403,6 +421,12 @@ func (p *PaneMap) showCanvas() {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COLLABORATION
 	p.showCollaborationPresence()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - DOCKING OVERLAY
+	p.showDockingOverlay()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	p.showLightingOverlay()
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - LOCKED SOURCE CONTEXT
 	if p.contextTexture != 0 {
@@ -516,6 +540,9 @@ func (p *PaneMap) reloadCanvas() {
 	p.canvas.Render().Camera = oldCamera
 	p.canvas.Render().SetOverlay(p.canvasOverlay)
 	p.canvas.Render().SetUnitProcessor(p)
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	p.attachLighting()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT CHANGE - OWNED MAP OPEN - ORIGINAL: p.canvas.Render().UpdateBucket(p.dmm, p.activeLevel)
 	p.canvas.Render().BeginLevelBuild(p.dmm, p.activeLevel)
 	p.canvasState.SetMaxX(p.dmm.MaxX)
@@ -534,3 +561,4 @@ func (p *PaneMap) OnMapSizeChange() {
 	// APHELION EDIT ADDITION END
 	p.pSettings.DropSessionMapSize()
 }
+

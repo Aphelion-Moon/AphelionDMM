@@ -137,6 +137,9 @@ func drawActionDetails(context tools.ActionContext) {
 	if heading, message := actionContextNotice(context); heading != "" {
 		imgui.Text(heading + ": " + message)
 	}
+	if context.LintWarning != "" {
+		imgui.TextWrapped("Map lint: " + context.LintWarning)
+	}
 	if context.ToolName == tools.TNAdd || context.ToolName == tools.TNMove || context.ToolName == tools.TNFill || context.ToolName == tools.TNReplace {
 		left, right := shortcut.Label("pmap#rotateHeldLeft"), shortcut.Label("pmap#rotateHeldRight")
 		if left != "" || right != "" {

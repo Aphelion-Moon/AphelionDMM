@@ -33,6 +33,20 @@ func TestParseColorAppliesAlphaWithoutColorOverride(t *testing.T) {
 	}
 }
 
+func TestAreaOnHighPlaneSortsAboveTurf(t *testing.T) {
+	mk := func(path, plane, layer string) *dmmprefab.Prefab {
+		vars := &dmvars.MutableVariables{}
+		vars.Put("plane", plane)
+		vars.Put("layer", layer)
+		return dmmprefab.New(dmmprefab.IdNone, path, vars.ToImmutable())
+	}
+	turf := countLayer(mk("/turf/open/floor", "-1", "2"))
+	area := countLayer(mk("/area/station/hall", "120", "1"))
+	if area <= turf {
+		t.Fatalf("area layer %v must stay above turf layer %v", area, turf)
+	}
+}
+
 func TestParseColorKeepsExplicitRGBAndAlpha(t *testing.T) {
 	vars := &dmvars.MutableVariables{}
 	vars.Put("color", `"#336699"`)

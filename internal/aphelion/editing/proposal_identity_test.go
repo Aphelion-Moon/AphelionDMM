@@ -65,8 +65,12 @@ func TestPlacementRetainsCopiedIdentityAcrossTransformsAndTargets(t *testing.T) 
 			if !firstIDs[prefab.StableID] {
 				t.Fatal("transform or target change regenerated copied identity")
 			}
-			if prefab.Vars["dir"] != "8" {
-				t.Fatalf("rotated dir = %s", prefab.Vars["dir"])
+			want := "8"
+			if strings.HasPrefix(prefab.Path, "/area/") {
+				want = "2" // Areas have no facing to rotate.
+			}
+			if prefab.Vars["dir"] != want {
+				t.Fatalf("%s rotated dir = %s, want %s", prefab.Path, prefab.Vars["dir"], want)
 			}
 		}
 	}

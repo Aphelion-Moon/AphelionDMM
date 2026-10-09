@@ -104,7 +104,14 @@ func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool, lookup ...PrefabLook
 	if vars == nil {
 		return nil, fmt.Errorf("missing variables")
 	}
-	if raw, ok := vars.Value("dir"); ok {
+	// Areas have no facing, and a plain atom only inherits /atom's default dir.
+	// Rotate orientation only when the instance, or a declared directional
+	// helper, actually owns it; everything else is returned untouched.
+	scope := orientationScopeOf(prefab, lookup)
+	if scope.none {
+		return prefab, nil
+	}
+	if raw, ok := vars.Value("dir"); ok && scope.dir {
 		direction, ok := parseDirection(raw)
 		if !ok {
 			return nil, fmt.Errorf("cannot rotate dir = %s", raw)
@@ -119,17 +126,9 @@ func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool, lookup ...PrefabLook
 				rotated |= to
 			}
 		}
-		if targetPath, targetVars := directionalVariant(path, rotated, lookup); targetVars != nil {
-			path = targetPath
-			explicit := &dmvars.MutableVariables{}
-			for _, name := range vars.Iterate() {
-				value, _ := vars.ExplicitValue(name)
-				explicit.Put(name, value)
-			}
-			vars = explicit.ToImmutable()
-			vars.LinkParent(targetVars)
+		if rotated != direction {
+			path, vars = setDirection(path, vars, rotated, lookup)
 		}
-		vars = setOrientation(vars, "dir", strconv.Itoa(rotated))
 	}
 	for _, pair := range [][2]string{{"pixel_x", "pixel_y"}, {"step_x", "step_y"}, {"pixel_w", "pixel_z"}} {
 		if pair[0] == "pixel_x" && strings.HasPrefix(path, prefab.Path()+"/directional/") {
@@ -141,8 +140,8 @@ func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool, lookup ...PrefabLook
 				continue
 			}
 		}
-		x, hasX := sourceVars.Value(pair[0])
-		y, hasY := sourceVars.Value(pair[1])
+		x, hasX := orientationOffset(sourceVars, pair[0], scope)
+		y, hasY := orientationOffset(sourceVars, pair[1], scope)
 		if !hasX && !hasY {
 			continue
 		}
@@ -167,10 +166,95 @@ func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool, lookup ...PrefabLook
 		if ny == 0 {
 			ny = 0
 		} // Normalize negative zero.
-		vars = setOrientation(vars, pair[0], strconv.FormatFloat(nx, 'f', -1, 64))
-		vars = setOrientation(vars, pair[1], strconv.FormatFloat(ny, 'f', -1, 64))
+		vars = setOffset(vars, pair[0], strconv.FormatFloat(nx, 'f', -1, 64))
+		vars = setOffset(vars, pair[1], strconv.FormatFloat(ny, 'f', -1, 64))
+	}
+	if path == prefab.Path() && vars == sourceVars {
+		return prefab, nil
 	}
 	return dmmprefab.New(dmmprefab.IdNone, path, vars), nil
+}
+
+// orientationScope says which inherited orientation values belong to a prefab.
+type orientationScope struct {
+	none   bool // Areas never carry a facing or an offset.
+	dir    bool // dir is explicit, declared by a helper, or a type-owned override.
+	helper bool // Inherited offsets come from a declared directional helper.
+}
+
+func orientationScopeOf(prefab *dmmprefab.Prefab, lookups []PrefabLookup) orientationScope {
+	path, vars := prefab.Path(), prefab.Vars()
+	if path == "/area" || strings.HasPrefix(path, "/area/") {
+		return orientationScope{none: true}
+	}
+	_, helper := directionalFamily(path, lookups)
+	_, explicit := vars.ExplicitValue("dir")
+	return orientationScope{dir: explicit || helper || typeOwnsDir(prefab, lookups), helper: helper}
+}
+
+// typeOwnsDir reports whether a type's own definition, rather than the root
+// default every atom inherits, sets dir.
+func typeOwnsDir(prefab *dmmprefab.Prefab, lookups []PrefabLookup) bool {
+	if len(lookups) != 0 && lookups[0] != nil {
+		// Walk the declared type path: /atom owns the universal default.
+		for path := prefab.Path(); path != ""; path = path[:max(strings.LastIndexByte(path, '/'), 0)] {
+			if vars := lookups[0](path); vars != nil {
+				if _, ok := vars.ExplicitValue("dir"); ok {
+					return path != "/atom"
+				}
+			}
+		}
+		return false
+	}
+	// Without an environment, the topmost declaration is the root default.
+	for chain := prefab.Vars().Parent(); chain != nil; chain = chain.Parent() {
+		if _, ok := chain.ExplicitValue("dir"); ok {
+			return chain.Parent() != nil
+		}
+	}
+	return false
+}
+
+// orientationOffset reads an offset the instance owns. Declared helpers also
+// own the offsets they supply, which move with the helper's facing.
+func orientationOffset(vars *dmvars.Variables, name string, scope orientationScope) (string, bool) {
+	if scope.helper {
+		return vars.Value(name)
+	}
+	return vars.ExplicitValue(name)
+}
+
+func setOffset(vars *dmvars.Variables, name, value string) *dmvars.Variables {
+	if current, ok := vars.Value(name); ok && current == value {
+		return vars
+	}
+	return setOrientation(vars, name, value)
+}
+
+// reparentExplicit keeps only the instance's own overrides on a new helper type.
+func reparentExplicit(vars, target *dmvars.Variables) *dmvars.Variables {
+	explicit := &dmvars.MutableVariables{}
+	for _, name := range vars.Iterate() {
+		value, _ := vars.ExplicitValue(name)
+		explicit.Put(name, value)
+	}
+	result := explicit.ToImmutable()
+	result.LinkParent(target)
+	return result
+}
+
+// setDirection stores a turned dir, switching to the matching helper when one
+// is declared. An instance that wrote dir keeps it explicit even when it equals
+// the inherited default, so it stays recognisably turnable and round-trips.
+func setDirection(path string, vars *dmvars.Variables, direction int, lookup []PrefabLookup) (string, *dmvars.Variables) {
+	_, explicit := vars.ExplicitValue("dir")
+	if targetPath, targetVars := directionalVariant(path, direction, lookup); targetVars != nil {
+		return targetPath, setOrientation(reparentExplicit(vars, targetVars), "dir", strconv.Itoa(direction))
+	}
+	if explicit {
+		return path, dmvars.Set(vars, "dir", strconv.Itoa(direction))
+	}
+	return path, setOrientation(vars, "dir", strconv.Itoa(direction))
 }
 
 func setOrientation(vars *dmvars.Variables, name, value string) *dmvars.Variables {

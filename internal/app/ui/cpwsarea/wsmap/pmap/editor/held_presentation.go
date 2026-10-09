@@ -18,6 +18,13 @@ type heldPresentation struct {
 	alternative bool
 }
 
+// SelectHeldPrefab publishes a rotated palette value as the global selection.
+func (e *Editor) SelectHeldPrefab(prefab *dmmprefab.Prefab) {
+	if prefab != nil && !e.mapViewClosed {
+		e.app.DoSelectPrefab(prefab)
+	}
+}
+
 // PreviewHeldPrefab owns only presentation. A pointer sample updates Anchor;
 // prefab changes prepare one sprite without touching map instances or history.
 func (e *Editor) PreviewHeldPrefab(prefab *dmmprefab.Prefab, target util.Point, alternative bool) {

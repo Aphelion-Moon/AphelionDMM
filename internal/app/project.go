@@ -4,7 +4,9 @@ import (
 	// APHELION EDIT ADDITION START - ENVIRONMENT SNAPSHOT
 	"sdmm/internal/aphelion/diagnostics/uistage"
 	"sdmm/internal/aphelion/envload"
+	"sdmm/internal/aphelion/envresolve"
 	"sdmm/internal/aphelion/envsnapshot"
+	"sdmm/internal/aphelion/maplint"
 	"sdmm/internal/aphelion/mapindex"
 	// APHELION EDIT ADDITION END
 	"context"
@@ -70,6 +72,23 @@ func (a *app) loadResourceV(path string, ws *workspace.Workspace) {
 	environmentPath, err := findEnvironmentFileFromBase(path)
 	APHELION EDIT REMOVAL END */
 
+	// APHELION EDIT ADDITION START - ENVIRONMENT RESOLUTION
+	resolved, resolveErr := envresolve.Resolve(path)
+	if resolveErr == nil && a.HasLoadedEnvironment() {
+		a.openMapForResolvedEnvironment(path, ws, resolved)
+		return
+	}
+	if a.HasLoadedEnvironment() {
+		a.loadMap(path, ws)
+		return
+	}
+	if resolveErr == nil && resolved.Path == "" {
+		a.promptEnvironmentChoice(path, ws, resolved.Candidates, false)
+		return
+	}
+	environmentPath, err := resolved.Path, resolveErr
+	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - ENVIRONMENT RESOLUTION
 	if a.HasLoadedEnvironment() {
 		a.loadMap(path, ws)
 		return
@@ -77,6 +96,7 @@ func (a *app) loadResourceV(path string, ws *workspace.Workspace) {
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	environmentPath, err := findEnvironmentFileFromBase(path)
 	// APHELION EDIT ADDITION END
+	APHELION EDIT REMOVAL END */
 
 	if err == nil {
 		a.loadEnvironmentV(environmentPath, func() {
@@ -93,6 +113,68 @@ func (a *app) loadResourceV(path string, ws *workspace.Workspace) {
 	}
 }
 
+// APHELION EDIT ADDITION START - ENVIRONMENT RESOLUTION
+
+// openMapForResolvedEnvironment opens a map when a loaded environment exists,
+// prompting when the map's own repository environment differs from it.
+func (a *app) openMapForResolvedEnvironment(path string, ws *workspace.Workspace, resolved envresolve.Result) {
+	loaded := a.LoadedEnvironment()
+	if loaded != nil {
+		if resolved.Path != "" && envresolve.SameEnvironment(resolved.Path, loaded.RootFile) {
+			a.loadMap(path, ws)
+			return
+		}
+		for _, candidate := range resolved.Candidates {
+			if envresolve.SameEnvironment(candidate, loaded.RootFile) {
+				a.loadMap(path, ws)
+				return
+			}
+		}
+	}
+	candidates := resolved.Candidates
+	if resolved.Path != "" {
+		candidates = []string{resolved.Path}
+	}
+	a.promptEnvironmentChoice(path, ws, candidates, true)
+}
+
+// promptEnvironmentChoice lets the user pick the environment for a map. When an
+// environment is already loaded, the map may also be opened in the current one.
+func (a *app) promptEnvironmentChoice(path string, ws *workspace.Workspace, candidates []string, hasLoaded bool) {
+	layout := w.Layout{w.Text("Map: " + path)}
+	if hasLoaded {
+		layout = append(layout, w.Text("This map belongs to a different environment than the one loaded."))
+	} else {
+		layout = append(layout, w.Text("Multiple environments were found for this map. Choose one."))
+	}
+	layout = append(layout, w.Separator())
+	for i, candidate := range candidates {
+		candidate := candidate
+		label := "Switch Environment: " + candidate
+		if len(candidates) > 1 || !hasLoaded {
+			label = "Use " + candidate
+		}
+		layout = append(layout, w.Button(label+fmt.Sprintf("##env-choice-%d", i), func() {
+			imgui.CloseCurrentPopup()
+			window.RunLater(func() {
+				// Existing close/save guards decide whether the switch proceeds.
+				a.loadEnvironmentV(candidate, func() { a.loadMap(path, ws) })
+			})
+		}))
+	}
+	if hasLoaded {
+		layout = append(layout, w.Button("Open in Current", func() {
+			imgui.CloseCurrentPopup()
+			window.RunLater(func() { a.loadMap(path, ws) })
+		}))
+	}
+	layout = append(layout, w.Button("Cancel", imgui.CloseCurrentPopup))
+	dialog.Open(dialog.TypeCustom{Title: "Choose Environment", Layout: layout})
+}
+
+// APHELION EDIT ADDITION END
+
+/* APHELION EDIT REMOVAL START - ENVIRONMENT RESOLUTION
 // Goes through all parents starting from the current file location and look for a ".dme" file.
 func findEnvironmentFileFromBase(path string) (string, error) {
 	for {
@@ -117,6 +199,7 @@ func findEnvironmentFileFromBase(path string) (string, error) {
 		path = filepath.Dir(path)
 	}
 }
+APHELION EDIT REMOVAL END */
 
 func (a *app) loadEnvironment(path string) {
 	a.loadEnvironmentV(path, nil)
@@ -189,6 +272,9 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 		a.projectConfig().AddProject(path)
 		a.loadedEnvironment = env
 		a.pathsFilter = newPathsFilter(env)
+		// APHELION EDIT ADDITION START - PLACEMENT LINT
+		maplint.Active().Begin(env.RootFile, window.RunLater)
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - FILTER PROFILES
 		a.layout.Environment.BindFilterEnvironment(env)
 		// APHELION EDIT ADDITION END
@@ -459,7 +545,7 @@ func (a *app) closeEnvironment(callback func(bool)) {
 	completeReplacement, err := a.collaborationProjectReplacementGuard()
 	if err != nil {
 		log.Error().Err(err).Msg("unable to prepare environment replacement")
-		util.ShowErrorDialog("Unable to close environment: " + err.Error())
+		a.showCollaborationGuardError("Unable to close environment: ", err, false)
 		if callback != nil {
 			callback(false)
 		}
@@ -512,6 +598,10 @@ func (a *app) freeEnvironmentResources() {
 	log.Print("free environment resources...")
 
 	a.pathsFilter = dm.NewPathsFilterEmpty()
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	maplint.Active().Reset()
+	a.layout.MapLint.Free()
+	// APHELION EDIT ADDITION END
 
 	a.layout.Prefabs.Free()
 	a.layout.Search.Free()

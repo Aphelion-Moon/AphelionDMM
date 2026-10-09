@@ -3,13 +3,16 @@ package ui
 import (
 	"hash/fnv"
 	"sort"
+	"strings"
 	"time"
+	"unicode"
 
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/collab/protocol"
 )
 
-const presenceStyleSlotCount = 8
+// APHELION EDIT CHANGE - COLLABORATION CURSOR COLOR - ORIGINAL: const presenceStyleSlotCount = 8
+const presenceStyleSlotCount = protocol.CursorColorPaletteSize
 
 // PresenceTimeout is the desktop lifetime of an observed cursor or participant.
 // Presence is lossy and is not an authoritative connected-member roster.
@@ -26,6 +29,8 @@ type PresenceOverlay struct {
 	PixelX    int
 	PixelY    int
 	StyleSlot uint32
+	// Initials is a short badge derived from Label; see PresenceInitials.
+	Initials  string
 	Selection *PresenceSelectionOverlay
 }
 
@@ -74,7 +79,13 @@ func BuildPresenceOverlays(entries []ObservedPresence, activeLevel, iconSize, pa
 			PixelX:    (entry.Presence.Cursor.X - 1) * iconSize,
 			PixelY:    (entry.Presence.Cursor.Y - 1) * iconSize,
 			StyleSlot: presenceStyleSlot(entry.Presence.ActorID),
+			Initials:  PresenceInitials(label),
 		}
+		// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+		if color := entry.Presence.CursorColor; color != nil && protocol.ValidCursorColor(*color) {
+			overlay.StyleSlot = uint32(*color)
+		}
+		// APHELION EDIT ADDITION END
 		selection := entry.Presence.Selection
 		if selection != nil && selection.Min.Z == activeLevel && selection.Max.Z == activeLevel {
 			overlay.Selection = &PresenceSelectionOverlay{
@@ -94,3 +105,26 @@ func presenceStyleSlot(actorID model.ActorID) uint32 {
 	_, _ = hash.Write([]byte(actorID))
 	return hash.Sum32() % presenceStyleSlotCount
 }
+
+// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+
+// PresenceInitials returns up to two uppercase initials from the first two
+// words of label, or "?" when label has none.
+func PresenceInitials(label string) string {
+	var initials []rune
+	for _, word := range strings.Fields(label) {
+		if len(initials) == 2 {
+			break
+		}
+		for _, r := range word {
+			initials = append(initials, unicode.ToUpper(r))
+			break
+		}
+	}
+	if len(initials) == 0 {
+		return "?"
+	}
+	return string(initials)
+}
+
+// APHELION EDIT ADDITION END

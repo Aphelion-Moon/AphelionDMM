@@ -15,6 +15,7 @@ import (
 
 	"sdmm/internal/aphelion/collab/auth"
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/collab/protocol"
 	collabstore "sdmm/internal/aphelion/collab/store"
 )
 
@@ -179,6 +180,8 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 	var body struct {
 		Snapshot  model.Snapshot `json:"snapshot"`
 		BulkEdits bool           `json:"bulk_edits,omitempty"`
+		// APHELION EDIT ADDITION - REPOSITORY ALIGNMENT: optional; sent only after capability negotiation.
+		Repository *protocol.RepositoryDescriptor `json:"repository,omitempty"`
 		collabstore.HostedSessionMetadata
 	}
 	decoder := json.NewDecoder(request.Body)
@@ -201,6 +204,14 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		return
 	}
 	body.HostedSessionMetadata = metadata
+	// APHELION EDIT ADDITION START - REPOSITORY ALIGNMENT
+	if body.Repository != nil {
+		if err := body.Repository.Validate(); err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid_request", "Invalid repository descriptor.")
+			return
+		}
+	}
+	// APHELION EDIT ADDITION END
 	sessionID := string(body.Snapshot.DocumentID)
 	ownerMember := hostedMember(sessionID, identity, collabstore.HostedRoleOwner)
 	principal, err := principalFromHostedMember(ownerMember)
@@ -238,7 +249,7 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		return
 	}
 	mapHash := current.MapHash
-	created := collabstore.HostedSession{SessionID: sessionID, DocumentID: current.DocumentID, CreatedAt: service.config.Now(), Visibility: body.Visibility, Title: body.Title, MapLabel: body.MapLabel, EnvironmentLabel: body.EnvironmentLabel}
+	created := collabstore.HostedSession{SessionID: sessionID, DocumentID: current.DocumentID, CreatedAt: service.config.Now(), Visibility: body.Visibility, Title: body.Title, MapLabel: body.MapLabel, EnvironmentLabel: body.EnvironmentLabel, Repository: body.Repository} // APHELION EDIT CHANGE - REPOSITORY ALIGNMENT - ORIGINAL: no Repository field
 	if err := service.config.HostedRegistry.CreateHostedSession(commitContext, created, ownerMember); err != nil {
 		_ = owner.Close(commitContext)
 		if errors.Is(err, collabstore.ErrHostedSessionExists) {
@@ -254,7 +265,8 @@ func (service *Service) handleCreateHostedSession(writer http.ResponseWriter, re
 		return
 	}
 	service.mutex.Lock()
-	service.sessions[sessionID] = sessionRecord{owner: owner, hosted: true, emptyDeadline: service.config.Now().Add(hostedInitialJoinGrace)}
+	// APHELION EDIT CHANGE - REPOSITORY ALIGNMENT - ORIGINAL: service.sessions[sessionID] = sessionRecord{owner: owner, hosted: true, emptyDeadline: service.config.Now().Add(hostedInitialJoinGrace)}
+	service.sessions[sessionID] = sessionRecord{owner: owner, hosted: true, emptyDeadline: service.config.Now().Add(hostedInitialJoinGrace), repository: body.Repository}
 	service.mutex.Unlock()
 	service.setDocumentRecoveryError(body.Snapshot.DocumentID, nil)
 	writeJSON(writer, http.StatusCreated, HostedSessionResponse{SessionID: sessionID, DocumentID: current.DocumentID, Revision: current.Revision, MapHash: mapHash})
@@ -434,7 +446,7 @@ func (service *Service) recoverHostedSession(ctx context.Context, hostedSession 
 		}
 	}
 	service.mutex.Lock()
-	service.sessions[hostedSession.SessionID] = sessionRecord{owner: owner, hosted: true, emptyDeadline: service.config.Now().Add(hostedInitialJoinGrace)}
+	service.sessions[hostedSession.SessionID] = sessionRecord{owner: owner, hosted: true, emptyDeadline: service.config.Now().Add(hostedInitialJoinGrace), repository: recoveredRepository(hostedSession.Repository)} // APHELION EDIT CHANGE - REPOSITORY ALIGNMENT - ORIGINAL: no repository field
 	service.mutex.Unlock()
 	service.setDocumentRecoveryError(hostedSession.DocumentID, nil)
 	return nil

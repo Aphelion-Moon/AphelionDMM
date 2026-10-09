@@ -125,3 +125,49 @@ func remoteIP(request *http.Request) string {
 	}
 	return request.RemoteAddr
 }
+
+// presenceGate limits one connection's presence stream. Presence is lossy, so
+// excess messages are dropped, not rejected. Only several consecutive windows
+// over the limit count as abuse, which tolerates a stalled read loop draining
+// a backlog at wire speed. A gate is owned by one connection loop and is not
+// safe for concurrent use.
+type presenceGate struct {
+	policy        RateLimit
+	abuseWindows  int
+	windowStarted time.Time
+	count         int
+	consecutive   int
+	windowCounted bool
+	started       bool
+}
+
+func newPresenceGate(policy RateLimit, abuseWindows int) *presenceGate {
+	if abuseWindows <= 0 {
+		abuseWindows = defaultPresenceAbuseWindows
+	}
+	return &presenceGate{policy: policy, abuseWindows: abuseWindows}
+}
+
+// Allow reports whether the message should be applied and whether the
+// connection has now exceeded the limit for too many consecutive windows.
+func (gate *presenceGate) Allow(now time.Time) (allowed bool, abuse bool) {
+	if !gate.started || now.Sub(gate.windowStarted) >= gate.policy.Window {
+		// An idle window between bursts breaks the consecutive run.
+		if !gate.started || !gate.windowCounted || now.Sub(gate.windowStarted) >= 2*gate.policy.Window {
+			gate.consecutive = 0
+		}
+		gate.started = true
+		gate.windowStarted = now
+		gate.count = 0
+		gate.windowCounted = false
+	}
+	gate.count++
+	if gate.count <= gate.policy.Burst {
+		return true, false
+	}
+	if !gate.windowCounted {
+		gate.windowCounted = true
+		gate.consecutive++
+	}
+	return false, gate.consecutive >= gate.abuseWindows
+}

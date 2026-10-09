@@ -22,7 +22,7 @@ const (
 // Mirror reflects visible contents inside the existing selection rectangle.
 // Hidden instances retain their coordinates and relative order. Visible source
 // order and stable IDs survive the transform, including unknown types/variables.
-func Mirror(m *dmmap.Dmm, area util.Bounds, z int, axis MirrorAxis, visible func(string) bool) (Transform, error) {
+func Mirror(m *dmmap.Dmm, area util.Bounds, z int, axis MirrorAxis, visible func(string) bool, lookup ...PrefabLookup) (Transform, error) {
 	if m == nil || visible == nil {
 		return Transform{}, fmt.Errorf("no map or visibility filter")
 	}
@@ -73,7 +73,7 @@ func Mirror(m *dmmap.Dmm, area util.Bounds, z int, axis MirrorAxis, visible func
 				prefab, exists := prefabs[instance.Prefab()]
 				if !exists {
 					var err error
-					prefab, err = mirrorPrefab(instance.Prefab(), axis)
+					prefab, err = mirrorPrefab(instance.Prefab(), axis, lookup...)
 					if err != nil {
 						return Transform{}, fmt.Errorf("%s at (%d,%d,%d): %w", instance.Prefab().Path(), x, y, z, err)
 					}
@@ -88,12 +88,17 @@ func Mirror(m *dmmap.Dmm, area util.Bounds, z int, axis MirrorAxis, visible func
 	return result, nil
 }
 
-func mirrorPrefab(prefab *dmmprefab.Prefab, axis MirrorAxis) (*dmmprefab.Prefab, error) {
-	vars := prefab.Vars()
+func mirrorPrefab(prefab *dmmprefab.Prefab, axis MirrorAxis, lookup ...PrefabLookup) (*dmmprefab.Prefab, error) {
+	sourceVars := prefab.Vars()
+	vars, path := sourceVars, prefab.Path()
 	if vars == nil {
 		return nil, fmt.Errorf("missing variables")
 	}
-	if raw, exists := vars.Value("dir"); exists {
+	scope := orientationScopeOf(prefab, lookup)
+	if scope.none {
+		return prefab, nil
+	}
+	if raw, exists := vars.Value("dir"); exists && scope.dir {
 		direction, ok := parseDirection(raw)
 		if !ok {
 			return nil, fmt.Errorf("cannot mirror dir = %s", raw)
@@ -109,14 +114,16 @@ func mirrorPrefab(prefab *dmmprefab.Prefab, axis MirrorAxis) (*dmmprefab.Prefab,
 		if direction&second != 0 {
 			mirrored |= first
 		}
-		vars = setOrientation(vars, "dir", strconv.Itoa(mirrored))
+		if mirrored != direction {
+			path, vars = setDirection(path, vars, mirrored, lookup)
+		}
 	}
 	offsets := []string{"pixel_x", "step_x"}
 	if axis == MirrorVertical {
 		offsets = []string{"pixel_y", "step_y"}
 	}
 	for _, name := range offsets {
-		if raw, exists := vars.Value(name); exists {
+		if raw, exists := orientationOffset(sourceVars, name, scope); exists {
 			value, err := strconv.ParseFloat(raw, 64)
 			if err != nil || math.IsNaN(value) || math.IsInf(value, 0) {
 				return nil, fmt.Errorf("cannot mirror %s expression", name)
@@ -125,8 +132,18 @@ func mirrorPrefab(prefab *dmmprefab.Prefab, axis MirrorAxis) (*dmmprefab.Prefab,
 			if value == 0 {
 				value = 0 // Normalize negative zero.
 			}
-			vars = setOrientation(vars, name, strconv.FormatFloat(value, 'f', -1, 64))
+			text := strconv.FormatFloat(value, 'f', -1, 64)
+			if _, explicit := vars.ExplicitValue(name); !explicit && vars != sourceVars {
+				// The new helper supplies this axis; do not restate it.
+				if inherited, ok := vars.Value(name); ok && inherited == text {
+					continue
+				}
+			}
+			vars = setOffset(vars, name, text)
 		}
 	}
-	return dmmprefab.New(dmmprefab.IdNone, prefab.Path(), vars), nil
+	if path == prefab.Path() && vars == sourceVars {
+		return prefab, nil
+	}
+	return dmmprefab.New(dmmprefab.IdNone, path, vars), nil
 }

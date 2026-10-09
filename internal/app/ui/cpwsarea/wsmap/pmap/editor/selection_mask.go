@@ -58,7 +58,7 @@ func (e *Editor) MirrorSelectionMask(s editing.Selection, axis editing.MirrorAxi
 		return s.Bounds(), err
 	}
 	defer reservation.Release()
-	plan, err := editing.MirrorMask(e.dmm, s, axis, e.app.PathsFilter().IsVisiblePath)
+	plan, err := editing.MirrorMask(e.dmm, s, axis, e.app.PathsFilter().IsVisiblePath, e.RotationLookup())
 	if err != nil {
 		return s.Bounds(), err
 	}

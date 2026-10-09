@@ -1,6 +1,12 @@
 package chunk
 
 import (
+	// APHELION EDIT ADDITION START - RATE-LIMITED SUMMARY
+	"sort"
+	"sync"
+	"time"
+
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - BATCH UNIT PREPARATION
 	"sdmm/internal/aphelion/renderprep"
 	// APHELION EDIT ADDITION END
@@ -113,8 +119,8 @@ func (c *Chunk) Update(dmm *dmmap.Dmm, level int, filters ...func(*dmminstance.I
 	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
 	c.revision++
 	// APHELION EDIT ADDITION END
-	// APHELION EDIT CHANGE - QUIET FRAME WORK - ORIGINAL: log.Printf("chunk level [%d] updated: %v", level, c.MapBounds)
-	log.Debug().Int("level", level).Interface("bounds", c.MapBounds).Msg("chunk updated")
+	// APHELION EDIT CHANGE - RATE-LIMITED SUMMARY - ORIGINAL: log.Debug().Int("level", level).Interface("bounds", c.MapBounds).Msg("chunk updated")
+	renderSummary.Add(dmm.Path.Readable, "chunks_updated", 1)
 }
 
 // APHELION EDIT ADDITION START - RENDER CULLING
@@ -132,6 +138,70 @@ func includeViewBounds(bounds, addition util.Bounds) util.Bounds {
 		bounds.Y2 = addition.Y2
 	}
 	return bounds
+}
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT ADDITION START - RATE-LIMITED SUMMARY
+// renderSummary aggregates per-chunk render debug records; see Summary.
+var renderSummary = NewSummary("render chunk updates summary", time.Second, nil)
+
+// Summary aggregates high-frequency debug events per key (for example, per map)
+// and emits at most one debug record per key per interval. Counts accumulate
+// until the next Add after the interval elapses, so the emitted record covers
+// the whole window. Summary is safe for concurrent use.
+type Summary struct {
+	mu       sync.Mutex
+	label    string
+	interval time.Duration
+	now      func() time.Time
+	emit     func(label, key string, span time.Duration, counts map[string]uint64)
+	windows  map[string]*summaryWindow
+}
+
+type summaryWindow struct {
+	start  time.Time
+	counts map[string]uint64
+}
+
+// NewSummary returns a Summary that logs under label. A nil now uses time.Now.
+func NewSummary(label string, interval time.Duration, now func() time.Time) *Summary {
+	if now == nil {
+		now = time.Now
+	}
+	return &Summary{label: label, interval: interval, now: now, emit: logSummary, windows: make(map[string]*summaryWindow)}
+}
+
+// Add counts n occurrences of event for key.
+func (s *Summary) Add(key, event string, n uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := s.now()
+	w, ok := s.windows[key]
+	if !ok {
+		w = &summaryWindow{start: now, counts: make(map[string]uint64)}
+		s.windows[key] = w
+	}
+	w.counts[event] += n
+	if now.Sub(w.start) < s.interval {
+		return
+	}
+	s.emit(s.label, key, now.Sub(w.start), w.counts)
+	w.start = now
+	w.counts = make(map[string]uint64)
+}
+
+func logSummary(label, key string, span time.Duration, counts map[string]uint64) {
+	names := make([]string, 0, len(counts))
+	for name := range counts {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	ev := log.Debug().Str("map", key).Dur("span", span)
+	for _, name := range names {
+		ev = ev.Uint64(name, counts[name])
+	}
+	ev.Msg(label)
 }
 
 // APHELION EDIT ADDITION END

@@ -519,6 +519,9 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 		// remains read-only until preparation has relinquished it to publication.
 		base, payload, policy, visible := e.authoritativeTiles, p.payload, p.policy, p.effectiveVisibility()
 		generation := e.attachmentGeneration
+		rules, lintFile := e.lintRules()
+		var pasteLint *lintStats
+		randomFill := p.preserveEmpty
 		p.phase = pasteResolving
 		e.retainPasteCommit(p)
 		err := e.startLocalWork(local, true, 1024, func(ctx context.Context, reservation *resources.Reservation) ([]model.TileChange, error) {
@@ -548,7 +551,17 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 			if err := reservation.Resize(bytes); err != nil {
 				return nil, err
 			}
-			return payload.BuildPlacementChanges(ctx, target, policy, visible, func(coord model.Coord) (model.TileState, bool) { state, ok := base[coord]; return state, ok })
+			changes, err := payload.BuildPlacementChanges(ctx, target, policy, visible, func(coord model.Coord) (model.TileState, bool) { state, ok := base[coord]; return state, ok })
+			if err == nil && rules != nil {
+				if randomFill {
+					// Random Fill follows Fill: identical duplicates are skipped and
+					// other violations warn. The tile set is final before submission.
+					changes, pasteLint, err = lintRandomFill(ctx, rules, lintFile, changes)
+				} else {
+					pasteLint = lintChanges(rules, lintFile, changes, 0)
+				}
+			}
+			return changes, err
 		}, func(accepted engine.LocalAcceptance, backward []model.TileChange, err error) {
 			defer e.finishPasteCommit(p)
 			if generation != e.attachmentGeneration || e.paste != p {
@@ -563,6 +576,9 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 					e.reportCollaborationError("Unable to display accepted paste", err)
 				}
 				return
+			}
+			if pasteLint != nil {
+				e.RecordPlacementLint(pasteLint.report())
 			}
 			if len(accepted.Changes) > 0 {
 				e.pushLocalCommandOwned(local, "Paste Tiles", accepted.Changes, backward, p.selectionOutcome)
@@ -590,6 +606,20 @@ func (e *Editor) submitPasteIntent(p *pasteSession) {
 		p.err = err
 		p.intent = nil
 		return
+	}
+	rules, lintFile := e.lintRules()
+	if p.preserveEmpty && rules != nil {
+		// Random Fill follows Fill: identical duplicates are skipped, others warn.
+		var stats *lintStats
+		changes, stats, err = lintRandomFill(context.Background(), rules, lintFile, changes)
+		if err != nil {
+			p.err = err
+			p.intent = nil
+			return
+		}
+		e.RecordPlacementLint(stats.report())
+	} else if rules != nil && len(changes) != 0 {
+		e.RecordPlacementLint(lintChanges(rules, lintFile, changes, 4096).report())
 	}
 	if len(changes) == 0 {
 		e.finishPaste(p, false)

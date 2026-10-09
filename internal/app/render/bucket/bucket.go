@@ -1,6 +1,9 @@
 package bucket
 
 import (
+	// APHELION EDIT ADDITION START - RATE-LIMITED SUMMARY
+	"time"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	"slices"
 	// APHELION EDIT ADDITION END
@@ -10,6 +13,9 @@ import (
 	// APHELION EDIT ADDITION END
 
 	"sdmm/internal/app/render/bucket/level"
+	// APHELION EDIT ADDITION START - RATE-LIMITED SUMMARY
+	"sdmm/internal/app/render/bucket/level/chunk"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dmmap"
 	// APHELION EDIT ADDITION START - OCCURRENCE GEOMETRY
 	"sdmm/internal/dmapi/dmmap/dmminstance"
@@ -18,6 +24,13 @@ import (
 
 	"github.com/rs/zerolog/log"
 )
+
+// APHELION EDIT ADDITION START - RATE-LIMITED SUMMARY
+// bucketSummary replaces the per-update bucket debug records with at most one
+// aggregated record per map per second.
+var bucketSummary = chunk.NewSummary("bucket updates summary", time.Second, nil)
+
+// APHELION EDIT ADDITION END
 
 // Bucket contains data needed to render the map.
 // The Bucket itself is made of Level's which are made of Chunk's.
@@ -40,12 +53,13 @@ func (b *Bucket) UpdateLevel(dmm *dmmap.Dmm, levelValue int, tilesToUpdate []uti
 	// APHELION EDIT ADDITION START - UI STAGE TRACE
 	defer uistage.Begin(uistage.BucketBuild).End()
 	// APHELION EDIT ADDITION END
-	// APHELION EDIT CHANGE - QUIET FRAME WORK - ORIGINAL: log.Printf("updating bucket with [%s]...", dmm.Path.Readable)
-	log.Debug().Str("map", dmm.Path.Readable).Msg("updating bucket")
+	// APHELION EDIT CHANGE - RATE-LIMITED SUMMARY - ORIGINAL: log.Debug().Str("map", dmm.Path.Readable).Msg("updating bucket")
+	bucketSummary.Add(dmm.Path.Readable, "bucket_updates", 1)
 	// APHELION EDIT CHANGE - OCCURRENCE GEOMETRY - ORIGINAL: b.getOrCreateLevel(dmm, levelValue).Update(dmm, tilesToUpdate)
 	b.getOrCreateLevel(dmm, levelValue).Update(dmm, tilesToUpdate, b.InstanceFilter)
-	// APHELION EDIT CHANGE - QUIET FRAME WORK - ORIGINAL: log.Print("bucket updated")
+	/* APHELION EDIT REMOVAL START - RATE-LIMITED SUMMARY
 	log.Debug().Msg("bucket updated")
+	APHELION EDIT REMOVAL END */
 }
 
 // Level returns a specific level of the bucket or nil if it's not exist.

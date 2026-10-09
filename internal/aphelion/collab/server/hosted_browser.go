@@ -12,6 +12,8 @@ import (
 func (service *Service) handleHostedCapabilities(w http.ResponseWriter, r *http.Request) {
 	// A header keeps older clients' strict JSON capability decoders compatible.
 	w.Header().Set("Accept-Encoding", "gzip")
+	// APHELION EDIT ADDITION - REPOSITORY ALIGNMENT: same strict-decoder-safe signalling.
+	w.Header().Set(protocol.RepositoryCapabilityHeader, protocol.RepositoryCapabilityValue)
 	w.Header().Set("Cache-Control", "no-store")
 	_, supported := service.config.HostedRegistry.(collabstore.HostedSessionBrowserStore)
 	provider := service.config.HostedProvider
@@ -74,8 +76,10 @@ func (service *Service) handleListHostedSessions(w http.ResponseWriter, r *http.
 		return
 	}
 	result := protocol.HostedSessionsPage{Sessions: make([]protocol.HostedSessionSummary, 0, len(page.Sessions)), NextCursor: page.NextCursor}
+	// APHELION EDIT ADDITION - REPOSITORY ALIGNMENT: older strict clients never ask, so never receive it.
+	includeRepository := r.URL.Query().Get("include") == protocol.IncludeRepositoryQuery
 	for _, session := range page.Sessions {
-		result.Sessions = append(result.Sessions, protocol.HostedSessionSummary{SessionID: session.SessionID, HostedSessionMetadata: protocol.HostedSessionMetadata{Visibility: string(session.Visibility), Title: session.Title, MapLabel: session.MapLabel, EnvironmentLabel: session.EnvironmentLabel}, OwnerDisplayName: session.OwnerDisplayName, Participants: counts[session.SessionID], Available: service.hostedDocumentAvailable(session.SessionID)})
+		result.Sessions = append(result.Sessions, protocol.HostedSessionSummary{Repository: service.hostedRepository(session.SessionID, includeRepository), SessionID: session.SessionID, HostedSessionMetadata: protocol.HostedSessionMetadata{Visibility: string(session.Visibility), Title: session.Title, MapLabel: session.MapLabel, EnvironmentLabel: session.EnvironmentLabel}, OwnerDisplayName: session.OwnerDisplayName, Participants: counts[session.SessionID], Available: service.hostedDocumentAvailable(session.SessionID)})
 	}
 	writeJSON(w, 200, result)
 }

@@ -94,6 +94,11 @@ func (c *Canvas) Dispose() {
 		}
 		// APHELION EDIT ADDITION END
 		log.Print("disposing...")
+		// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+		if c.render != nil {
+			c.render.DisposeLighting()
+		}
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT CHANGE - CANVAS LIFETIME - ORIGINAL: gl.DeleteFramebuffers(1, &c.frameBuffer)
 		gl.DeleteFramebuffers(1, &frameBuffer)
 		// APHELION EDIT CHANGE - CANVAS LIFETIME - ORIGINAL: gl.DeleteTextures(1, &c.texture)
@@ -163,3 +168,4 @@ func (c *Canvas) createCanvasTexture() {
 	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, c.texture, 0)
 	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
 }
+

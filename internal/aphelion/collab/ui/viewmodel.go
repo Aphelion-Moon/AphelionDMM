@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -53,6 +54,15 @@ type ViewModel struct {
 	CanReconnect        bool
 	CanLeave            bool
 	ErrorText           string
+	// DraftCount is the number of retained drafts across all pages.
+	DraftCount int
+	// RateLimited is set while the session is suspended by a server rate limit.
+	RateLimited bool
+	// ReconnectGaveUp is set when automatic reconnect stopped and only a manual retry remains.
+	ReconnectGaveUp bool
+	// DraftsInterrupted is set when drafts remain and the session cannot currently deliver them.
+	DraftsInterrupted bool
+	StatusBanner      string
 }
 
 func BuildViewModel(status SessionStatus) ViewModel {
@@ -123,10 +133,22 @@ func BuildViewModel(status SessionStatus) ViewModel {
 		CanEdit:             role == "owner" || role == "editor",
 		CanAdminister:       role == "owner",
 		CanCopyInvite:       role == "owner" && status.InviteReady,
-		ShowReconnect:       status.State == client.StateReconnecting,
+		ShowReconnect:       status.State == client.StateReconnecting || (status.State == client.StateDisconnected && status.ReconnectReady),
 		CanReconnect:        status.ReconnectReady && (status.State == client.StateDisconnected || status.State == client.StateReconnecting),
 		CanLeave:            (active || status.SessionID != "") && status.State != client.StateClosed && totalConflicts == 0,
 	}
+	view.DraftCount = totalConflicts
+	suspended := status.State == client.StateReconnecting || status.State == client.StateDisconnected
+	view.RateLimited = suspended && errors.Is(status.Err, client.ErrRateLimited)
+	view.ReconnectGaveUp = suspended && status.ReconnectReady
+	switch {
+	case view.RateLimited:
+		view.StatusBanner = "Reconnecting (rate limited by server)"
+	case view.ReconnectGaveUp:
+		view.StatusBanner = "Reconnect attempts exhausted. Use Retry Reconnect."
+	}
+	terminal := status.SessionID != "" && (status.State == client.StateClosed || status.State == client.StateDisconnected)
+	view.DraftsInterrupted = totalConflicts != 0 && (view.RateLimited || view.ReconnectGaveUp || terminal)
 	if status.Err != nil {
 		view.ErrorText = redactSensitive(status.Err.Error(), status.SensitiveValues)
 	}

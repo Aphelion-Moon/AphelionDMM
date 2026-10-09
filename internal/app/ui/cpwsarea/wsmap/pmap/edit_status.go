@@ -30,16 +30,25 @@ func (p *PaneMap) showEditStatus() {
 		p.editBubble.since = time.Now()
 	}
 	p.editBubble.busy = busy
+	lintReplace := false
+	if message == "" {
+		message, lintReplace = p.editor.PlacementLintNotice()
+	}
 	if message == "" {
 		message = p.editor.VisibilityStatus()
 	}
 	if message == "" || busy && time.Since(p.editBubble.since) < 200*time.Millisecond {
 		return
 	}
-	p.drawEditStatus(message, recovery)
+	p.drawEditStatusV(message, recovery, lintReplace)
 }
 
 func (p *PaneMap) drawEditStatus(message string, recovery bool) {
+	p.drawEditStatusV(message, recovery, false)
+}
+
+// drawEditStatusV also offers the placement-lint one-click actions.
+func (p *PaneMap) drawEditStatusV(message string, recovery, lintReplace bool) {
 	width := min(float32(360), max(float32(60), p.size.X-panelPadding*2))
 	if p.showSettings {
 		width = min(width, max(float32(60), p.size.X-p.panelRightTopSize.X-panelPadding*3))
@@ -56,6 +65,23 @@ func (p *PaneMap) drawEditStatus(message string, recovery bool) {
 	}
 	bottom := imgui.WindowPos().Y + imgui.WindowSize().Y
 	imgui.End()
+	if lintReplace && !recovery {
+		imgui.SetNextWindowPos(imgui.Vec2{X: pos.X, Y: bottom + 2})
+		imgui.SetNextWindowSize(imgui.Vec2{})
+		imgui.PushStyleVarVec2(imgui.StyleVarWindowPadding, imgui.Vec2{})
+		if imgui.BeginV(fmt.Sprintf("edit-lint-actions-%p", p), nil, panelFlags|imgui.WindowFlagsNoNavInputs|imgui.WindowFlagsNoNavFocus) {
+			if imgui.Button("Replace existing") {
+				p.editor.ReplaceLintConflicts()
+			}
+			imgui.SameLine()
+			if imgui.Button("Dismiss") {
+				p.editor.DismissPlacementLint()
+			}
+		}
+		imgui.End()
+		imgui.PopStyleVar()
+		return
+	}
 	if !recovery {
 		return
 	}

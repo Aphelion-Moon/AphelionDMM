@@ -15,9 +15,10 @@ import (
 
 	"sdmm/internal/aphelion/collab/model"
 	collabstore "sdmm/internal/aphelion/collab/store"
+	"sdmm/internal/aphelion/repoinfo"
 )
 
-const hostedSessionSelect = `SELECT hosted_session.session_id, hosted_session.document_id, hosted_session.created_at, hosted_session.visibility, hosted_session.title, hosted_session.map_label, hosted_session.environment_label, COALESCE(hosted_owner.display_name, '')`
+const hostedSessionSelect = `SELECT hosted_session.session_id, hosted_session.document_id, hosted_session.created_at, hosted_session.visibility, hosted_session.title, hosted_session.map_label, hosted_session.environment_label, COALESCE(hosted_owner.display_name, ''), hosted_session.repository_dme_name, hosted_session.repository_environment_hash, hosted_session.repository_git_branch, hosted_session.repository_git_commit`
 
 const hostedSessionFrom = `FROM collaboration_hosted_sessions AS hosted_session
 	JOIN collaboration_documents AS hosted_document ON hosted_document.document_id = hosted_session.document_id
@@ -36,6 +37,7 @@ func (store *Store) CreateHostedSession(ctx context.Context, session collabstore
 	if err := validateHostedSession(session, owner); err != nil {
 		return err
 	}
+	repositoryColumns := repositoryToColumns(session.Repository)
 	store.mutex.RLock()
 	defer store.mutex.RUnlock()
 	if store.closed {
@@ -46,7 +48,7 @@ func (store *Store) CreateHostedSession(ctx context.Context, session collabstore
 		return fmt.Errorf("begin hosted session create: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(context.Background()) }()
-	if _, err := transaction.Exec(ctx, `INSERT INTO collaboration_hosted_sessions(session_id, document_id, created_at, visibility, title, map_label, environment_label) VALUES($1, $2, $3, $4, $5, $6, $7)`, session.SessionID, session.DocumentID, session.CreatedAt, session.Visibility, session.Title, session.MapLabel, session.EnvironmentLabel); err != nil {
+	if _, err := transaction.Exec(ctx, `INSERT INTO collaboration_hosted_sessions(session_id, document_id, created_at, visibility, title, map_label, environment_label, repository_dme_name, repository_environment_hash, repository_git_branch, repository_git_commit) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, session.SessionID, session.DocumentID, session.CreatedAt, session.Visibility, session.Title, session.MapLabel, session.EnvironmentLabel, repositoryColumns[0], repositoryColumns[1], repositoryColumns[2], repositoryColumns[3]); err != nil {
 		if postgresCode(err) == "23505" {
 			return collabstore.ErrHostedSessionExists
 		}
@@ -442,8 +444,48 @@ type hostedSessionScanner interface {
 
 func scanHostedSession(scanner hostedSessionScanner) (collabstore.HostedSession, error) {
 	var session collabstore.HostedSession
-	err := scanner.Scan(&session.SessionID, &session.DocumentID, &session.CreatedAt, &session.Visibility, &session.Title, &session.MapLabel, &session.EnvironmentLabel, &session.OwnerDisplayName)
+	var dmeName, environmentHash, gitBranch, gitCommit *string
+	err := scanner.Scan(&session.SessionID, &session.DocumentID, &session.CreatedAt, &session.Visibility, &session.Title, &session.MapLabel, &session.EnvironmentLabel, &session.OwnerDisplayName, &dmeName, &environmentHash, &gitBranch, &gitCommit)
+	if err == nil {
+		session.Repository = repositoryFromColumns(dmeName, environmentHash, gitBranch, gitCommit)
+	}
 	return session, err
+}
+
+// repositoryToColumns maps a descriptor to nullable column values. Absent
+// optional fields are NULL so that unknown stays distinct from a value.
+func repositoryToColumns(descriptor *repoinfo.Descriptor) [4]*string {
+	var columns [4]*string
+	if descriptor == nil {
+		return columns
+	}
+	optional := func(value string) *string {
+		if value == "" {
+			return nil
+		}
+		return &value
+	}
+	dmeName, environmentHash := descriptor.DMEName, descriptor.EnvironmentHash
+	return [4]*string{&dmeName, &environmentHash, optional(descriptor.GitBranch), optional(descriptor.GitCommit)}
+}
+
+// repositoryFromColumns rebuilds a descriptor, returning nil (unknown) when it
+// is absent or fails validation.
+func repositoryFromColumns(dmeName, environmentHash, gitBranch, gitCommit *string) *repoinfo.Descriptor {
+	if dmeName == nil || environmentHash == nil {
+		return nil
+	}
+	descriptor := repoinfo.Descriptor{DMEName: *dmeName, EnvironmentHash: *environmentHash}
+	if gitBranch != nil {
+		descriptor.GitBranch = *gitBranch
+	}
+	if gitCommit != nil {
+		descriptor.GitCommit = *gitCommit
+	}
+	if descriptor.Validate() != nil {
+		return nil
+	}
+	return &descriptor
 }
 
 func readHostedSessionPage(rows pgx.Rows, limit int) (collabstore.HostedSessionPage, error) {
@@ -548,6 +590,11 @@ func validateHostedSession(session collabstore.HostedSession, owner collabstore.
 	}
 	if _, err := collabstore.NormalizeHostedSessionMetadata(hostedSessionMetadata(session)); err != nil {
 		return err
+	}
+	if session.Repository != nil {
+		if err := session.Repository.Validate(); err != nil {
+			return fmt.Errorf("hosted session repository descriptor: %w", err)
+		}
 	}
 	return validateHostedMember(owner)
 }

@@ -48,6 +48,7 @@ func (*conflictPagePanelApp) DoRetryCollaborationSession()                      
 func (*conflictPagePanelApp) DoUpdateCollaborationDisplayName(string)                          {}
 func (*conflictPagePanelApp) DoCopyCollaborationInvitation(InvitationRole, string)             {}
 func (*conflictPagePanelApp) DoResolveCollaborationConflict(model.OperationID, ConflictAction) {}
+func (*conflictPagePanelApp) DoResolveAllCollaborationConflicts(BulkDraftAction, bool)         {}
 
 func TestConflictPanelNativeNavigationAndSessionReset(t *testing.T) {
 	runtime.LockOSThread()

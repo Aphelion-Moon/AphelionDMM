@@ -378,6 +378,10 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 						destination.Y = int(rotated.Y1) + int(rotated.X2) - source.Coord.X + 1
 						expected = model.CloneTileState(source.State)
 						for i := range expected.Prefabs {
+							// Areas have no facing; the fixture's turf and obj own dir.
+							if strings.HasPrefix(expected.Prefabs[i].Path, "/area/") {
+								continue
+							}
 							expected.Prefabs[i].Vars["dir"] = "1"
 						}
 					}
@@ -460,7 +464,8 @@ func TestMouseDragWithDelayedSelectionOutcome(t *testing.T) {
 				if app.commands.HasUndoV(path) || len(network.Conflicts()) != 2 || len(app.errors) != 2 {
 					t.Fatal("rejected mouse chain lost drafts or entered undo history")
 				}
-				if !errors.Is(app.errors[0], client.ErrOperationRejected) || !strings.Contains(app.errors[1].Error(), "precondition failed") {
+				if !errors.Is(app.errors[0], client.ErrOperationRejected) || !strings.Contains(app.errors[1].Error(), "depends on an edit") || errors.Unwrap(app.errors[1]) == nil || !strings.Contains(errors.Unwrap(app.errors[1]).Error(), "precondition failed") {
+						// The user sees the dependency guidance; the raw precondition cause stays reachable.
 					t.Fatalf("unexpected rejection errors: %v", app.errors)
 				}
 				conflicts := network.Conflicts()

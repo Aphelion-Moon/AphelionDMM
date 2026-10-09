@@ -16,6 +16,7 @@ import (
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap"
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmap"
+	"sdmm/internal/dmapi/dmmsave" // APHELION EDIT ADDITION - KEY_LENGTH_WARNING
 
 	"github.com/SpaiR/imgui-go"
 	"github.com/rs/zerolog/log"
@@ -45,6 +46,14 @@ type WsMap struct {
 	activeSave      *saveJob
 	pendingSaveAck  *saveAcknowledgement
 	disposed        bool
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - JOIN INTO NEW DOCUMENT
+	untitled     bool
+	pickSavePath func(startDir string) (string, error)
+	// presentKeyLengthChange is a test seam for the key length confirmation dialog.
+	presentKeyLengthChange func(change dmmsave.KeyLengthChange, answer func(bool))
+	// approvedKeyLength is the longest key length the user approved and a save wrote.
+	approvedKeyLength int
 	// APHELION EDIT ADDITION END
 }
 
@@ -138,6 +147,9 @@ func (ws *WsMap) Dispose() {
 	ws.disposed = true
 	ws.saveLifetime++
 	if ws.activeSave != nil {
+		if ws.activeSave.cancel != nil { // APHELION EDIT ADDITION - KEY_LENGTH_WARNING
+			ws.activeSave.cancel()
+		}
 		ws.completeSaveCallbacks(ws.activeSave.callbacks, false)
 		ws.activeSave = nil
 	}

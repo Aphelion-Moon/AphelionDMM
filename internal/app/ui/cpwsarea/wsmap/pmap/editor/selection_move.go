@@ -15,6 +15,9 @@ func (e *Editor) BeginSelectionMove(area util.Bounds, z int) (*editing.Move, err
 
 func (e *Editor) BeginSelectionMaskMove(selection editing.Selection) (*editing.Move, error) {
 	z := selection.Level()
+	// Capture the coherent speculative projection, including a just-submitted
+	// undo/redo inverse that the frame loop has not installed yet.
+	e.ProcessCollaborationUpdates()
 	if e.localWork != nil || e.executor == nil || e.collaborationErr != nil || e.selectionMove != nil || len(e.pendingChanges) != 0 || z != e.pMap.ActiveLevel() {
 		return nil, fmt.Errorf("finish the current edit and select the visible level before moving")
 	}

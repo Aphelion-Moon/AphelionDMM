@@ -37,6 +37,8 @@ Before authorizing production cutover:
    history. This release does not invent account links or migrate actors by name.
 3. Back up using the existing process and stage binary/configuration/database
    together. Schema 5 adds Private-default metadata; it does not publish old sessions.
+   Schema 6 adds nullable repository-descriptor columns (DME name, environment hash,
+   git branch/commit) to hosted sessions; existing sessions list as unknown.
 4. Qualify real Discord member success and nonmember denial using the configured
    application, and complete a disposable two-user Community/Private/restart pilot.
    Confirm the documented confidential-client/browser-state protection; this release
@@ -53,7 +55,7 @@ retains the stored document and edit history, but removes session membership and
 invitations. Snapshot transfers use bounded three-minute HTTP deadlines and
 negotiated gzip; ordinary control-request deadlines remain short.
 
-Rollback requires a coordinated decision: the previous binary rejects schema 5
+Rollback requires a coordinated decision: the previous binary rejects schema 6
 even though its changes are additive, and cannot authenticate Discord identities.
 Prefer forward repair once writes have advanced. Restoring a pre-cutover database
 requires explicit acceptance of losing post-backup edits; do not silently restore

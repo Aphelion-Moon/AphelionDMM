@@ -68,6 +68,9 @@ func (r *Render) ensureLevelBuildMap(dmm *dmmap.Dmm) {
 // InvalidateLevelBuilds fences old partial work after an in-place full snapshot
 // replacement, even when the Dmm pointer and dimensions remain unchanged.
 func (r *Render) InvalidateLevelBuilds(dmm *dmmap.Dmm) {
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	r.notifyTiles(0, nil)
+	// APHELION EDIT ADDITION END
 	r.releaseGeometry()
 	// APHELION EDIT ADDITION START - RETAINED SUBMISSIONS
 	r.clearRetainedScene()
@@ -238,3 +241,4 @@ func (r *Render) CancelLevelBuilds() {
 }
 
 // APHELION EDIT ADDITION END
+

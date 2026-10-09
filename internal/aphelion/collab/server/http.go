@@ -98,6 +98,8 @@ type sessionRecord struct {
 	emptyDeadline     time.Time
 	closing           bool
 	snapshotTransfers int
+	// APHELION EDIT ADDITION - REPOSITORY ALIGNMENT: in-memory, immutable, absent after restart (unknown).
+	repository *protocol.RepositoryDescriptor
 }
 
 type desktopAuthHandoff struct {
@@ -133,7 +135,6 @@ type Service struct {
 	housekeepingDone     chan struct{}
 	joinLimiter          *rateLimiter
 	durableLimiter       *rateLimiter
-	presenceLimiter      *rateLimiter
 	telemetry            *collabtelemetry.Telemetry
 	compatibility        compat.Matrix
 	server               *http.ServeMux
@@ -192,7 +193,6 @@ func NewService(config ServiceConfig) *Service {
 		limits:            limits,
 		joinLimiter:       newRateLimiter(limits.JoinRate, limits.RateEntries),
 		durableLimiter:    newRateLimiter(limits.DurableRate, limits.RateEntries),
-		presenceLimiter:   newRateLimiter(limits.PresenceRate, limits.RateEntries),
 		telemetry:         config.Telemetry,
 		compatibility:     config.Compatibility,
 		tokens:            make(map[string]tokenRecord),

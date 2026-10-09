@@ -7,6 +7,9 @@ import (
 	collabui "sdmm/internal/aphelion/collab/ui"
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/ui/cpenvironment"
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	"sdmm/internal/app/ui/cpmaplint"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/cpprefabs"
 	"sdmm/internal/app/ui/cpsearch"
 	"sdmm/internal/app/ui/cpvareditor"
@@ -24,6 +27,9 @@ type app interface {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COLLABORATION
 	collabui.PanelApp
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	cpmaplint.App
 	// APHELION EDIT ADDITION END
 	cpenvironment.App
 	cpprefabs.App
@@ -70,6 +76,9 @@ type Layout struct {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	Collaboration *collabui.Panel
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	MapLint *cpmaplint.Panel
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 	Composition       *mappingui.Hub
 	compositionClosed bool
@@ -91,6 +100,9 @@ func New(app app) *Layout {
 	// APHELION EDIT ADDITION START - COLLABORATION
 	l.Collaboration = new(collabui.Panel)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	l.MapLint = new(cpmaplint.Panel)
+	// APHELION EDIT ADDITION END
 
 	l.Environment.Init(app)
 	l.Prefabs.Init(app)
@@ -99,6 +111,9 @@ func New(app app) *Layout {
 	l.VarEditor.Init(app)
 	// APHELION EDIT ADDITION START - COLLABORATION
 	l.Collaboration.Init(app)
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	l.MapLint.Init(app)
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 	l.Composition = mappingui.NewHub(app)
@@ -117,6 +132,9 @@ func (l *Layout) Process() {
 	l.showVariablesNode()
 	// APHELION EDIT ADDITION START - COLLABORATION
 	l.showCollaborationNode()
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	l.wrapNode(lnode.NameMapLint, l.rightDownNodeId, l.MapLint)
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 	l.Composition.Advance()
 	if !l.compositionClosed {

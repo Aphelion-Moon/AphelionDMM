@@ -34,7 +34,9 @@ import (
 	"sdmm/internal/dmapi/dmenv"
 	"sdmm/internal/dmapi/dmmclip"
 	"sdmm/internal/env"
+	/* APHELION EDIT REMOVAL START - COLLABORATION
 	"sdmm/internal/util"
+	APHELION EDIT REMOVAL END */
 
 	"github.com/SpaiR/imgui-go"
 	"github.com/matishsiao/goInfo"
@@ -146,6 +148,8 @@ type app struct {
 	hostedLogin             *collabui.LoginDialog
 	collaborationController *collabui.Controller
 	collaborationEditor     *editor.Editor
+	collaborationDraftPrompt *collabui.DraftPrompt
+	collaborationDraftGate   collabui.DraftPromptGate
 	// APHELION EDIT ADDITION END
 
 	menu   *menu.Menu
@@ -172,6 +176,7 @@ func (a *app) initialize() {
 	a.collaborationController = collabui.NewController(func(ctx context.Context, snapshot model.Snapshot) (collabui.EmbeddedService, error) {
 		return collabserver.StartEmbedded(ctx, snapshot)
 	}, a.collaborationClient)
+	a.seedCollaborationCursorColor() // remembered locally; sent after each join
 	// APHELION EDIT ADDITION END
 
 	a.menu = menu.New(a)
@@ -210,6 +215,9 @@ func (a *app) Process() {
 	}
 	// APHELION EDIT ADDITION END
 
+	// APHELION EDIT ADDITION START - COLLABORATION
+	a.processCollaborationDraftPrompt()
+	// APHELION EDIT ADDITION END
 	dialog.Process()
 	// APHELION EDIT ADDITION START - OWNED MAP OPEN
 	a.showMapOpenStatus()
@@ -238,7 +246,7 @@ func (a *app) CloseCheck() {
 		guard, err := a.collaborationProjectReplacementGuard()
 		if err != nil {
 			log.Error().Err(err).Msg("unable to prepare application close")
-			util.ShowErrorDialog("Unable to close application: " + err.Error())
+			a.showCollaborationGuardError("Unable to close application: ", err, false)
 			a.closed = false
 			return
 		}

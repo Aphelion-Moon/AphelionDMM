@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 
+	collabclient "sdmm/internal/aphelion/collab/client"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/dmapi/dmmap/dmmdata"
 )
@@ -51,4 +52,40 @@ func (client *SessionClient) ExportConflict(operationID model.OperationID, path 
 		})
 	}
 	return fmt.Errorf("collaboration draft %s is unavailable", operationID)
+}
+
+// RetainedDraftIDs lists every retained draft, not just the visible page, in
+// the order the executor recorded them. Bulk actions iterate this snapshot.
+func (client *SessionClient) RetainedDraftIDs() []model.OperationID {
+	network := client.NetworkExecutor()
+	if network == nil {
+		return nil
+	}
+	conflicts := network.Conflicts()
+	ids := make([]model.OperationID, len(conflicts))
+	for index, conflict := range conflicts {
+		ids[index] = conflict.OperationID
+	}
+	return ids
+}
+
+// DraftPromptView is a per-frame check for the "Unsent collaboration changes"
+// prompt. It builds the view model without conflict previews, so it is cheap.
+func (client *SessionClient) DraftPromptView() ViewModel {
+	client.mutex.Lock()
+	machine := client.machine
+	status := SessionStatus{SessionID: client.sessionID, Role: client.role, Err: client.lastErr}
+	if client.resumptionToken != "" {
+		status.ReconnectReady = !client.reconnecting && client.config.Now().Before(client.resumptionExpiresAt)
+	}
+	network := client.network
+	client.mutex.Unlock()
+	status.State = collabclient.StateDisconnected
+	if machine != nil {
+		status.State = machine.State()
+	}
+	if network != nil {
+		status.ConflictCount = network.ConflictCount()
+	}
+	return BuildViewModel(status)
 }

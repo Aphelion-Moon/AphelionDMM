@@ -105,6 +105,9 @@ func statusToolSummary(context tools.ActionContext) string {
 	if context.Scope != "" {
 		label += " · " + context.Scope
 	}
+	if context.LintWarning != "" {
+		label += " · lint warning"
+	}
 	return label
 }
 
@@ -151,6 +154,9 @@ func toolContextTooltip(context tools.ActionContext) w.Layout {
 		}
 		if heading, message := actionContextNotice(context); heading != "" {
 			imgui.Text(heading + ": " + message)
+		}
+		if context.LintWarning != "" {
+			imgui.TextWrapped("Map lint: " + context.LintWarning)
 		}
 		if context.Cue == tools.CueHideExactType {
 			imgui.Text("Non-destructive: this hides the exact type throughout the local filter")

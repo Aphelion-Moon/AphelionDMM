@@ -124,6 +124,10 @@ paths:
       responses:
         '200':
           description: Does not include session or user data
+          headers:
+            X-Aphelion-Repository-Descriptor:
+              description: Present with value 1 when the service accepts the optional repository descriptor on session creation and returns it when a list request sets include=repository. Signalled by header so the strict JSON body stays unchanged for older clients.
+              schema: { type: string, const: '1' }
           content:
             application/json:
               schema:
@@ -174,6 +178,7 @@ paths:
         - { name: scope, in: query, required: true, schema: { type: string, enum: [community, mine] } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
         - { name: cursor, in: query, schema: { type: string, maxLength: 128 } }
+        - { name: include, in: query, description: 'Set to repository only after the capabilities response advertised X-Aphelion-Repository-Descriptor. Without it rows never contain repository, so strict older clients keep decoding.', schema: { type: string, enum: [repository] } }
       responses:
         '200':
           description: Stable ID cursor; activity is a point-in-time observation; compatibility remains unchecked
@@ -451,6 +456,18 @@ components:
         title: { type: string, maxLength: 128, description: Maximum 128 UTF-8 bytes; labels cannot contain controls or absolute paths }
         map_label: { type: string, maxLength: 128 }
         environment_label: { type: string, maxLength: 128 }
+        repository:
+          $ref: '#/components/schemas/RepositoryDescriptor'
+    RepositoryDescriptor:
+      type: object
+      additionalProperties: false
+      description: Optional, additive host repository identity. Carries no paths, remote URLs or credentials. Held in service memory only, so a restarted service lists recovered sessions without it; absence means unknown. Receivers validate again and treat failures as unknown.
+      required: [dme_name, environment_hash]
+      properties:
+        dme_name: { type: string, minLength: 5, maxLength: 128, pattern: '^[^/\\:]+\.[dD][mM][eE]$', description: DME file name only }
+        environment_hash: { $ref: '#/components/schemas/SHA256' }
+        git_branch: { type: string, minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9._/][A-Za-z0-9._/-]*$', description: Omitted for a detached HEAD or non-git checkout; requires git_commit }
+        git_commit: { type: string, pattern: '^[0-9a-f]{40}$', description: Omitted for a non-git checkout }
     HostedSessionMetadata:
       type: object
       additionalProperties: false
@@ -472,6 +489,8 @@ components:
         owner_display_name: { type: string, maxLength: 128 }
         participants: { type: integer, minimum: 0 }
         available: { type: boolean }
+        repository:
+          $ref: '#/components/schemas/RepositoryDescriptor'
     HostedAuthBegin:
       type: object
       additionalProperties: false

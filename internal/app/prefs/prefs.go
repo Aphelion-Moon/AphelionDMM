@@ -17,7 +17,21 @@ type Prefs struct {
 	Shortcuts *hotkeys.Settings
 	Mapper    *editing.MapperSettings
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	Collaboration Collaboration
+	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+
+// Collaboration holds local-only collaboration preferences.
+type Collaboration struct {
+	// CursorColor is the chosen cursor palette index, or nil for the automatic
+	// per-actor default. It is shared as ephemeral presence, never durably.
+	CursorColor *int
+}
+
+// APHELION EDIT ADDITION END
 
 type Interface struct {
 	Scale int
@@ -38,6 +52,15 @@ type Editor struct {
 	// APHELION EDIT ADDITION START - SELECTION GRID STEP
 	SelectionMoveStep int
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - AREA PRESENTATION
+	// AreaOverlayPercent is the alpha (0..100) applied to drawn areas.
+	AreaOverlayPercent int
+	// HideBaseArea hides the environment's base area from rendering.
+	HideBaseArea bool
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	Lighting Lighting
+	// APHELION EDIT ADDITION END
 }
 
 type Application struct {
@@ -47,3 +70,4 @@ type Application struct {
 	BypassEnvironmentCache bool
 	// APHELION EDIT ADDITION END
 }
+

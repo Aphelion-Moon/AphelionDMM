@@ -57,6 +57,54 @@ func Make(app App, prefs *Prefs) wsprefs.Prefs {
 				value: &prefs.Editor.SelectionMoveStep,
 			},
 			// APHELION EDIT ADDITION END
+			// APHELION EDIT ADDITION START - AREA PRESENTATION
+			intPrefPrefab{
+				name:  "Area Overlay Opacity",
+				desc:  "Opacity (percent) of areas drawn as an overlay above the map. Render-only; map data is unchanged.",
+				label: "%##area_overlay_opacity",
+				min:   0, max: 100,
+				value: &prefs.Editor.AreaOverlayPercent,
+				post:  func(int) { ApplyAreaPolicy(prefs.Editor) },
+			},
+			boolPrefPrefab{
+				name:  "Hide Base Area",
+				desc:  "Do not draw the environment's base area (world.area, or /area/space). Render-only; map data is unchanged.",
+				label: "##hide_base_area",
+				value: &prefs.Editor.HideBaseArea,
+				post:  func(bool) { ApplyAreaPolicy(prefs.Editor) },
+			},
+			// APHELION EDIT ADDITION END
+			// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+			intPrefPrefab{
+				name:  "Lighting Darkness",
+				desc:  "Strength (percent) of the lighting preview multiplied over the map. 0 shows the map unchanged; 100 matches the modelled game light. Approximate, display only.",
+				label: "%##lighting_darkness",
+				min:   0, max: 100,
+				value: &prefs.Editor.Lighting.Darkness,
+				post:  func(int) { ApplyLighting(prefs.Editor) },
+			},
+			boolPrefPrefab{
+				name:  "Lighting Starlight",
+				desc:  "Light tiles next to space with starlight (range 2, power 1, #8589fa) in the lighting preview.",
+				label: "##lighting_starlight",
+				value: &prefs.Editor.Lighting.Starlight,
+				post:  func(bool) { ApplyLighting(prefs.Editor) },
+			},
+			boolPrefPrefab{
+				name:  "Lighting Overlay Lights",
+				desc:  "Include overlay-system lights in the lighting preview. They are approximated as corner lights and are labelled approximate.",
+				label: "##lighting_overlay_lights",
+				value: &prefs.Editor.Lighting.OverlayLights,
+				post:  func(bool) { ApplyLighting(prefs.Editor) },
+			},
+			boolPrefPrefab{
+				name:  "Lighting Show Light Sources",
+				desc:  "Draw a marker, range ring and cone edges for every emitter used by the lighting preview.",
+				label: "##lighting_show_sources",
+				value: &prefs.Editor.Lighting.ShowSources,
+				post:  func(bool) { ApplyLighting(prefs.Editor) },
+			},
+			// APHELION EDIT ADDITION END
 		},
 
 		wsprefs.GPControls: {
@@ -135,3 +183,5 @@ func Make(app App, prefs *Prefs) wsprefs.Prefs {
 
 	return p
 }
+
+

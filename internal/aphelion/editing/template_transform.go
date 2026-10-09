@@ -71,9 +71,9 @@ func TransformPlacementTemplate(ctx context.Context, source []dmmap.Tile, transf
 				case PlacementRotateRight, PlacementRotateLeft:
 					prefab, err = rotatePrefab(instance.Prefab(), transform == PlacementRotateRight, lookup...)
 				case PlacementMirrorHorizontal:
-					prefab, err = mirrorPrefab(instance.Prefab(), MirrorHorizontal)
+					prefab, err = mirrorPrefab(instance.Prefab(), MirrorHorizontal, lookup...)
 				case PlacementMirrorVertical:
-					prefab, err = mirrorPrefab(instance.Prefab(), MirrorVertical)
+					prefab, err = mirrorPrefab(instance.Prefab(), MirrorVertical, lookup...)
 				}
 				if err != nil {
 					return nil, fmt.Errorf("%s: %w", instance.Prefab().Path(), err)

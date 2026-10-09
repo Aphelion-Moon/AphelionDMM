@@ -25,6 +25,7 @@ type PanelApp interface {
 	DoUpdateCollaborationDisplayName(string)
 	DoCopyCollaborationInvitation(InvitationRole, string)
 	DoResolveCollaborationConflict(model.OperationID, ConflictAction)
+	DoResolveAllCollaborationConflicts(BulkDraftAction, bool)
 }
 
 type Panel struct {
@@ -35,6 +36,8 @@ type Panel struct {
 	displayName  string
 	conflictPage int
 	sessionID    string
+	bulk         draftBulkControls
+	kept         bool
 }
 
 func (panel *Panel) Init(app PanelApp) {
@@ -65,6 +68,9 @@ func (panel *Panel) Process(int32) {
 	imgui.Text("Role: " + view.RoleLabel)
 	imgui.Text(view.RevisionLabel)
 	imgui.Text("Status: " + view.SyncLabel)
+	if view.StatusBanner != "" {
+		imgui.TextWrapped(view.StatusBanner)
+	}
 	if view.ErrorText != "" {
 		imgui.Separator()
 		imgui.TextWrapped("Error: " + view.ErrorText)
@@ -76,6 +82,7 @@ func (panel *Panel) Process(int32) {
 	w.Disabled(displayName == "", w.Button("Update Name", func() {
 		panel.app.DoUpdateCollaborationDisplayName(displayName)
 	})).Build()
+	panel.showCursorColorPicker() // APHELION EDIT ADDITION - COLLABORATION CURSOR COLOR
 
 	imgui.Separator()
 	imgui.Text("Participants")
@@ -108,6 +115,7 @@ func (panel *Panel) Process(int32) {
 		imgui.Separator()
 		imgui.Text("Conflicts")
 		imgui.TextWrapped("Inspect or export retained drafts before rebuilding or discarding them. Export saves a recovery reference; it does not apply the edit.")
+		panel.renderBulkActions(view)
 		panel.renderConflictNavigation(view)
 		for index, conflict := range view.Conflicts {
 			imgui.PushID(string(conflict.OperationID))
@@ -133,6 +141,14 @@ func (panel *Panel) Process(int32) {
 	w.Disabled(!view.CanLeave, w.Button("Leave Session", panel.app.DoLeaveCollaborationSession)).Build()
 	if len(view.Conflicts) != 0 {
 		imgui.TextWrapped("Resolve or explicitly discard retained drafts before leaving or closing the project.")
+	}
+}
+
+func (panel *Panel) renderBulkActions(view ViewModel) {
+	imgui.TextDisabled(draftCountText(view.DraftCount))
+	panel.bulk.render(panel.app, view, func() { panel.kept = true })
+	if panel.kept {
+		imgui.TextDisabled("Drafts are kept. They stay here until you resolve them.")
 	}
 }
 

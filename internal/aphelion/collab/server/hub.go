@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"sdmm/internal/aphelion/collab/model"
+	"sdmm/internal/aphelion/collab/protocol"
 	collabtelemetry "sdmm/internal/aphelion/collab/telemetry"
 )
 
@@ -162,6 +163,35 @@ func (hub *Hub) UpdateDisplayName(sessionID string, principal Principal, display
 	presence.Rename(renamed)
 	return nil
 }
+
+// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+
+// ErrInvalidCursorColor reports a palette index outside the protocol palette.
+var ErrInvalidCursorColor = errors.New("cursor color is outside the palette")
+
+// UpdateCursorColor records an ephemeral palette index for the authenticated
+// member and republishes its presence. It never touches durable state.
+func (hub *Hub) UpdateCursorColor(sessionID string, principal Principal, index int) error {
+	if !protocol.ValidCursorColor(index) {
+		return ErrInvalidCursorColor
+	}
+	hub.mutex.RLock()
+	session, exists := hub.sessions[sessionID]
+	if !exists {
+		hub.mutex.RUnlock()
+		return ErrSessionNotFound
+	}
+	member, joined := session.members[principal.ActorID()]
+	presence := session.presence
+	hub.mutex.RUnlock()
+	if !joined || member.ID() != principal.ID() {
+		return ErrNotJoined
+	}
+	presence.SetCursorColor(member, index)
+	return nil
+}
+
+// APHELION EDIT ADDITION END
 
 func (hub *Hub) Submit(ctx context.Context, sessionID string, principal Principal, operation model.Operation) (model.AcceptedOperation, error) {
 	accepted, _, err := hub.SubmitWithStatus(ctx, sessionID, principal, operation)

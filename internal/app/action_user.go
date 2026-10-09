@@ -168,7 +168,7 @@ func (a *app) DoClose() {
 		guard, err := a.collaborationProjectReplacementGuard()
 		if err != nil {
 			log.Error().Err(err).Msg("unable to prepare collaborative workspace close")
-			util.ShowErrorDialog("Unable to close workspace: " + err.Error())
+			a.showCollaborationGuardError("Unable to close workspace: ", err, false)
 			return
 		}
 		a.layout.WsArea.CloseGuarded(guard, nil)
@@ -185,7 +185,7 @@ func (a *app) DoCloseAll() {
 		guard, err := a.collaborationProjectReplacementGuard()
 		if err != nil {
 			log.Error().Err(err).Msg("unable to prepare collaborative workspace close")
-			util.ShowErrorDialog("Unable to close workspaces: " + err.Error())
+			a.showCollaborationGuardError("Unable to close workspaces: ", err, false)
 			return
 		}
 		a.layout.WsArea.CloseAllGuarded(guard, nil)
@@ -248,7 +248,9 @@ func (a *app) DoBrowseHostedSessions() {
 	if a.collaborationClient == nil || a.hostedBrowser != nil {
 		return
 	}
-	browser := &collabui.Browser{Client: a.collaborationClient, Schedule: window.RunLater, SignIn: a.DoSignInHostedCollaboration, CanJoin: a.collaborationJoinBlocker, Join: a.joinBrowsedHostedSession, Closed: func() { a.hostedBrowser = nil }}
+	// APHELION EDIT CHANGE - JOIN INTO NEW DOCUMENT - ORIGINAL: browser := &collabui.Browser{Client: a.collaborationClient, Schedule: window.RunLater, SignIn: a.DoSignInHostedCollaboration, CanJoin: a.collaborationJoinBlocker, Join: a.joinBrowsedHostedSession, Closed: func() { a.hostedBrowser = nil }}
+	browser := &collabui.Browser{Client: a.collaborationClient, Schedule: window.RunLater, SignIn: a.DoSignInHostedCollaboration, CanJoin: a.collaborationJoinBlocker, Join: a.joinBrowsedHostedSession, Closed: func() { a.hostedBrowser = nil },
+		JoinNewTab: a.joinBrowsedHostedSessionNewTab, CanJoinNewTab: a.collaborationJoinNewTabBlocker, LocalEnvironment: a.collaborationLocalInspection, CopyText: a.copyAlignmentCommands}
 	a.hostedBrowser = browser
 	dial.Open(browser)
 }
@@ -330,7 +332,8 @@ func (a *app) DoCreateHostedCollaborationSession() {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), hostedCollaborationActionTimeout)
 			defer cancel()
-			target, prepareErr := a.collaborationClient.CreateHostedWithMetadata(ctx, account, snapshot, metadata)
+			// APHELION EDIT CHANGE - REPOSITORY ALIGNMENT - ORIGINAL: target, prepareErr := a.collaborationClient.CreateHostedWithMetadata(ctx, account, snapshot, metadata)
+			target, prepareErr := a.collaborationClient.CreateHostedWithRepository(ctx, account, snapshot, metadata, hostRepositoryDescriptor(ctx, environment, snapshot.EnvironmentHash))
 			var execution executor.Executor
 			if prepareErr == nil {
 				execution, prepareErr = collabui.PrepareHostedSession(ctx, a.collaborationController, a.collaborationClient, target)
@@ -403,8 +406,10 @@ func (a *app) createLocalCollaborationSession(selectedEditor *editor.Editor, dis
 
 func (a *app) DoJoinCollaborationSession() {
 	selectedEditor := a.CurrentEditor()
-	if selectedEditor == nil {
-		util.ShowErrorDialog("Unable to join collaboration: no map is active")
+	// APHELION EDIT CHANGE - JOIN INTO NEW DOCUMENT - ORIGINAL: if selectedEditor == nil {
+	if selectedEditor == nil && !a.HasLoadedEnvironment() {
+		// APHELION EDIT CHANGE - JOIN INTO NEW DOCUMENT - ORIGINAL: util.ShowErrorDialog("Unable to join collaboration: no map is active")
+		util.ShowErrorDialog("Unable to join collaboration: load the session's environment first")
 		return
 	}
 	var encodedInvitation string
@@ -415,6 +420,23 @@ func (a *app) DoJoinCollaborationSession() {
 			w.Text("Paste the invitation shared by the session owner."),
 			w.InputTextWithHint("##collaboration-invitation", "Invitation", &encodedInvitation).Width(-1),
 			w.Button("Join Session", func() {
+				// APHELION EDIT ADDITION START - JOIN INTO NEW DOCUMENT
+				if selectedEditor == nil {
+					if reason := a.collaborationJoinNewTabBlocker(); reason != "" {
+						util.ShowErrorDialog("Unable to join collaboration: " + reason)
+						return
+					}
+					invitation, err := collabui.ParseInvitation(strings.TrimSpace(encodedInvitation))
+					encodedInvitation = ""
+					if err != nil {
+						util.ShowErrorDialog("Unable to join collaboration: " + err.Error())
+						return
+					}
+					imgui.CloseCurrentPopup()
+					go a.joinCollaborationInvitationNewDocument(invitation)
+					return
+				}
+				// APHELION EDIT ADDITION END
 				invitation, err := a.validateCollaborationInvitation(selectedEditor, encodedInvitation)
 				encodedInvitation = ""
 				if err != nil {
@@ -523,7 +545,7 @@ func (a *app) DoLeaveCollaborationSession() {
 	}
 	permit, err := a.collaborationController.BeginProjectReplacement()
 	if err != nil {
-		util.ShowErrorDialog("Unable to leave collaboration: " + err.Error())
+		a.showCollaborationGuardError("Unable to leave collaboration: ", err, true)
 		return
 	}
 	if a.collaborationEditor != nil {

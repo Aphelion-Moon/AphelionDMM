@@ -230,6 +230,102 @@ func TestDecodeClientValidatesProfileUpdate(t *testing.T) {
 	}
 }
 
+// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+func TestProfileUpdateCursorColorIsOptionalAndAdditive(t *testing.T) {
+	t.Parallel()
+	encode := func(payload string) []byte {
+		data, err := json.Marshal(ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "profile", SessionID: "session", Type: ClientProfileUpdate, Payload: json.RawMessage(payload)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	// Absence keeps the legacy shape and meaning.
+	legacy, err := DecodeClient(encode(`{"display_name":"Test Owner"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := legacy.Payload.(*ProfileUpdatePayload); got.CursorColor != nil || got.DisplayName != "Test Owner" {
+		t.Fatalf("legacy payload = %+v", got)
+	}
+	// Name and colour together, colour zero is a real value.
+	both, err := DecodeClient(encode(`{"display_name":"Test Owner","cursor_color":0}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := both.Payload.(*ProfileUpdatePayload); got.CursorColor == nil || *got.CursorColor != 0 {
+		t.Fatalf("cursor color = %v, want 0", got.CursorColor)
+	}
+	// Colour-only update.
+	only, err := DecodeClient(encode(`{"cursor_color":5}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := only.Payload.(*ProfileUpdatePayload); got.DisplayName != "" || got.CursorColor == nil || *got.CursorColor != 5 {
+		t.Fatalf("colour-only payload = %+v", got)
+	}
+	// Out-of-range indices decode so the server can answer with a bounded notice
+	// instead of closing the socket; range is enforced by ValidCursorColor.
+	if _, err := DecodeClient(encode(`{"cursor_color":999}`)); err != nil {
+		t.Fatalf("DecodeClient() rejected out-of-range colour at the codec layer: %v", err)
+	}
+	for _, invalid := range []string{`{}`, `{"display_name":"   "}`, `{"cursor_color":"red"}`} {
+		if _, err := DecodeClient(encode(invalid)); err == nil {
+			t.Fatalf("DecodeClient() accepted invalid profile update %s", invalid)
+		}
+	}
+	// Omitted when nil so legacy servers see the unchanged shape.
+	legacyJSON := string(mustMarshalPayload(t, ProfileUpdatePayload{DisplayName: "Name"}))
+	if strings.Contains(legacyJSON, "cursor_color") {
+		t.Fatalf("legacy encoding leaked cursor_color: %s", legacyJSON)
+	}
+}
+
+func TestValidCursorColor(t *testing.T) {
+	t.Parallel()
+	for index := 0; index < CursorColorPaletteSize; index++ {
+		if !ValidCursorColor(index) {
+			t.Fatalf("ValidCursorColor(%d) = false", index)
+		}
+	}
+	for _, index := range []int{-1, CursorColorPaletteSize, 1 << 30} {
+		if ValidCursorColor(index) {
+			t.Fatalf("ValidCursorColor(%d) = true", index)
+		}
+	}
+}
+
+func TestServerPresenceCursorColorFixtureAndAbsence(t *testing.T) {
+	t.Parallel()
+	for name, want := range map[string]*int{"server_presence_update.json": nil, "server_presence_update_cursor_color.json": intPointer(3)} {
+		decoded, err := DecodeServer(readFixture(t, name))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got := decoded.Payload.(*ServerPresenceUpdatePayload).CursorColor
+		if (got == nil) != (want == nil) || (got != nil && *got != *want) {
+			t.Fatalf("%s cursor color = %v, want %v", name, got, want)
+		}
+	}
+	// A newer server may use a larger palette; the codec stays lenient and
+	// desktop rendering falls back to the hash default.
+	data := strings.Replace(string(readFixture(t, "server_presence_update_cursor_color.json")), `"cursor_color":3`, `"cursor_color":99`, 1)
+	if _, err := DecodeServer([]byte(data)); err != nil {
+		t.Fatalf("DecodeServer() rejected a larger palette index: %v", err)
+	}
+	if _, err := DecodeClient(readFixture(t, "client_profile_update_cursor_color.json")); err != nil {
+		t.Fatal(err)
+	}
+	encoded := string(mustMarshalPayload(t, ParticipantPresence{ActorID: "a", DisplayName: "n", Sequence: 1, Status: "active"}))
+	if strings.Contains(encoded, "cursor_color") {
+		t.Fatalf("absent colour must be omitted: %s", encoded)
+	}
+}
+
+func intPointer(value int) *int { return &value }
+
+// APHELION EDIT ADDITION END
+
 func TestContractsDeclareEveryFixtureMessage(t *testing.T) {
 	t.Parallel()
 

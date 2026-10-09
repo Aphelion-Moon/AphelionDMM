@@ -64,7 +64,8 @@ func (e *Editor) startLocalWork(execution localEditExecutor, applyDisplay bool, 
 		if err == nil {
 			err = validateCompositionChanges(compositionLock, changes)
 		}
-		if err == nil {
+		// An empty preparation is a no-op: the engine rejects zero-change requests.
+		if err == nil && len(changes) != 0 {
 			stage := uistage.Begin(uistage.LocalApply)
 			w.accepted, err = execution.ApplyLocal(ctx, engine.LocalRequest{Version: version, Changes: changes})
 			stage.End()

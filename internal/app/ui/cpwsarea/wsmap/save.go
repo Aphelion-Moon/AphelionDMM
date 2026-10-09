@@ -46,6 +46,11 @@ type saveJob struct {
 	request   saveRequest
 	callbacks []func(bool)
 	repeat    bool
+	// APHELION EDIT ADDITION START - KEY_LENGTH_WARNING
+	cancel context.CancelFunc // Releases a worker waiting on the key length prompt.
+	// acceptedKeyLength is the length the user approved; it is written and read on the UI thread.
+	acceptedKeyLength *int
+	// APHELION EDIT ADDITION END
 }
 
 type saveWorkerResult struct {
@@ -99,6 +104,11 @@ func (ws *WsMap) saveAtPath(path string, expected diskversion.State, rebind bool
 		}
 		return true
 	}
+	// APHELION EDIT ADDITION START - JOIN INTO NEW DOCUMENT
+	if ws.untitled && !rebind {
+		return ws.chooseSaveAsThen(callback)
+	}
+	// APHELION EDIT ADDITION END
 	if ws.pendingSaveAck != nil {
 		ws.completeSaveCallbacks(ws.pendingSaveAck.callbacks, false)
 		ws.pendingSaveAck = nil
@@ -115,7 +125,16 @@ func (ws *WsMap) saveAtPath(path string, expected diskversion.State, rebind bool
 	ws.saveRequestID++
 	request.id = ws.saveRequestID
 	request.lifetime = ws.saveLifetime
-	job := &saveJob{request: request}
+	// APHELION EDIT ADDITION START - KEY_LENGTH_WARNING
+	// Only an explicit save of the existing file can re-key it; Save As writes a new file.
+	confirmContext, cancelConfirm := context.WithCancel(context.Background())
+	accepted := new(int)
+	if !rebind {
+		request.config.ConfirmKeyLengthChange = ws.keyLengthConfirmer(confirmContext, accepted)
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT CHANGE - KEY_LENGTH_WARNING - ORIGINAL: job := &saveJob{request: request}
+	job := &saveJob{request: request, cancel: cancelConfirm, acceptedKeyLength: accepted}
 	if callback != nil {
 		job.callbacks = append(job.callbacks, callback)
 	}
@@ -157,6 +176,11 @@ func (ws *WsMap) captureSaveRequest(path string, expected diskversion.State, reb
 	case prefs.SaveFormatDMM:
 		saveFormat = dmmsave.FormatDM
 	}
+	// APHELION EDIT ADDITION START - JOIN INTO NEW DOCUMENT
+	if ws.untitled && saveFormat == dmmsave.FormatInitial {
+		saveFormat = dmmsave.FormatTGM // No existing file to mirror.
+	}
+	// APHELION EDIT ADDITION END
 	return saveRequest{
 		stackID:     ws.CommandStackId(),
 		path:        path,
@@ -227,11 +251,20 @@ func (ws *WsMap) finishSave(job *saveJob, result saveWorkerResult) {
 		return
 	}
 	ws.activeSave = nil
+	if job.cancel != nil { // APHELION EDIT ADDITION - KEY_LENGTH_WARNING
+		job.cancel()
+	}
 	request := job.request
 	if ws.disposed || ws.saveLifetime != request.lifetime {
 		ws.completeSaveCallbacks(job.callbacks, false)
 		return
 	}
+	// APHELION EDIT ADDITION START - KEY_LENGTH_WARNING
+	if errors.Is(result.err, dmmsave.ErrKeyLengthChangeDeclined) {
+		ws.completeSaveCallbacks(job.callbacks, false) // The user's choice, not a failure.
+		return
+	}
+	// APHELION EDIT ADDITION END
 	if result.err != nil {
 		if result.conflictState != nil && !request.rebind {
 			ws.showDiskConflict(*result.conflictState)
@@ -263,6 +296,10 @@ func (ws *WsMap) finishSave(job *saveJob, result saveWorkerResult) {
 		}
 		source.Name = request.metadata.Name
 		source.Path = request.metadata.Path
+		ws.untitled = false // APHELION EDIT ADDITION - JOIN INTO NEW DOCUMENT
+	}
+	if job.acceptedKeyLength != nil && *job.acceptedKeyLength > ws.approvedKeyLength { // APHELION EDIT ADDITION - KEY_LENGTH_WARNING
+		ws.approvedKeyLength = *job.acceptedKeyLength
 	}
 	source.DiskState = result.diskState
 	ws.savedMapHash = result.mapHash
@@ -325,6 +362,76 @@ func (ws *WsMap) rejectSave(callback func(bool), err error) bool {
 		callback(false)
 	}
 	return false
+}
+
+// keyLengthConfirmer runs on the save worker. The worker owns an immutable
+// capture, so waiting for the answer cannot race with edits; it only holds the
+// admitted save open. The dialog is raised on the UI thread.
+func (ws *WsMap) keyLengthConfirmer(ctx context.Context, accepted *int) func(dmmsave.KeyLengthChange) bool {
+	return func(change dmmsave.KeyLengthChange) bool {
+		answer := make(chan bool, 1)
+		ws.app.RunLater(func() {
+			if ctx.Err() != nil {
+				return
+			}
+			// The save stages against the load-time backup, so a file already re-keyed
+			// by an approved save in this session would otherwise prompt again.
+			if change.Plan.Required <= ws.approvedKeyLength {
+				answer <- true
+				*accepted = change.Plan.Required
+				return
+			}
+			present := ws.presentKeyLengthChange
+			if present == nil {
+				present = presentKeyLengthDialog
+			}
+			present(change, func(confirmed bool) {
+				if confirmed {
+					*accepted = change.Plan.Required
+				}
+				select {
+				case answer <- confirmed:
+				default:
+				}
+			})
+		})
+		select {
+		case confirmed := <-answer:
+			return confirmed
+		case <-ctx.Done():
+			ws.app.RunLater(func() { dialog.Close(dialog.TypeCustom{Title: keyLengthDialogTitle(change.Path)}) })
+			return false
+		}
+	}
+}
+
+func keyLengthDialogTitle(path string) string { return "Key length will change##" + path }
+
+func keyLengthWarning(change dmmsave.KeyLengthChange) (string, string) {
+	plan := change.Plan
+	return fmt.Sprintf("Saving will change the key length from %d to %d; every tile key in %s will change (large diff).", plan.Current, plan.Required, filepath.Base(change.Path)),
+		fmt.Sprintf("Unique tile contents: %d (capacity at %d: %d)", plan.Unique, plan.Current, plan.CurrentCapacity)
+}
+
+func presentKeyLengthDialog(change dmmsave.KeyLengthChange, answer func(bool)) {
+	warning, detail := keyLengthWarning(change)
+	choose := func(confirmed bool) func() {
+		return func() {
+			imgui.CloseCurrentPopup()
+			answer(confirmed)
+		}
+	}
+	dialog.Open(dialog.TypeCustom{
+		Title: keyLengthDialogTitle(change.Path),
+		Layout: w.Layout{
+			w.Text(warning),
+			w.Text(detail),
+			w.Button("Save anyway", choose(true)),
+			w.SameLine(),
+			w.Button("Cancel", choose(false)),
+		},
+		CloseButton: false,
+	})
 }
 
 func (ws *WsMap) showDiskConflict(state diskversion.State) {
@@ -410,6 +517,9 @@ func (ws *WsMap) saveFailed(err error) {
 // HasUnsavedChanges checks authority when a close decision is made. The tab
 // label uses a cheap version check instead of hashing the map every frame.
 func (ws *WsMap) HasUnsavedChanges() bool {
+	if ws.untitled { // APHELION EDIT ADDITION - JOIN INTO NEW DOCUMENT: never saved, so closing must offer Save As.
+		return true
+	}
 	if ws.activeSave != nil || ws.pendingSaveAck != nil || ws.diskConflict || ws.app.CommandStorage().IsModified(ws.CommandStackId()) {
 		return true
 	}

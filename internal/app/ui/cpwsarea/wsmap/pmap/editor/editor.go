@@ -1,6 +1,10 @@
 package editor
 
 import (
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	"time"
+	"sdmm/internal/aphelion/maplint"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SPARSE SESSION PROJECTION
 	"sdmm/internal/aphelion/collab/client"
 	// APHELION EDIT ADDITION END
@@ -34,6 +38,10 @@ type Editor struct {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - FILTER FEEDBACK
 	visibilityError string
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	lintReport   maplint.PlacementReport
+	lintReportAt time.Time
 	// APHELION EDIT ADDITION END
 	app  app
 	pMap attachedMap
@@ -82,6 +90,7 @@ type Editor struct {
 	sessionOwned           bool
 	pendingChanges         map[model.Coord]model.TileState
 	collaborationErr       error
+	rateLimitedReported    bool
 	attachmentGeneration   uint64
 	historyGeneration      uint64 // Resumable local history; callback generation never rewinds.
 	history                command.Target

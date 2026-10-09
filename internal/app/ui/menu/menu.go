@@ -1,6 +1,12 @@
 package menu
 
 import (
+	// APHELION EDIT ADDITION START - DOCKING OVERLAY
+	"sdmm/internal/aphelion/docking"
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	"sdmm/internal/aphelion/lighting/maplight"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/aphelion/filterprofiles"
 	"sdmm/internal/app/command"
 	"sdmm/internal/app/ui/shortcut"
@@ -68,6 +74,9 @@ type app interface {
 	DoResetLayout()
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 	DoOpenCompositionInspector()
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PLACEMENT LINT
+	DoOpenMapLintPanel()
 	// APHELION EDIT ADDITION END
 
 	// Help
@@ -274,7 +283,8 @@ func (m *Menu) Process() {
 				Enabled(m.app.HasActiveMap() && m.app.HasHostedCollaborationSignIn() && !m.app.HasActiveCollaboration()),
 			w.MenuItem("Join Session", m.app.DoJoinCollaborationSession).
 				IconEmpty().
-				Enabled(m.app.HasActiveMap() && !m.app.HasActiveCollaboration()),
+				// APHELION EDIT CHANGE - JOIN INTO NEW DOCUMENT - ORIGINAL: Enabled(m.app.HasActiveMap() && !m.app.HasActiveCollaboration()),
+				Enabled(m.app.HasLoadedEnvironment() && !m.app.HasActiveCollaboration()),
 			w.MenuItem("Leave Session", m.app.DoLeaveCollaborationSession).
 				IconEmpty().
 				Enabled(m.app.HasActiveCollaboration()),
@@ -327,6 +337,16 @@ func (m *Menu) Process() {
 			w.MenuItem("Mirror Canvas Camera", m.app.DoMirrorCanvasCamera).
 				IconEmpty().
 				Selected(m.app.MirrorCanvasCamera()),
+			// APHELION EDIT ADDITION START - DOCKING OVERLAY
+			w.MenuItem("Docking Ports", func() { docking.SetEnabled(!docking.Enabled()) }).
+				IconEmpty().
+				Selected(docking.Enabled()),
+			// APHELION EDIT ADDITION END
+			// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+			w.MenuItem("Lighting Preview", func() { maplight.SetEnabled(!maplight.Current().Enabled) }).
+				IconEmpty().
+				Selected(maplight.Current().Enabled),
+			// APHELION EDIT ADDITION END
 			// APHELION EDIT ADDITION START - SHORTCUT FOCUS
 			w.Custom(func() {
 				shortcut.ProcessPopup("pmap#doToggleArea", "pmap#doToggleTurf", "pmap#doToggleObject", "pmap#doToggleMob", "menu#DoMultiZRendering")
@@ -337,6 +357,9 @@ func (m *Menu) Process() {
 		w.Menu("Window", w.Layout{
 			// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 			w.MenuItem("Composition", m.app.DoOpenCompositionInspector).IconEmpty(),
+			// APHELION EDIT ADDITION END
+			// APHELION EDIT ADDITION START - PLACEMENT LINT
+			w.MenuItem("Map Lint", m.app.DoOpenMapLintPanel).IconEmpty().Enabled(m.app.HasLoadedEnvironment()),
 			// APHELION EDIT ADDITION END
 			// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut("F5").
 			w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut(shortcut.Label("menu#DoResetLayout")).
@@ -450,3 +473,4 @@ func (m *Menu) isObjectToggled() bool {
 func (m *Menu) isMobToggled() bool {
 	return m.app.PathsFilter().IsVisiblePath("/mob")
 }
+

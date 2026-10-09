@@ -26,12 +26,18 @@ type Presence struct {
 	Selection   *protocol.PresenceSelection
 	Status      string
 	UpdatedAt   time.Time
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	CursorColor *int
+	// APHELION EDIT ADDITION END
 }
 
 type PresenceManager struct {
-	mutex       sync.Mutex
-	timeout     time.Duration
-	current     map[model.ActorID]Presence
+	mutex   sync.Mutex
+	timeout time.Duration
+	current map[model.ActorID]Presence
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	colors map[model.ActorID]int // in-memory only; cleared on Remove
+	// APHELION EDIT ADDITION END
 	subscribers map[uint64]chan Presence
 	nextID      uint64
 	telemetry   *collabtelemetry.Telemetry
@@ -48,6 +54,7 @@ func NewPresenceManagerWithTelemetry(timeout time.Duration, observability *colla
 	return &PresenceManager{
 		timeout:     timeout,
 		current:     make(map[model.ActorID]Presence),
+		colors:      make(map[model.ActorID]int),
 		subscribers: make(map[uint64]chan Presence),
 		telemetry:   observability,
 	}
@@ -85,6 +92,9 @@ func (manager *PresenceManager) updateAt(principal Principal, update PresenceUpd
 		Status:      update.Status,
 		UpdatedAt:   updatedAt,
 	}
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	value.CursorColor = manager.colorLocked(value.ActorID)
+	// APHELION EDIT ADDITION END
 	manager.current[value.ActorID] = value
 	manager.publish(value)
 	return nil
@@ -94,6 +104,9 @@ func (manager *PresenceManager) Remove(actorID model.ActorID) {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
 	delete(manager.current, actorID)
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	delete(manager.colors, actorID)
+	// APHELION EDIT ADDITION END
 }
 
 func (manager *PresenceManager) Rename(principal Principal) {
@@ -135,6 +148,7 @@ func (manager *PresenceManager) Subscribe(buffer int) ([]Presence, <-chan Presen
 	for _, presence := range manager.current {
 		presence.Cursor = cloneCoord(presence.Cursor)
 		presence.Selection = cloneSelection(presence.Selection)
+		presence.CursorColor = cloneColor(presence.CursorColor)
 		snapshot = append(snapshot, presence)
 	}
 	var once sync.Once
@@ -156,6 +170,7 @@ func (manager *PresenceManager) publish(value Presence) {
 		copy := value
 		copy.Cursor = cloneCoord(value.Cursor)
 		copy.Selection = cloneSelection(value.Selection)
+		copy.CursorColor = cloneColor(value.CursorColor)
 		select {
 		case subscriber <- copy:
 		default:
@@ -207,3 +222,39 @@ func validatePresenceSelection(selection *protocol.PresenceSelection) error {
 	}
 	return nil
 }
+
+// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+
+// SetCursorColor records the actor's palette index and republishes its current
+// presence, if any. The caller validates the index. The colour is ephemeral and
+// is never persisted or hashed.
+func (manager *PresenceManager) SetCursorColor(principal Principal, index int) {
+	manager.mutex.Lock()
+	defer manager.mutex.Unlock()
+	manager.colors[principal.ActorID()] = index
+	current, exists := manager.current[principal.ActorID()]
+	if !exists {
+		return
+	}
+	current.CursorColor = manager.colorLocked(principal.ActorID())
+	manager.current[principal.ActorID()] = current
+	manager.publish(current)
+}
+
+func (manager *PresenceManager) colorLocked(actorID model.ActorID) *int {
+	index, ok := manager.colors[actorID]
+	if !ok {
+		return nil
+	}
+	return &index
+}
+
+func cloneColor(index *int) *int {
+	if index == nil {
+		return nil
+	}
+	copy := *index
+	return &copy
+}
+
+// APHELION EDIT ADDITION END

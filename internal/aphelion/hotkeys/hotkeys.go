@@ -105,6 +105,7 @@ var labels = map[string]string{
 	"pmap#repeatTransform":           "Repeat last transform",
 	"pmap#mirrorSelectionHorizontal": "Mirror selection horizontally", "pmap#mirrorSelectionVertical": "Mirror selection vertically",
 	"pmap#doDeselectAll": "Deselect", "menu#DoOpenJumpWindow": "Go to coordinates", "menu#showHotkeys": "Keyboard shortcuts",
+	"cpenvironment#doToggleTypesFilter": "Toggle visibility of selected type",
 }
 
 func humanize(value string) string {

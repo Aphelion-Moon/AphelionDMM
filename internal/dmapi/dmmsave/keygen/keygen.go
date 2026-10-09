@@ -72,6 +72,26 @@ func num2key(num, keyLength int) dmmdata.Key {
 	return dmmdata.Key(result)
 }
 
+// APHELION EDIT ADDITION START - KEY_LENGTH_WARNING
+// MaxKeyLength is the longest key length BYOND allows.
+const MaxKeyLength = 3
+
+// Capacity reports how many distinct keys CreateKey can hand out at a key
+// length (52, 2704 and 65529 for lengths 1-3), or 0 for an unsupported length.
+func Capacity(keyLength int) int {
+	switch keyLength {
+	case 1:
+		return realTier1limit + 1
+	case 2:
+		return realTier2limit - realTier1limit
+	case 3:
+		return realTier3limit - realTier2limit
+	}
+	return 0
+}
+
+// APHELION EDIT ADDITION END
+
 type KeyGen struct {
 	data *dmmdata.DmmData
 

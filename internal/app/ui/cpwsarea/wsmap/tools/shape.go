@@ -4,6 +4,7 @@ package tools
 import (
 	"fmt"
 	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/aphelion/maplint"
 	"sdmm/internal/app/ui/cpwsarea/wsmap/pmap/overlay"
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
@@ -75,6 +76,33 @@ func showShapeSelection(selection editing.Selection) {
 func shapeBrushEnabled() bool {
 	d := currentShape()
 	return d.Kind != editing.ShapeRectangle || d.Width > 1 || d.Height > 1 || d.Outline || shapeRestricted()
+}
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT ADDITION START - PLACEMENT LINT
+// placementLinter is implemented by editors that can check placements against
+// the repository lint rules and show the transient result.
+type placementLinter interface {
+	EvaluatePlacement(util.Point, *dmmprefab.Prefab, bool) maplint.Verdict
+	RecordPlacementLint(maplint.PlacementReport)
+}
+
+// applyLintHover adds a would-be violation hint to a hover context.
+func applyLintHover(context *ActionContext, position util.Point, inBounds bool, prefab *dmmprefab.Prefab, replaceObjects bool) {
+	linter, ok := ed.(placementLinter)
+	if !ok || !inBounds || prefab == nil {
+		return
+	}
+	verdict := linter.EvaluatePlacement(position, prefab, replaceObjects)
+	if len(verdict.Violations) == 0 {
+		return
+	}
+	if verdict.Skip {
+		context.LintWarning = verdict.Summary() + " This tile already holds an identical object and will be skipped."
+	} else {
+		context.LintWarning = verdict.Summary() + " It will be placed with a warning; Replace existing is offered afterwards."
+	}
 }
 
 // APHELION EDIT ADDITION END

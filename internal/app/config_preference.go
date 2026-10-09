@@ -9,6 +9,9 @@ import (
 	// APHELION EDIT ADDITION START - SELECTION GRID STEP
 	"sdmm/internal/aphelion/editing"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	"sdmm/internal/aphelion/lighting/maplight"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/window"
 
@@ -79,6 +82,13 @@ func (a *app) loadPreferencesConfig() {
 				SaveFormat: prefs.SaveFormatInitial,
 				CodeEditor: prefs.CodeEditorVSC,
 				NudgeMode:  prefs.SaveNudgeModePixel,
+				// APHELION EDIT ADDITION START - AREA PRESENTATION
+				AreaOverlayPercent: prefs.DefaultAreaOverlayPercent,
+				HideBaseArea:       true,
+				// APHELION EDIT ADDITION END
+				// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+				Lighting: prefs.DefaultLighting(),
+				// APHELION EDIT ADDITION END
 			},
 			Application: prefs.Application{
 				CheckForUpdates: true,
@@ -99,6 +109,17 @@ func (a *app) loadPreferencesConfig() {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SELECTION GRID STEP
 	cfg.Editor.SelectionMoveStep = editing.NormalizeSelectionMoveStep(cfg.Editor.SelectionMoveStep)
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
+	normalizeCollaborationPrefs(&cfg.Collaboration)
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - AREA PRESENTATION
+	prefs.ApplyAreaPolicy(cfg.Editor)
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHTING PREVIEW
+	cfg.Editor.Lighting.Darkness = max(0, min(100, cfg.Editor.Lighting.Darkness))
+	prefs.ApplyLighting(cfg.Editor)
+	maplight.SetPersist(func(enabled bool) { cfg.Editor.Lighting.Preview = enabled })
 	// APHELION EDIT ADDITION END
 	a.validateCodeEditor(cfg)
 
@@ -188,3 +209,4 @@ func (a *app) preferencesConfig() *preferencesConfig {
 	log.Fatal().Msg("can't find project config")
 	return nil
 }
+

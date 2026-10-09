@@ -3,8 +3,11 @@ package editor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
+	"time"
 
 	"sdmm/internal/aphelion/collab/client"
 	"sdmm/internal/aphelion/collab/engine"
@@ -469,25 +472,29 @@ func (e *Editor) pushAcceptedCommand(execution executor.Executor, commitMessage 
 			complete(fmt.Errorf("editor attachment changed"))
 			return
 		}
-		e.prepareHistoryInverse(execution, forwardID, generation, func(inverse model.Operation, inverseErr error) {
-			if generation != e.historyGeneration {
-				complete(fmt.Errorf("editor attachment changed"))
-				return
-			}
-			if inverseErr != nil {
-				e.reportCollaborationError("Unable to undo map change", inverseErr)
-				complete(inverseErr)
-				return
-			}
-			e.executeHistoryOperation(execution, inverse, func(_ model.AcceptedOperation, executeErr error) {
-				if executeErr != nil {
-					e.reportCollaborationError("Unable to undo map change", executeErr)
-					complete(executeErr)
+		failUndo := func(err error) {
+			e.reportCollaborationError("Unable to undo map change", err)
+			complete(err)
+		}
+		e.beginHistoryStep(execution, generation, failUndo, func() {
+			e.prepareHistoryInverse(execution, forwardID, generation, func(inverse model.Operation, inverseErr error) {
+				if generation != e.historyGeneration {
+					complete(fmt.Errorf("editor attachment changed"))
 					return
 				}
-				e.syncFromExecutor(execution, true, activeLevel, coords)
-				selectionApplied(selectionOutcome, false)
-				complete(nil)
+				if inverseErr != nil {
+					failUndo(inverseErr)
+					return
+				}
+				e.executeHistoryOperation(execution, inverse, func(_ model.AcceptedOperation, executeErr error) {
+					if executeErr != nil {
+						failUndo(executeErr)
+						return
+					}
+					e.syncFromExecutor(execution, true, activeLevel, coords)
+					selectionApplied(selectionOutcome, false)
+					complete(nil)
+				})
 			})
 		})
 	}, func(complete func(error)) {
@@ -495,22 +502,26 @@ func (e *Editor) pushAcceptedCommand(execution executor.Executor, commitMessage 
 			complete(fmt.Errorf("editor attachment changed"))
 			return
 		}
-		redo, redoErr := e.operationForChanges(execution, acceptedChanges)
-		if redoErr != nil {
-			e.reportCollaborationError("Unable to redo map change", redoErr)
-			complete(redoErr)
-			return
+		failRedo := func(err error) {
+			e.reportCollaborationError("Unable to redo map change", err)
+			complete(err)
 		}
-		e.executeHistoryOperation(execution, redo, func(redone model.AcceptedOperation, executeErr error) {
-			if executeErr != nil {
-				e.reportCollaborationError("Unable to redo map change", executeErr)
-				complete(executeErr)
+		e.beginHistoryStep(execution, generation, failRedo, func() {
+			redo, redoErr := e.operationForChanges(execution, acceptedChanges)
+			if redoErr != nil {
+				failRedo(redoErr)
 				return
 			}
-			forwardID = redone.OperationID
-			e.syncFromExecutor(execution, true, activeLevel, coords)
-			selectionApplied(selectionOutcome, true)
-			complete(nil)
+			e.executeHistoryOperation(execution, redo, func(redone model.AcceptedOperation, executeErr error) {
+				if executeErr != nil {
+					failRedo(executeErr)
+					return
+				}
+				forwardID = redone.OperationID
+				e.syncFromExecutor(execution, true, activeLevel, coords)
+				selectionApplied(selectionOutcome, true)
+				complete(nil)
+			})
 		})
 	})) {
 		e.collaborationErr = fmt.Errorf("map command history was disposed")
@@ -518,6 +529,56 @@ func (e *Editor) pushAcceptedCommand(execution executor.Executor, commitMessage 
 	}
 }
 
+// historyWaitLimit bounds how long an undo/redo waits for earlier submissions.
+const historyWaitLimit = 30 * time.Second
+
+// historyGestureError refuses undo/redo underneath an open Grab drag or move
+// preview. Their captured "before" values would no longer match the network
+// projection once the history operation is applied.
+func (e *Editor) historyGestureError() error {
+	if e.selectionMove != nil || e.selectionMovePreview != nil {
+		return fmt.Errorf("finish or cancel the current move before using undo or redo")
+	}
+	return nil
+}
+
+// beginHistoryStep gates one undo/redo step. Inverse and redo operations are
+// derived from acknowledged history, so any still-unacknowledged submission
+// that may overlap them must settle first; otherwise the speculative projection
+// would reject the operation with a raw precondition error. The wait is
+// asynchronous: the command stack stays busy and the UI thread is not blocked.
+func (e *Editor) beginHistoryStep(execution executor.Executor, generation uint64, fail func(error), proceed func()) {
+	if err := e.historyGestureError(); err != nil {
+		fail(err)
+		return
+	}
+	pending, ok := execution.(pendingExecutor)
+	if !ok || !pending.HasUnacknowledgedOperations() {
+		proceed()
+		return
+	}
+	go func() {
+		deadline := time.Now().Add(historyWaitLimit)
+		for pending.HasUnacknowledgedOperations() && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+		e.app.RunLater(func() {
+			if generation != e.historyGeneration || execution != e.executor {
+				fail(fmt.Errorf("editor attachment changed"))
+				return
+			}
+			if pending.HasUnacknowledgedOperations() {
+				fail(fmt.Errorf("earlier edits are still awaiting acknowledgement; try again once the connection recovers"))
+				return
+			}
+			if err := e.historyGestureError(); err != nil {
+				fail(err)
+				return
+			}
+			proceed()
+		})
+	}()
+}
 func (e *Editor) executeHistoryOperation(execution executor.Executor, operation model.Operation, complete func(model.AcceptedOperation, error)) {
 	defer uistage.Begin(uistage.Dispatch).End()
 	if e.HasPastePlacement() {
@@ -689,8 +750,38 @@ func (e *Editor) ChangedSinceSave(generation uint64, revision model.Revision) bo
 		e.localWork != nil || e.selectionMove != nil || e.pasteBlocksCommittedView() || len(e.pendingChanges) != 0 || len(e.unresolvedSubmissions) != 0 || e.collaborationErr != nil
 }
 
+// dependencyError replaces the raw precondition text shown to the user while
+// keeping the original error reachable through errors.Is/As and the log.
+type dependencyError struct{ cause error }
+
+func (dependencyError) Error() string {
+	return "This change depends on an edit that was rejected or changed by someone else. Refresh the map or discard the change, then try again."
+}
+func (err dependencyError) Unwrap() error { return err.cause }
+
+// userFacingCollaborationError maps unavoidable precondition failures to a
+// clear instruction; every other error is presented unchanged.
+func userFacingCollaborationError(err error) error {
+	if err != nil && strings.Contains(err.Error(), "precondition failed") {
+		return dependencyError{cause: err}
+	}
+	return err
+}
+
 func (e *Editor) reportCollaborationError(message string, err error) {
+	// While the server is rate limiting, every refused edit shares one cause;
+	// the collaboration panel already shows it, so surface it only once.
+	if errors.Is(err, client.ErrRateLimited) {
+		if e.rateLimitedReported {
+			log.Debug().Err(err).Msg(message)
+			return
+		}
+		e.rateLimitedReported = true
+	} else {
+		e.rateLimitedReported = false
+	}
 	log.Error().Err(err).Msg(message)
+	err = userFacingCollaborationError(err)
 	// An embedding app may own error presentation. This also lets workspace
 	// verification exercise actual failure callbacks without native modal UI.
 	if reporter, ok := e.app.(interface{ ReportCollaborationError(string, error) }); ok {

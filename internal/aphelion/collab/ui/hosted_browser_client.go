@@ -68,6 +68,7 @@ func (client *SessionClient) HostedCapabilities(ctx context.Context) (protocol.H
 	client.mutex.Lock()
 	if account.Generation == client.hostedGeneration && account.Origin == client.hostedBaseURL {
 		client.hostedSnapshotGzip = false
+		client.hostedRepository = false // APHELION EDIT ADDITION - REPOSITORY ALIGNMENT
 	}
 	client.mutex.Unlock()
 	if account.Origin == "" {
@@ -100,6 +101,8 @@ func (client *SessionClient) HostedCapabilities(ctx context.Context) (protocol.H
 	client.mutex.Lock()
 	if account.Generation == client.hostedGeneration && account.Origin == client.hostedBaseURL {
 		client.hostedSnapshotGzip = err == nil && response.Header.Get("Accept-Encoding") == "gzip"
+		// APHELION EDIT ADDITION - REPOSITORY ALIGNMENT
+		client.hostedRepository = err == nil && response.Header.Get(protocol.RepositoryCapabilityHeader) == protocol.RepositoryCapabilityValue
 	}
 	client.mutex.Unlock()
 	if err == nil && !result.SessionBrowser {
@@ -194,10 +197,24 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 
 func (client *SessionClient) ListHostedSessions(ctx context.Context, scope, cursor string) (protocol.HostedSessionsPage, error) {
 	var page protocol.HostedSessionsPage
-	err := client.hostedBrowserRequest(ctx, client.HostedAccount(), "GET", "/v1/hosted/sessions", url.Values{"scope": {scope}, "cursor": {cursor}, "limit": {"50"}}, nil, &page)
+	query := url.Values{"scope": {scope}, "cursor": {cursor}, "limit": {"50"}}
+	// APHELION EDIT ADDITION START - REPOSITORY ALIGNMENT
+	if client.RepositoryDescriptorSupported() {
+		query.Set("include", protocol.IncludeRepositoryQuery)
+	}
+	// APHELION EDIT ADDITION END
+	err := client.hostedBrowserRequest(ctx, client.HostedAccount(), "GET", "/v1/hosted/sessions", query, nil, &page)
 	if err == nil && len(page.Sessions) > 100 {
 		return protocol.HostedSessionsPage{}, fmt.Errorf("session list exceeds page limit")
 	}
+	// APHELION EDIT ADDITION START - REPOSITORY ALIGNMENT
+	for i := range page.Sessions {
+		// Hostile until validated: an invalid descriptor is treated as unknown.
+		if repository := page.Sessions[i].Repository; repository != nil && repository.Validate() != nil {
+			page.Sessions[i].Repository = nil
+		}
+	}
+	// APHELION EDIT ADDITION END
 	return page, err
 }
 
@@ -222,6 +239,12 @@ func (client *SessionClient) UpdateHostedSession(ctx context.Context, account Ho
 }
 
 func (client *SessionClient) CreateHostedWithMetadata(ctx context.Context, account HostedAccount, snapshot model.Snapshot, metadata protocol.HostedSessionMetadata) (HostedConnection, error) {
+	return client.CreateHostedWithRepository(ctx, account, snapshot, metadata, nil)
+}
+
+// CreateHostedWithRepository publishes the optional repository descriptor only
+// when the service advertised support, because older services reject unknown fields.
+func (client *SessionClient) CreateHostedWithRepository(ctx context.Context, account HostedAccount, snapshot model.Snapshot, metadata protocol.HostedSessionMetadata, repository *protocol.RepositoryDescriptor) (HostedConnection, error) {
 	if !client.HostedAccountCurrent(account) {
 		return HostedConnection{}, ErrSessionChanged
 	}
@@ -241,11 +264,17 @@ func (client *SessionClient) CreateHostedWithMetadata(ctx context.Context, accou
 		Revision   model.Revision   `json:"revision"`
 		MapHash    string           `json:"map_hash"`
 	}
+	// APHELION EDIT ADDITION START - REPOSITORY ALIGNMENT
+	if repository != nil && (!client.RepositoryDescriptorSupported() || repository.Validate() != nil) {
+		repository = nil
+	}
+	// APHELION EDIT ADDITION END
 	var body any = struct {
 		Snapshot  model.Snapshot `json:"snapshot"`
 		BulkEdits bool           `json:"bulk_edits"`
 		protocol.HostedSessionMetadata
-	}{snapshot, true, metadata}
+		Repository *protocol.RepositoryDescriptor `json:"repository,omitempty"` // APHELION EDIT ADDITION - REPOSITORY ALIGNMENT
+	}{snapshot, true, metadata, repository}
 	if legacy {
 		body = map[string]any{"snapshot": snapshot, "bulk_edits": true}
 	}
@@ -257,4 +286,12 @@ func (client *SessionClient) CreateHostedWithMetadata(ctx context.Context, accou
 		return HostedConnection{}, ErrSessionChanged
 	}
 	return HostedConnection{BaseURL: account.Origin, SessionID: result.SessionID, generation: account.Generation}, nil
+}
+
+// RepositoryDescriptorSupported reports the most recent capability probe's result.
+// APHELION EDIT ADDITION - REPOSITORY ALIGNMENT
+func (client *SessionClient) RepositoryDescriptorSupported() bool {
+	client.mutex.Lock()
+	defer client.mutex.Unlock()
+	return client.hostedRepository
 }

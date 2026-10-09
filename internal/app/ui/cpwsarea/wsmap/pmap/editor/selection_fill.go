@@ -7,6 +7,7 @@ import (
 	"sdmm/internal/aphelion/collab/engine"
 	"sdmm/internal/aphelion/collab/model"
 	"sdmm/internal/aphelion/editing"
+	"sdmm/internal/aphelion/maplint"
 	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
@@ -45,6 +46,8 @@ func (e *Editor) FillSelectionWithFilter(selection editing.Selection, prefab *dm
 		label = "Replace Selection Channel"
 	}
 	base := e.authoritativeTiles
+	rules, lintFile := e.lintRules()
+	lint := &lintStats{}
 	prepare := func(ctx context.Context, reservation *resources.Reservation) ([]model.TileChange, error) {
 		bytes := uint64(1024)
 		var failure error
@@ -95,6 +98,17 @@ func (e *Editor) FillSelectionWithFilter(selection editing.Selection, prefab *dm
 				failure = err
 				return
 			}
+			if rules != nil {
+				existing := atomsWithout(after.Prefabs, placed)
+				verdict := maplint.EvaluateRules(rules, lintFile, existing, prefabStateAtom(placed))
+				if verdict.Skip {
+					lint.skip(prefabStateAtom(placed))
+					return
+				}
+				if len(verdict.Violations) != 0 {
+					lint.warn(p, prefabStateAtom(placed), verdict)
+				}
+			}
 			changes = append(changes, model.TileChange{Coord: coord, Before: before, After: after})
 		})
 		return changes, failure
@@ -104,6 +118,9 @@ func (e *Editor) FillSelectionWithFilter(selection editing.Selection, prefab *dm
 		return e.startLocalWork(local, true, 1024, prepare, func(accepted engine.LocalAcceptance, backward []model.TileChange, err error) {
 			if generation != e.attachmentGeneration || e.mapViewClosed {
 				return
+			}
+			if err == nil {
+				e.RecordPlacementLint(lint.report())
 			}
 			if err != nil {
 				if len(accepted.Changes) > 0 {
@@ -125,6 +142,10 @@ func (e *Editor) FillSelectionWithFilter(selection editing.Selection, prefab *dm
 	changes, err := prepare(context.Background(), reservation)
 	if err != nil {
 		return err
+	}
+	e.RecordPlacementLint(lint.report())
+	if len(changes) == 0 {
+		return nil
 	}
 	coords := make([]util.Point, len(changes))
 	for i, c := range changes {
