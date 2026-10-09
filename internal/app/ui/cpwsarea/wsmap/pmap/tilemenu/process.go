@@ -9,6 +9,9 @@ import (
 	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmicon"
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	"sdmm/internal/dmapi/dmmap"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
 	"sdmm/internal/dmapi/dmmap/dmminstance"
 	"sdmm/internal/imguiext/icon"
@@ -141,7 +144,15 @@ func (t *TileMenu) showInstanceControls(i *dmminstance.Instance, idx int) w.Layo
 			Shortcut("R").
 			Enabled(t.app.HasSelectedPrefab()),
 		w.MenuItem(fmt.Sprint("Reset to Default##reset_to_default_", idx), t.doResetToDefault(i)).
-			IconEmpty(),
+			// APHELION EDIT CHANGE - UNKNOWN TYPES - ORIGINAL: IconEmpty(),
+			IconEmpty().Enabled(dmmap.IsKnownType(p.Path())),
+		// APHELION EDIT ADDITION START - UNKNOWN TYPES
+		w.Custom(func() {
+			if !dmmap.IsKnownType(p.Path()) && imgui.IsItemHoveredV(imgui.HoveredFlagsAllowWhenDisabled) {
+				imgui.SetTooltip(fmt.Sprintf("Unavailable: %s is not defined by the loaded environment, so it has no defaults to reset to.", p.Path()))
+			}
+		}),
+		// APHELION EDIT ADDITION END
 		w.Separator(),
 		w.MenuItem(fmt.Sprint("Search by Type##search_by_type_", idx), t.doSearchByType(i)).
 			Icon(icon.Search),

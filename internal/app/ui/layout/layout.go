@@ -4,6 +4,9 @@ import (
 	// APHELION EDIT ADDITION START - COMPOSITION INSPECTOR
 	mappingui "sdmm/internal/aphelion/mapping/ui"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	repathui "sdmm/internal/aphelion/repath/ui"
+	// APHELION EDIT ADDITION END
 	collabui "sdmm/internal/aphelion/collab/ui"
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/ui/cpenvironment"
@@ -30,6 +33,9 @@ type app interface {
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	cpmaplint.App
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	repathui.App
 	// APHELION EDIT ADDITION END
 	cpenvironment.App
 	cpprefabs.App
@@ -83,6 +89,10 @@ type Layout struct {
 	Composition       *mappingui.Hub
 	compositionClosed bool
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	PathMigration     *repathui.Panel
+	pathMigrationOpen bool
+	// APHELION EDIT ADDITION END
 
 	tmpNextShowNode  []string
 	tmpNextFocusNode string
@@ -119,6 +129,9 @@ func New(app app) *Layout {
 	l.Composition = mappingui.NewHub(app)
 	l.WsArea.SetVisualCompanion(l.Composition)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	l.PathMigration = repathui.NewPanel(app)
+	// APHELION EDIT ADDITION END
 
 	return l
 }
@@ -141,6 +154,9 @@ func (l *Layout) Process() {
 		l.wrapNode(lnode.NameComposition, l.leftNodeId, l.Composition)
 	}
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	l.showPathMigrationNode()
 	// APHELION EDIT ADDITION END
 	l.showWorkspaceAreaNode() // The latest node will have a focus by default
 
@@ -166,6 +182,11 @@ func (l *Layout) ShowNode(nodeName string) {
 	// APHELION EDIT ADDITION START - COMPOSITION NAVIGATION
 	if nodeName == lnode.NameComposition {
 		l.compositionClosed = false
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	if nodeName == lnode.NamePathMigration {
+		l.pathMigrationOpen = true
 	}
 	// APHELION EDIT ADDITION END
 	imgui.ExtSetDockTabSelected(nodeName)
@@ -210,6 +231,26 @@ func (l *Layout) showVariablesNode() {
 
 func (l *Layout) showCollaborationNode() {
 	l.wrapNode(lnode.NameCollaboration, l.rightDownNodeId, l.Collaboration)
+}
+
+// APHELION EDIT ADDITION END
+
+// APHELION EDIT ADDITION START - PATH MIGRATION
+
+func (l *Layout) PathMigrationOpen() bool { return l.pathMigrationOpen }
+
+// The panel is closable and opens floating near the centre on first use.
+func (l *Layout) showPathMigrationNode() {
+	if !l.pathMigrationOpen {
+		l.PathMigration.Background(false)
+		return
+	}
+	viewport := imgui.MainViewport()
+	center := imgui.Vec2{X: viewport.Pos().X + viewport.Size().X/2, Y: viewport.Pos().Y + viewport.Size().Y/2}
+	imgui.SetNextWindowPosV(center, imgui.ConditionFirstUseEver, imgui.Vec2{X: 0.5, Y: 0.5})
+	imgui.SetNextWindowSizeV(imgui.Vec2{X: 900, Y: 560}, imgui.ConditionFirstUseEver)
+	l.wrapNode(lnode.NamePathMigration, l.rightDownNodeId, l.PathMigration)
+	l.PathMigration.Background(l.PathMigration.Visible())
 }
 
 // APHELION EDIT ADDITION END
@@ -300,7 +341,17 @@ func (l *Layout) processNode(id string, dockId int32, node layoutNode, cfg wrapC
 	if id == lnode.NameComposition {
 		closeButton = &opened
 	}
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	if id == lnode.NamePathMigration {
+		closeButton = &opened
+	}
+	// APHELION EDIT ADDITION END
 	visible := imgui.BeginV(id, closeButton, defaultWindowFlags)
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	if !opened && id == lnode.NamePathMigration {
+		l.pathMigrationOpen, opened = false, true
+	}
+	// APHELION EDIT ADDITION END
 	if !opened {
 		l.compositionClosed = true
 		l.ShowNode(lnode.NameEnvironment)

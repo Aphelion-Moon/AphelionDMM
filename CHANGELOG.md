@@ -1,3 +1,10 @@
+# v.a.7 — Path Migration
+
+* Add the Path Migration panel (Edit > Resolve Unknown Types...) to propose and apply undoable fixes for map types the environment no longer defines, using UpdatePaths scripts, remembered decisions, and ranked name/appearance matches.
+* Fix removed render chunk layers not being released.
+* Retain mapping authoring recovery after its source is closed.
+* Reduce copying when validating move sources and reuse scratch space when hashing map variables.
+
 # v.a.5 — Collaboration reliability and performance
 
 * Fix large collaborative area moves and independent undo/redo histories, including recovered drafts.

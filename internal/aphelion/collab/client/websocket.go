@@ -354,6 +354,14 @@ func (transport *WebSocketTransport) write(ctx context.Context, connection *webs
 	return connection.Write(writeContext, websocket.MessageText, data)
 }
 
+// BulkEditsEnabled reports whether the joined session accepts operations above
+// the legacy per-operation change limit.
+func (transport *WebSocketTransport) BulkEditsEnabled() bool {
+	transport.mutex.RLock()
+	defer transport.mutex.RUnlock()
+	return transport.bulkEnabled
+}
+
 // SendOperation preserves the legacy wire contract unless the joined session
 // explicitly requires bulk-edit-v2. Queue ownership is detached from the caller.
 func (transport *WebSocketTransport) SendOperation(ctx context.Context, sessionID string, operation model.Operation) error {

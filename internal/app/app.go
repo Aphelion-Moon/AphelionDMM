@@ -163,6 +163,9 @@ func (a *app) initialize() {
 	a.loadConfig()
 	a.loadProjectConfig()
 	a.loadPreferencesConfig()
+	// APHELION EDIT ADDITION START - PATH MIGRATION
+	a.loadPathMigrationConfig()
+	// APHELION EDIT ADDITION END
 
 	a.runBackgroundConfigSave()
 

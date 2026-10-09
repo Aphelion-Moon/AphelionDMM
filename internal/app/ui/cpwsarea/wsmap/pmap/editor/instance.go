@@ -1,6 +1,9 @@
 package editor
 
 import (
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	"fmt"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/ui/layout/lnode"
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap"
@@ -157,6 +160,14 @@ func (e *Editor) InstanceReplace(i *dmminstance.Instance, prefab *dmmprefab.Pref
 func (e *Editor) InstanceReset(i *dmminstance.Instance) {
 	// APHELION EDIT ADDITION START - PASTE PLACEMENT
 	if e.HasPastePlacement() {
+		return
+	}
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	// Unknown types have no environment defaults. Refuse before capture so the
+	// preserved instance and its explicit variables stay untouched.
+	if path := i.Prefab().Path(); !dmmap.IsKnownType(path) {
+		e.reportCollaborationError("Reset to Default refused", fmt.Errorf("%s is not defined by the loaded environment; the instance and its variables were kept", path))
 		return
 	}
 	// APHELION EDIT ADDITION END
