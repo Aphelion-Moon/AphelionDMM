@@ -18,7 +18,7 @@ Never present a lower level as a higher one. A successful focused test does not 
 
 ## Current authoritative versions
 
-- Go is selected by `go.mod` and currently declares Go 1.25.13.
+- Go is selected by `go.mod` and currently declares Go 1.26.9.
 - CI currently selects Rust 1.82 target-qualified toolchains.
 - CI currently selects golangci-lint 2.12.2.
 - The normal cross-stack build entry point is `task build` with an explicit `RUST_TARGET` matching CI.
