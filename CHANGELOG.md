@@ -1,3 +1,13 @@
+# v.a.8 — Play-test follow-up and lighting preview
+
+* Fix hosted "presence rate exceeded" disconnects (per-message reauthorization on the read loop; excess presence now dropped) and reconnect automatically while keeping unsent edits.
+* Fix undo/redo failing while a collaborative move awaits the server; refuse undo during an open drag.
+* Stop rotate/mirror from adding directions to turfs, areas and plain objects; switch directional helper types on mirror and held rotation.
+* Restore live Shift-drag pixel offset preview and modifier keys during canvas drags.
+* Add an approximate lighting preview, join-without-a-local-map with repository alignment, map-lint placement guards and Map Lint panel, docking-port overlay, collaboration cursor colours, and an unsent-changes prompt with bulk actions.
+* Add drag-and-drop opening, per-map environment resolution, a key-length save warning, always-visible type visibility toggles, and translucent area rendering.
+* Hosted PostgreSQL schema 6 (session repository descriptor).
+
 # v.a.7 — Path Migration
 
 * Add the Path Migration panel (Edit > Resolve Unknown Types...) to propose and apply undoable fixes for map types the environment no longer defines, using UpdatePaths scripts, remembered decisions, and ranked name/appearance matches.
