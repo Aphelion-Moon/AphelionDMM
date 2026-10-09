@@ -19,6 +19,9 @@ type layoutConfig struct {
 	// APHELION EDIT ADDITION START - PLAYTEST
 	PlaytestDocked bool
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	HelpersDocked bool
+	// APHELION EDIT ADDITION END
 	Version uint
 	State   uint // When different with the configState const - layout will be reset.
 }

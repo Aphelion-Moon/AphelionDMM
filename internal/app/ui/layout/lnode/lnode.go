@@ -9,6 +9,9 @@ const (
 	NameWorkspaceArea = "Workspace Area"
 	NamePrefabs       = "Prefabs"
 	NameSearch        = "Search"
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	NameHelpers = "Mapping Helpers"
+	// APHELION EDIT ADDITION END
 	NameVariables     = "Variables"
 	// APHELION EDIT ADDITION START - COLLABORATION
 	NameCollaboration = "Collaboration Session"

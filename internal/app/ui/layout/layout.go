@@ -10,6 +10,9 @@ import (
 	collabui "sdmm/internal/aphelion/collab/ui"
 	"sdmm/internal/app/config"
 	"sdmm/internal/app/ui/cpenvironment"
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	"sdmm/internal/app/ui/cphelpers"
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	"sdmm/internal/app/ui/cpmaplint"
 	// APHELION EDIT ADDITION END
@@ -44,6 +47,9 @@ type app interface {
 	repathui.App
 	// APHELION EDIT ADDITION END
 	cpenvironment.App
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	cphelpers.App
+	// APHELION EDIT ADDITION END
 	cpprefabs.App
 	cpsearch.App
 	cpwsarea.App
@@ -83,6 +89,9 @@ type Layout struct {
 	Environment *cpenvironment.Environment
 	Prefabs     *cpprefabs.Prefabs
 	Search      *cpsearch.Search
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	Helpers *cphelpers.Panel
+	// APHELION EDIT ADDITION END
 	WsArea      *cpwsarea.WsArea
 	VarEditor   *cpvareditor.VarEditor
 	// APHELION EDIT ADDITION START - COLLABORATION
@@ -114,6 +123,9 @@ func New(app app) *Layout {
 	l.Environment = new(cpenvironment.Environment)
 	l.Prefabs = new(cpprefabs.Prefabs)
 	l.Search = new(cpsearch.Search)
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	l.Helpers = new(cphelpers.Panel)
+	// APHELION EDIT ADDITION END
 	l.WsArea = new(cpwsarea.WsArea)
 	l.VarEditor = new(cpvareditor.VarEditor)
 	// APHELION EDIT ADDITION START - COLLABORATION
@@ -129,6 +141,14 @@ func New(app app) *Layout {
 	l.Environment.Init(app)
 	l.Prefabs.Init(app)
 	l.Search.Init(app)
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	l.Helpers.Init(app, func() cphelpers.Editor {
+		if e := app.CurrentEditor(); e != nil {
+			return e
+		}
+		return nil
+	})
+	// APHELION EDIT ADDITION END
 	l.WsArea.Init(app)
 	l.VarEditor.Init(app)
 	// APHELION EDIT ADDITION START - COLLABORATION
@@ -157,6 +177,9 @@ func (l *Layout) Process() {
 	l.showEnvironmentNode()
 	l.showPrefabsNode()
 	l.showSearchNode()
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	l.wrapNode(lnode.NameHelpers, l.rightUpNodeId, l.Helpers)
+	// APHELION EDIT ADDITION END
 	l.showVariablesNode()
 	// APHELION EDIT ADDITION START - COLLABORATION
 	l.showCollaborationNode()
@@ -344,6 +367,13 @@ func (l *Layout) wrapNodeV(id string, dockId int32, node layoutNode, cfg wrapCfg
 		l.config().PlaytestDocked = true
 	}
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	// Saved layouts predate the tab; join Prefabs once.
+	if id == lnode.NameHelpers && !l.config().HelpersDocked && l.rightUpNodeId != 0 {
+		imgui.SetNextWindowDockIDV(int(l.rightUpNodeId), imgui.ConditionAlways)
+		l.config().HelpersDocked = true
+	}
+	// APHELION EDIT ADDITION END
 	l.processNode(id, dockId, node, cfg)
 }
 
@@ -378,7 +408,16 @@ func (l *Layout) processNode(id string, dockId int32, node layoutNode, cfg wrapC
 		closeButton = &opened
 	}
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	tinted := pushTabHighlight(node)
+	// APHELION EDIT ADDITION END
 	visible := imgui.BeginV(id, closeButton, defaultWindowFlags)
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	imgui.PopStyleColorV(tinted)
+	if id == lnode.NamePrefabs && imgui.GetWindowDockID() != 0 {
+		l.rightUpNodeId = int32(imgui.GetWindowDockID())
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PATH MIGRATION
 	if !opened && id == lnode.NamePathMigration {
 		l.pathMigrationOpen, opened = false, true

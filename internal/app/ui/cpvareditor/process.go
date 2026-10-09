@@ -7,6 +7,10 @@ import (
 
 	"sdmm/internal/platform"
 
+	// APHELION EDIT ADDITION START - COLOR PICKER
+	"sdmm/internal/aphelion/colorvar"
+	// APHELION EDIT ADDITION END
+
 	"sdmm/internal/dmapi/dmvars"
 	"sdmm/internal/imguiext/icon"
 	"sdmm/internal/imguiext/style"
@@ -290,6 +294,12 @@ func (v *VarEditor) showVarInput(varName string) {
 		}).Tooltip(initialValue).Style(style.ButtonFrame{})
 	}
 
+	// APHELION EDIT ADDITION START - COLOR PICKER
+	if colorvar.IsColorVar(varName) {
+		v.showColorSwatch(varName, varValue)
+		imgui.SameLine()
+	}
+	// APHELION EDIT ADDITION END
 	w.InputText(fmt.Sprint("##", v.prefab.Id(), varName), &varValue).
 		Button(resetBtn).
 		Width(-1).

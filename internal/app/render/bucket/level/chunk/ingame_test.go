@@ -87,6 +87,11 @@ func TestSpawnerDrawsItsPartsAndKeepsTheSpawnerSelectable(t *testing.T) {
 	if units[0].Layer() >= units[1].Layer() {
 		t.Fatal("parts did not take their own layers (grille below window)")
 	}
+	// Retained draws are invalidated by the icon a unit draws; the spawner's
+	// own icon would leave the windows as placeholders after their DMI loads.
+	if units[0].Icon() != "g.dmi" || units[1].Icon() != "w.dmi" {
+		t.Fatalf("drawn icons = %q, %q; want the parts' icons", units[0].Icon(), units[1].Icon())
+	}
 }
 
 func TestNeighborhoodCoversEdgesWithoutDuplicates(t *testing.T) {

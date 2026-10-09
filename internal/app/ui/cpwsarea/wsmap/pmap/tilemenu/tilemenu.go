@@ -58,6 +58,9 @@ type editor interface {
 	// APHELION EDIT ADDITION START - REPLACE KEEP EDITS
 	InstanceReplaceKeepingEdits(i *dmminstance.Instance, prefab *dmmprefab.Prefab) ([]string, error)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - LIGHT SWITCH
+	InstanceSwitchLight(i *dmminstance.Instance) (bool, error)
+	// APHELION EDIT ADDITION END
 
 	UpdateCanvasByCoords([]util.Point)
 }

@@ -254,7 +254,8 @@ func (r *Render) prepareRetainedChunkLayer(c *chunk.Chunk, layer float32, key re
 					unitIDs = append(unitIDs, u.Instance().Id())
 				}
 			}
-			icon, _ := u.Instance().Prefab().Vars().Text("icon")
+			// The drawn icon: an in-game part (a spawned window) loads its own DMI.
+			icon := u.Icon()
 			dependencies.Icons[icon] = dmicon.Cache.IconRevision(icon)
 			bounds := u.ViewBounds()
 			// APHELION EDIT CHANGE - AREA PRESENTATION - ORIGINAL: u.A()

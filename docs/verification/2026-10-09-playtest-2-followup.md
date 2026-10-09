@@ -1,7 +1,7 @@
 # October 9 play-test 2 follow-up: implementation evidence
 
-Baseline `c6a6f662`. Rounds 1–4 are in `4a9a5738`; the Round 4 gate fixes
-are uncommitted. Automated evidence only;
+Baseline `c6a6f662`. Rounds 1–4 are in `4a9a5738` and `8b3d10a0`; Rounds 5
+and 6 are uncommitted. Automated evidence only;
 **nothing here has been exercised in an interactive desktop session.**
 
 | Report | Cause and change | Evidence | Open human checks |
@@ -97,6 +97,47 @@ Evidence: `ingame` tests and `chunk/ingame_test.go` (the shipped `inGameAppearan
 - Uses fixed executables from one configured BYOND folder, with no shell.
 - Evidence: `playtest` tests with `-race`, using a helper process in place of BYOND. **No real BYOND launch has been run.**
 
+## Round 5: spawner placeholders, lighting, colour picker
+
+**Window spawners drew error icons.** The retained draw cache recorded each unit's dependency as the instance's own `icon`. A spawned window's sprite comes from the window DMI, not the spawner's. When that DMI finished loading in the background, the batch was reused with its placeholder baked in. Units now carry the icon they draw (`unit.Icon()`), and the cache keys dependencies on it.
+
+- Not a rules problem: on MiniStation, KiloStation, Tram, Snowglobe, Meta, Serenity, Ouroboros, Ocean Pubby, Delta, IceBox and Blueshift, every spawner part resolves to an existing state. The only missing predicted states are the known `MAP_SWITCH` cases (mineral walls, grass, mushroom turfs, tanks), which the gate keeps as mapper icons.
+- Evidence: `chunk/ingame_test.go` (GL) asserts the parts' drawn icons. The async-load timing itself is not reproduced by a test.
+
+**Lighting.** As in game (`light.dm` `update()`), fixtures take range, power and colour from `brightness`, `bulb_power` and `bulb_colour`.
+
+- The preview now also honours `color` (it overrides the bulb colour) and `status`: broken, burned or empty fixtures are dark and listed under skipped lights.
+- Right-click → Turn Light Off / Turn Light On is one undoable edit. Ordinary lights switch with `light_on`. Fixtures switch with `status = LIGHT_EMPTY` and the `-empty` icon state, as the `/empty` subtypes do. A value equal to the type default removes the edit.
+- Offered only for lights the type has on. Real MiniStation: 539 switchable lights (331 fixtures, 208 others), each in agreement with the preview's extraction. Without that restriction, 58,156 space tiles and some guns and welders would have offered "Turn Light On".
+- Map Lint editor audit: `light_range`, `light_power`, `light_color` and `light_on` on a fixture are reported as overwritten in game. Opt-in fix "Move light edits on fixtures to bulb variables" (off by default, because it changes the in-game look): an existing bulb edit wins, and a value equal to the bulb default is dropped.
+- Evidence: `lighting/switch_test.go`, `editor/instance_light_test.go`, `tilemenu/lightswitch_test.go`, `maplint/audit_test.go`.
+
+**Colour picker.** A variable named `color`, `*_color` or `*_colour` shows a swatch beside its input, which opens a Paint-style dialog:
+
+- the 48 basic colours and 16 custom colours (recent picks, saved in the variable editor's config);
+- a hue/saturation picker with RGB, HSV and hex fields.
+
+Nothing is written until OK. A pick keeps the original value's letter case and alpha digits. Matrices and null start from white and are replaced by a pick.
+
+- Evidence: `colorvar` tests and `cpvareditor/colorpicker_test.go` (a headless imgui frame). The OK path writes through the same `setCurrentVariable` as the text input but is not driven by a test.
+
+**Play-test screenshot requests**, checked against code: utility Brush (`tools/brush.go`), disposal routing in the Brush plus the Map Lint disposal check (`editor/lint_scan.go`), Mapping Helpers menu (`tilemenu/helpers.go`), spawner rendering (above), and the Playtest panel (`cpplaytest`). The Playtest panel has still never launched a real BYOND (`ByondBin` is empty in the current preferences).
+
+## Round 6: Mapping Helpers tab
+
+Play-test result: lighting and spawner visuals confirmed fine. The tile menu's Mapping Helpers submenu did not load for a public airlock (236 helpers).
+
+- **Mapping Helpers tab** beside Prefabs and Search (also Window → Mapping Helpers). It docks with Prefabs once in existing layouts. It shows the helpers for the instance selected in Variables:
+  - helpers already on its tile, as removable chips;
+  - a search box where every word must match path, name or description;
+  - category chips with counts. A branch with at least 8 helpers gets its own chip, the rest fold into General. A public airlock shows General 14 and `airlock/access` 222.
+  - a tree with single toggles before groups. Each helper is a checkbox ticked when it is on the tile; ticking adds it and unticking removes it, as one operation. Searching opens every matching group.
+  - Family roots with members (the plain `airlock` helper) are not offered.
+- **Tab highlight:** while the selected object has helpers, the tab is tinted toward the theme accent (inactive 45%, active 22%). Colours are pushed around that window's `Begin`, which docked tabs read.
+- **Tile menu:** "Mapping Helpers (N)..." selects the object and opens the tab, replacing the nested submenu.
+- Layout follows common large-catalogue patterns: a live filter that keeps category context and opens matches, collapsible groups, chips with counts, and applied items surfaced first.
+- Evidence: `helpers/browse_test.go`, `cphelpers/panel_test.go` (a headless imgui frame, and removal through the editor), `layout/tab_highlight_test.go`. Adding through the panel reuses the earlier tile-menu code and is not driven by a test.
+
 ## Gates run (Windows)
 
 - `go build ./...`: clean.
@@ -112,3 +153,9 @@ Evidence: `ingame` tests and `chunk/ingame_test.go` (the shipped `inGameAppearan
 - Round 4, after commit `4a9a5738`:
   - `golangci-lint` on `./internal/aphelion/... ./internal/app/...`: 0 issues.
   - `APHELIONDMM_GL_TEST=1 go test ./... -count=1`: every package passed, after fixing a Brush teardown panic, a missing Brush case in a test helper, and a timing-dependent hang in the save test (it pumped a native error dialog).
+- Round 5:
+  - `go build ./...` and `go vet ./internal/aphelion/... ./internal/app/...`: clean.
+  - `golangci-lint` on `./internal/aphelion/... ./internal/app/...`: 0 issues.
+  - `APHELIONDMM_GL_TEST=1 go test ./... -count=1`: every package passed.
+  - None of the Round 5 changes have been exercised in the running desktop app.
+- Round 6: build, vet and `golangci-lint` (0 issues) are clean, and `APHELIONDMM_GL_TEST=1 go test ./... -count=1` passed for every package. The tab has not been used in the desktop app.

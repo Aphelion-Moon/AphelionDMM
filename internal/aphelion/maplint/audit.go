@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"sdmm/internal/aphelion/lighting"
 )
 
 // AuditRuleFile names audit findings in reports; it is not a repository file.
@@ -11,8 +13,8 @@ const AuditRuleFile = "editor audit"
 
 // Audit finds edits no repository rule covers but that change nothing in
 // game, which editor features such as rotation can create in bulk:
-// a variable set to its type's own default, and a dir on a sprite with a
-// single direction. It needs the environment, so it is attached to a rule set
+// a variable set to its type's own default, a dir on a sprite with a
+// single direction, and atom light variables on a light fixture. It needs the environment, so it is attached to a rule set
 // only for whole-map scans and fixes, never for placement checks.
 type Audit struct {
 	Types TypeTree
@@ -60,12 +62,36 @@ func (a *Audit) check(tile []pAtom, out *[]Violation) {
 				emit(KindInertDir, "inert dir", "dir", fmt.Sprintf("Typepath %s has a dir edit its sprite cannot show (%s has one direction): dir = %s", atom.Path, state, dir))
 			}
 		}
+		if lighting.IsFixture(atom.Path, lighting.DefaultProfiles()) {
+			for _, name := range names {
+				bulb, dead := fixtureLightVars[name]
+				if !dead || redundant[name] {
+					continue
+				}
+				instead := ""
+				if bulb != "" {
+					instead = "; set " + bulb + " instead"
+				}
+				emit(KindFixtureLight, "fixture light edit", name, fmt.Sprintf("Typepath %s sets %s, which a light fixture overwrites in game%s: %s = %s", atom.Path, name, instead, name, atom.Vars[name]))
+			}
+		}
 		for _, name := range names {
 			if redundant[name] {
 				emit(KindRedundantEdit, "redundant edit", name, fmt.Sprintf("Typepath %s has an edit equal to its default: %s = %s", atom.Path, name, atom.Vars[name]))
 			}
 		}
 	}
+}
+
+// fixtureLightVars maps the atom light variables a wall light fixture
+// overwrites in game to the bulb variable that sets the same property
+// (light.dm update(): set_light(brightness, bulb_power, bulb_colour)). light_on
+// has no counterpart: a fixture is lit while powered with a working bulb.
+var fixtureLightVars = map[string]string{
+	"light_range": "brightness",
+	"light_power": "bulb_power",
+	"light_color": "bulb_colour",
+	"light_on":    "",
 }
 
 // dirMayBeFunctional mirrors editing.DirMayBeFunctional (maplint stays free of

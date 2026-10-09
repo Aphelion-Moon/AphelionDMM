@@ -16,6 +16,11 @@ type vareditorConfig struct {
 	ShowTmp      bool
 
 	PinnedVarNames []string
+
+	// APHELION EDIT ADDITION START - COLOR PICKER
+	// RecentColors are the picker's "Custom colors", newest first.
+	RecentColors []string
+	// APHELION EDIT ADDITION END
 }
 
 func (vareditorConfig) Name() string {

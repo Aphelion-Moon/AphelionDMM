@@ -107,7 +107,7 @@ func (c *Classifier) classify(p *dmmprefab.Prefab) *atomInfo {
 		}
 	case ex.Unparsable:
 		info.skips = append(info.skips, skipKey{Path: path, Reason: ex.Reason, Unparsable: true})
-	case ex.Reason == reasonLightOff:
+	case ex.Reason == reasonLightOff, ex.Reason == lighting.ReasonNoBulb:
 		// A configured light that is switched off is worth listing. Atoms with
 		// no light at all are the common case and are not reported.
 		info.skips = append(info.skips, skipKey{Path: path, Reason: ex.Reason})

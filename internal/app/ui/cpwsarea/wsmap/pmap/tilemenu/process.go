@@ -146,6 +146,9 @@ func (t *TileMenu) showInstanceControls(i *dmminstance.Instance, idx int) w.Layo
 		// APHELION EDIT ADDITION START - MAPPING HELPER FINDER
 		w.Custom(func() { t.showMappingHelpers(i, idx) }),
 		// APHELION EDIT ADDITION END
+		// APHELION EDIT ADDITION START - LIGHT SWITCH
+		w.Custom(func() { t.showLightSwitch(i, idx) }),
+		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - REPLACE KEEP EDITS
 		w.MenuItem(fmt.Sprint("Replace, Keep Edits##replace_keep_", idx), t.doReplaceKeepingEdits(i)).
 			IconEmpty().

@@ -687,6 +687,13 @@ func (a *app) DoSaveAs() {
 // DoOpenPlaytestPanel shows the Playtest panel.
 func (a *app) DoOpenPlaytestPanel() { a.ShowLayout(lnode.NamePlaytest, true) }
 
+// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+
+// DoOpenHelpersPanel shows the Mapping Helpers tab.
+func (a *app) DoOpenHelpersPanel() { a.ShowLayout(lnode.NameHelpers, true) }
+
+// APHELION EDIT ADDITION END
+
 // PlaytestMap is the active map's file and whether it has unsaved edits.
 func (a *app) PlaytestMap() (string, bool, bool) {
 	ws, ok := a.activeWsMap()

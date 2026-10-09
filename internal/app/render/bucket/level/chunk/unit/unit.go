@@ -17,11 +17,23 @@ type Unit struct {
 	viewBounds util.Bounds
 
 	r, g, b, a float32
+
+	// APHELION EDIT ADDITION START - IN-GAME LOOK
+	icon string // the DMI the sprite comes from, which may not be the instance's
+	// APHELION EDIT ADDITION END
 }
 
 func (u Unit) Sprite() *dmicon.Sprite {
 	return u.sprite
 }
+
+// APHELION EDIT ADDITION START - IN-GAME LOOK
+
+// Icon is the DMI this unit draws from: the instance's icon, or the icon of
+// an in-game part such as a spawned window.
+func (u Unit) Icon() string { return u.icon }
+
+// APHELION EDIT ADDITION END
 
 func (u Unit) Instance() *dmminstance.Instance {
 	return u.instance
@@ -104,7 +116,8 @@ func MakePart(x, y int, i *dmminstance.Instance, part *dmmprefab.Prefab, iconSiz
 		// APHELION EDIT CHANGE - IN-GAME LOOK - ORIGINAL: sp, i, countLayer(i.Prefab()),
 		sp, i, countLayer(part),
 		util.Bounds{X1: x1, Y1: y1, X2: x2, Y2: y2},
-		r, g, b, a,
+		// APHELION EDIT CHANGE - IN-GAME LOOK - ORIGINAL: r, g, b, a,
+		r, g, b, a, icon,
 	}
 }
 

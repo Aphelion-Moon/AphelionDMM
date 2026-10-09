@@ -25,6 +25,7 @@ const (
 	KindBannedVariable
 	KindInertDir      // audit: dir on a single-direction sprite
 	KindRedundantEdit // audit: an edit equal to the type default
+	KindFixtureLight  // audit: a light var a light fixture overwrites
 )
 
 func (k Kind) String() string {
@@ -43,6 +44,8 @@ func (k Kind) String() string {
 		return "inert_dir"
 	case KindRedundantEdit:
 		return "redundant_edit"
+	case KindFixtureLight:
+		return "fixture_light"
 	}
 	return "unknown"
 }

@@ -50,3 +50,41 @@ func TestAuditFixesStripOnlyTheInertEdits(t *testing.T) {
 		t.Fatal("disabled audit kinds still changed the tile")
 	}
 }
+
+// Fixtures take their light from the bulb variables; update() overwrites
+// light_range, light_power and light_color, and light_on never applies.
+func TestAuditFlagsFixtureLightEditsAndMovesThemToBulbVars(t *testing.T) {
+	rs, audit := auditFixture(t)
+	audit.Types.(fakeTypes)["/obj/machinery/light"] = map[string]string{"brightness": "7.5", "bulb_power": "0.9", "bulb_colour": `"#FFF6ED"`}
+	audit.Types.(fakeTypes)["/obj/machinery/light_switch"] = map[string]string{}
+	tile := []Atom{
+		atom("/obj/machinery/light", "light_color", `"#d1dfff"`, "light_power", "0.9", "light_on", "0"),
+		atom("/obj/machinery/light_switch", "light_color", `"#ff0000"`),
+	}
+	got := rs.WithAudit(audit).CheckTile(tile)
+	expectMsgs(t, got,
+		"Typepath /obj/machinery/light sets light_color, which a light fixture overwrites in game; set bulb_colour instead: light_color = \"#d1dfff\"",
+		"Typepath /obj/machinery/light sets light_on, which a light fixture overwrites in game: light_on = 0",
+		"Typepath /obj/machinery/light sets light_power, which a light fixture overwrites in game; set bulb_power instead: light_power = 0.9",
+	)
+	for _, v := range got {
+		if v.Kind != KindFixtureLight {
+			t.Fatalf("kind = %v", v.Kind)
+		}
+	}
+	if DefaultFixes.Has(FixMoveFixtureLight) {
+		t.Fatal("moving fixture light edits changes the in-game look; it must be opt-in")
+	}
+	if none := rs.WithAudit(audit).FixTile("", tile, audit.Types, DefaultFixes); none.Changed() {
+		t.Fatalf("default fixes changed fixture light edits: %v", fixPaths(none.Atoms))
+	}
+	// light_power 0.9 equals the bulb_power default, so it is dropped rather
+	// than restated; light_on has no bulb counterpart.
+	fixed := rs.WithAudit(audit).FixTile("", tile, audit.Types, DefaultFixes.With(FixMoveFixtureLight))
+	expectFix(t, fixed, []string{`/obj/machinery/light{bulb_colour="#d1dfff"}`, `/obj/machinery/light_switch{light_color="#ff0000"}`},
+		FixMoveFixtureLight, FixMoveFixtureLight, FixMoveFixtureLight)
+
+	// An existing bulb edit wins; the dead edit is only removed.
+	kept := rs.WithAudit(audit).FixTile("", []Atom{atom("/obj/machinery/light", "light_color", `"#d1dfff"`, "bulb_colour", `"#00ff00"`)}, audit.Types, DefaultFixes.With(FixMoveFixtureLight))
+	expectFix(t, kept, []string{`/obj/machinery/light{bulb_colour="#00ff00"}`}, FixMoveFixtureLight)
+}

@@ -626,6 +626,9 @@ func (a *app) freeEnvironmentResources() {
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	maplint.Active().Reset()
 	a.layout.MapLint.Free()
+	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+	a.layout.Helpers.Free()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SPRITE DIRECTIONS
 	spritedirs.Activate(nil)

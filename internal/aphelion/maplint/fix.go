@@ -33,12 +33,16 @@ const (
 	FixStripRedundant
 	// FixStripInertDir deletes a dir edit on a single-direction sprite (audit).
 	FixStripInertDir
+	// FixMoveFixtureLight moves light_range, light_power and light_color on a
+	// light fixture to brightness, bulb_power and bulb_colour, and removes
+	// light_on. It is opt-in: the fixture then looks as the edit intended.
+	FixMoveFixtureLight
 
 	fixKindCount
 )
 
 // FixKindList is every kind in presentation order.
-var FixKindList = []FixKind{FixRemoveDuplicate, FixRemoveSuperseded, FixPromoteSubtype, FixCapitalizeText, FixStripVariables, FixStripRedundant, FixStripInertDir, FixRemoveBanned, FixStripPositional}
+var FixKindList = []FixKind{FixRemoveDuplicate, FixRemoveSuperseded, FixPromoteSubtype, FixCapitalizeText, FixStripVariables, FixStripRedundant, FixStripInertDir, FixRemoveBanned, FixStripPositional, FixMoveFixtureLight}
 
 func (k FixKind) String() string {
 	switch k {
@@ -60,6 +64,8 @@ func (k FixKind) String() string {
 		return "Strip edits equal to the default"
 	case FixStripInertDir:
 		return "Strip dir on single-direction sprites"
+	case FixMoveFixtureLight:
+		return "Move light edits on fixtures to bulb variables"
 	}
 	return ""
 }
@@ -85,6 +91,8 @@ func (k FixKind) Description() string {
 		return "Deletes variable edits whose value is already the type's default. Nothing changes in game; the map file gets smaller."
 	case FixStripInertDir:
 		return "Deletes dir edits on atoms whose icon state has one direction, such as walls and plain floors after a rotation. The sprite cannot show a facing."
+	case FixMoveFixtureLight:
+		return "Light fixtures overwrite light_range, light_power and light_color in game with brightness, bulb_power and bulb_colour. This moves each edit to its bulb variable (an existing bulb edit wins) and removes light_on, which fixtures ignore. The fixture then shows the colour or power the edit asked for; review the result."
 	}
 	return ""
 }
@@ -95,8 +103,8 @@ type FixKinds uint32
 // AllFixes enables every kind.
 const AllFixes FixKinds = 1<<fixKindCount - 1
 
-// DefaultFixes leaves out the kinds that can change how the map looks.
-const DefaultFixes = AllFixes &^ (1 << FixStripPositional)
+// DefaultFixes leaves out the kinds that can change how the map looks in game.
+const DefaultFixes = AllFixes &^ (1 << FixStripPositional) &^ (1 << FixMoveFixtureLight)
 
 func (s FixKinds) Has(k FixKind) bool         { return s&(1<<k) != 0 }
 func (s FixKinds) With(k FixKind) FixKinds    { return s | 1<<k }
@@ -273,6 +281,29 @@ func candidatesFor(v Violation, cur tileState, types TypeTree, kinds FixKinds) [
 		vars := maps.Clone(a.Vars)
 		delete(vars, v.Variable)
 		out = append(out, collapse(cur, subject, Atom{Path: a.Path, Vars: nilIfEmpty(vars)}, kinds, fix(kind, "Removed "+describeEdits(a, []string{v.Variable})+" from "+a.Path)))
+	case KindFixtureLight:
+		a := cur.atoms[subject]
+		value, ok := a.Vars[v.Variable]
+		if !kinds.Has(FixMoveFixtureLight) || !ok {
+			return nil
+		}
+		vars := maps.Clone(a.Vars)
+		delete(vars, v.Variable)
+		detail := "Removed " + describeEdits(a, []string{v.Variable}) + " from " + a.Path
+		if bulb := fixtureLightVars[v.Variable]; bulb != "" {
+			_, edited := vars[bulb]
+			initial, declared := "", false
+			if types != nil {
+				initial, declared = types.Value(a.Path, bulb)
+			}
+			// An existing bulb edit wins; a value equal to the bulb default is
+			// dropped rather than restated as a redundant edit.
+			if redundant := declared && sameValue(initial, value); !edited && !redundant {
+				vars[bulb] = value
+				detail = fmt.Sprintf("Moved %s = %s to %s on %s", v.Variable, value, bulb, a.Path)
+			}
+		}
+		out = append(out, collapse(cur, subject, Atom{Path: a.Path, Vars: nilIfEmpty(vars)}, kinds, fix(FixMoveFixtureLight, detail)))
 	case KindBanned:
 		if kinds.Has(FixRemoveBanned) && removable(cur.atoms[subject].Path) {
 			out = append(out, candidate{cur.without(subject), []Fix{fix(FixRemoveBanned, "Removed banned "+cur.atoms[subject].Path)}})

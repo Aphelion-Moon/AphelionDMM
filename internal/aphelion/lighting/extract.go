@@ -51,20 +51,53 @@ type Profile struct {
 	// emitter by ShiftTiles along dir (light.dm:114,166-170).
 	FacingFromDir bool
 	ShiftTiles    float64
+	// OverrideColorVar, when set and not null, replaces the colour
+	// (light.dm update(): if(color) color_set = color).
+	OverrideColorVar string
+	// StatusVar holds the bulb state; the fixture is dark unless it equals
+	// StatusOK (LIGHT_OK, __DEFINES/lights.dm:4-7). StatusOff is what
+	// LightSwitch writes to turn it off (LIGHT_EMPTY), and BaseStateVar names
+	// the icon_state base whose "-empty" state shows the empty fitting.
+	StatusVar    string
+	StatusOK     int
+	StatusOff    int
+	BaseStateVar string
 }
 
 // DefaultProfiles returns the built-in profiles: /obj/machinery/light
-// (light.dm:14,24-28,114,166-170; LIGHT_COLOR_DEFAULT colors.dm:254).
+// (light.dm:14,24-28,114,166-170,241-250; LIGHT_COLOR_DEFAULT colors.dm:254).
+// light_range, light_power and light_color on a fixture are overwritten by
+// update() in game, so they are not read here.
 func DefaultProfiles() []Profile {
 	return []Profile{{
 		PathPrefix: "/obj/machinery/light",
 		RangeVar:   "brightness", RangeDefault: 8,
 		PowerVar: "bulb_power", PowerDefault: 1,
 		ColorVar: "bulb_colour", ColorDefault: `"#f3fffa"`,
-		AngleDefault:  170,
-		FacingFromDir: true,
-		ShiftTiles:    0.5,
+		AngleDefault:     170,
+		FacingFromDir:    true,
+		ShiftTiles:       0.5,
+		OverrideColorVar: "color",
+		StatusVar:        "status", StatusOK: 0, StatusOff: 1,
+		BaseStateVar: "base_state",
 	}}
+}
+
+// ReasonNoBulb is the skip reason of a fixture whose status is not LIGHT_OK.
+const ReasonNoBulb = "fixture has no working bulb (status)"
+
+// IsFixture reports whether path is configured by a profile (a wall light).
+func IsFixture(path string, profiles []Profile) bool {
+	return profileFor(path, profiles) != nil
+}
+
+func profileFor(path string, profiles []Profile) *Profile {
+	for i := range profiles {
+		if pathHasPrefix(path, profiles[i].PathPrefix) {
+			return &profiles[i]
+		}
+	}
+	return nil
 }
 
 func pathHasPrefix(path, prefix string) bool {
@@ -79,13 +112,7 @@ func ExtractSource(a Atom, profiles []Profile) Extraction {
 	if get == nil {
 		get = func(string) (string, bool) { return "", false }
 	}
-	var prof *Profile
-	for i := range profiles {
-		if pathHasPrefix(a.Path, profiles[i].PathPrefix) {
-			prof = &profiles[i]
-			break
-		}
-	}
+	prof := profileFor(a.Path, profiles)
 	skip := func(format string, args ...any) Extraction {
 		return Extraction{Reason: fmt.Sprintf(format, args...)}
 	}
@@ -139,10 +166,24 @@ func ExtractSource(a Atom, profiles []Profile) Extraction {
 			return skip("light_on is false")
 		}
 	}
+	if prof != nil && prof.StatusVar != "" {
+		status, e := numVar(get, prof.StatusVar, float64(prof.StatusOK))
+		if e != "" {
+			return bad("%s", e)
+		}
+		if int(status) != prof.StatusOK {
+			return skip("%s", ReasonNoBulb)
+		}
+	}
 
 	rawColor, ok := get(colorVar)
 	if !ok || isNull(rawColor) {
 		rawColor = colorDef
+	}
+	if prof != nil && prof.OverrideColorVar != "" {
+		if override, ok := get(prof.OverrideColorVar); ok && !isNull(override) {
+			rawColor, colorVar = override, prof.OverrideColorVar
+		}
 	}
 	col, ok := ParseColor(rawColor)
 	if !ok {

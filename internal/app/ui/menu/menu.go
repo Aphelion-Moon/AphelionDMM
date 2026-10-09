@@ -87,6 +87,7 @@ type app interface {
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	DoOpenMapLintPanel()
 	DoOpenPlaytestPanel() // APHELION EDIT ADDITION - PLAYTEST
+	DoOpenHelpersPanel()  // APHELION EDIT ADDITION - MAPPING HELPER PANEL
 	// APHELION EDIT ADDITION END
 
 	// Help
@@ -391,6 +392,9 @@ func (m *Menu) Process() {
 			w.MenuItem("Map Lint", m.app.DoOpenMapLintPanel).IconEmpty().Enabled(m.app.HasLoadedEnvironment()),
 			// APHELION EDIT ADDITION START - PLAYTEST
 			w.MenuItem("Playtest", m.app.DoOpenPlaytestPanel).IconEmpty().Enabled(m.app.HasLoadedEnvironment()),
+			// APHELION EDIT ADDITION END
+			// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
+			w.MenuItem("Mapping Helpers", m.app.DoOpenHelpersPanel).IconEmpty().Enabled(m.app.HasLoadedEnvironment()),
 			// APHELION EDIT ADDITION END
 			// APHELION EDIT ADDITION END
 			// APHELION EDIT CHANGE - EDITABLE SHORTCUTS - ORIGINAL: w.MenuItem("Reset Layout", m.app.DoResetLayout).Shortcut("F5").

@@ -66,6 +66,10 @@ type VarEditor struct {
 
 	filterVarName  string
 	filterTypeName string
+
+	// APHELION EDIT ADDITION START - COLOR PICKER
+	colorPick colorPick
+	// APHELION EDIT ADDITION END
 }
 
 func (v *VarEditor) Init(app App) {
