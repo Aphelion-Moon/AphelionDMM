@@ -1,0 +1,1 @@
+{"protocol_version":1,"message_id":"join-v1","session_id":"session-v1","type":"join","payload":{"join_token":"fixture-token","acknowledged_revision":0}}

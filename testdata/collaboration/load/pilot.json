@@ -1,0 +1,1 @@
+{"seed":20260825,"clients":25,"operations":250,"presence_per_client":20,"max_x":10,"max_y":10,"target_operations_per_second":10,"target_presence_per_second_per_editor":20,"maximum_p95_acknowledgement_ms":250}

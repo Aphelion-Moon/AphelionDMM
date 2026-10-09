@@ -1,0 +1,12 @@
+{
+  "seed": 20260906,
+  "clients": 4,
+  "operations": 40,
+  "conflict_pairs": 8,
+  "presence_per_client": 10,
+  "max_x": 8,
+  "max_y": 4,
+  "target_operations_per_second": 80,
+  "target_presence_per_second_per_editor": 20,
+  "maximum_p95_acknowledgement_ms": 250
+}
