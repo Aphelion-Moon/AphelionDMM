@@ -1,3 +1,13 @@
+# v.a.9 — Mapping aids and the Meridian theme
+
+* Add an in-game look for smoothing, cables, smart pipes and window spawners (View > In-Game Look, Ctrl+I).
+* Add the utility Brush tool (key 8), with an optional disposal route.
+* Add Map Lint auto-fixes and editor audits (redundant edits, inert dir, disposal networks, fixture light edits).
+* Add the Mapping Helpers tab with search, categories and add/remove checkboxes; the tab is tinted when the selected object has helpers.
+* Add the Playtest panel, Turn Light Off/On, a colour picker for colour variables, Save As, a map tab context menu and Replace, Keep Edits.
+* Add the Meridian theme (default, with Classic and Compact Layout options), IBM Plex Mono for paths and values, a segmented status bar and one-line prefab rows.
+* Fix the lighting overlay position, spawner error icons, Map Lint docking, changelog heading spacing and Mapping Helpers groups not opening.
+
 # v.a.8 — Play-test follow-up and lighting preview
 
 * Fix hosted "presence rate exceeded" disconnects (per-message reauthorization on the read loop; excess presence now dropped) and reconnect automatically while keeping unsent edits.

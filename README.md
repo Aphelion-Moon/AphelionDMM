@@ -26,7 +26,7 @@ StrongDMM supplies the basic editor functions. These include environment browsin
 
 AphelionDMM keeps these functions. The table shows the added functions and changes.
 
-<!-- Comparison reviewed on 2026-09-25 against AphelionDMM main at 1b8acb0e6370bf6ca137c5b6138fc9c3a6095736 and the then-current StrongDMM main source. Recheck both branches before revising availability claims. -->
+<!-- Comparison reviewed on 2026-09-25 against AphelionDMM main at 1b8acb0e6370bf6ca137c5b6138fc9c3a6095736 and the then-current StrongDMM main source. Map preview and mapping-aid rows added on 2026-10-09 against AphelionDMM main at 6288ea852e39cbd405b7141efd2443d0e480d563. Recheck both branches before revising availability claims. -->
 
 | Function | StrongDMM | AphelionDMM additions |
 | --- | --- | --- |
@@ -35,7 +35,9 @@ AphelionDMM keeps these functions. The table shows the added functions and chang
 | **Selections** | Rectangle selections, selection movement, and clipboard operations. | Area-based selections with exact tile masks. Controls for 90-degree rotation, horizontal and vertical mirrors, movement by whole tiles, and repeat transforms. |
 | **Reusable content** | Copy and paste between maps. | Named stamps in `.admmstamp` files. Environment checks and a preview before placement. |
 | **Paste controls** | Clipboard placement with the Grab tool. | Three paste modes and separate controls for areas, turfs, objects, and mobs. Placement previews remain separate from committed map contents. |
-| **Keyboard controls** | Tool shortcuts and quick-edit controls. | A hotkey reference and configurable shortcuts. Number keys select all seven tools. Controls rotate an object before placement or during movement. |
+| **Keyboard controls** | Tool shortcuts and quick-edit controls. | A hotkey reference and configurable shortcuts. Number keys select all eight tools, including the Brush. Controls rotate an object before placement or during movement. |
+| **Map preview** | Mapper icons. | An in-game look for smoothed walls and windows, cables, pipes, and window spawners. An approximate lighting preview. Both are display only. |
+| **Mapping aids** | Map search and the variable editor. | A utility Brush, Map Lint with auto-fixes, a Mapping Helpers tab, a light switch, a colour picker, and a Playtest panel. |
 | **Saving and recovery** | DMM/TGM serialization and map saving. | Background save tasks, round-trip validation, atomic file replacement, and checks for external file changes. Recovery views permit inspection and export of affected edits. |
 | **Large maps** | Desktop renderer, map search, and editor tools. | Background tasks prepare large local operations. Loading and search use small steps. Renderer updates use affected chunks. Move and paste operations have separate previews. |
 
@@ -97,6 +99,51 @@ The **Areas**, **Turfs**, **Objects**, and **Mobs** controls apply separately. G
 Before you place the content, you can move, rotate, or mirror the preview. The preview is not a committed map edit. Saved maps do not include the preview.
 
 To apply the placement, press **Enter** or select **Place**. To cancel a placement before submission, press **Esc** or select **Cancel**.
+
+## Mapping aids
+
+### See the map as it looks in game
+
+Select **View → In-Game Look** or press **Ctrl+I**. Walls, windows, tables, and carpets smooth with their neighbours. Cables and smart pipes connect. Window spawners show the grille and window that they create.
+
+Select **View → Lighting Preview** or press **Ctrl+L** for an approximate light map. It uses light range, power, and colour. Wall light fixtures use their bulb settings, as in game.
+
+These views do not change the map. Atoms that the editor cannot predict keep their mapper icons.
+
+### Lay utilities with the Brush
+
+Press **8** to select the **Brush**. Drag along a route. The Brush lays a supply pipe, a scrubber pipe, and a cable by default. It can also lay a disposal pipe. Change the bundle under **Options**. Drag back to shorten the route. The complete run is one edit.
+
+### Check and fix a map with Map Lint
+
+Open **Window → Map Lint**. The panel uses the codebase's own `tools/maplint` rules. It scans the open map and lists each violation.
+
+Select the fix kinds, then select **Apply**. The fixes are one undoable edit. The editor never removes turfs or areas. Fixes that can change the in-game look are off by default.
+
+The scan also reports edits that have no effect. Examples are a value equal to the type default, and `light_color` on a wall light fixture. Fixtures ignore `light_color` in game.
+
+### Find mapping helpers
+
+Select an object on the map. Open the **Mapping Helpers** tab beside **Prefabs**. The tab shows the helpers that act on the object. The editor reads this information from the helpers' own code. The tab is tinted while the selected object has helpers.
+
+Search by words in any order, for example `engineering any`. Select a category, or expand the groups. Select a checkbox to add a helper to the tile. Clear the checkbox to remove the helper. You can also right-click an object and select **Mapping Helpers…**.
+
+### Other aids
+
+- **Turn a light off or on:** right-click a light, then select **Turn Light Off** or **Turn Light On**. The editor writes an edit that the game uses.
+- **Pick a colour:** colour variables in **Variables** show a swatch. Select the swatch to open a colour dialog.
+- **Replace and keep edits:** right-click an instance, then select **Replace, Keep Edits**.
+- **Playtest:** open **Window → Playtest** and set your BYOND folder. The panel compiles the code if necessary, starts a local server on the saved map, and connects the client.
+
+## Interface
+
+The default **Meridian** theme takes its colours from the Meridian Rift website. Text contrast meets accessibility (WCAG) levels. Type paths, variable values, and coordinates use **IBM Plex Mono**.
+
+Under **File → Preferences → Interface**:
+
+- **Theme** selects **Meridian** or **Classic**. Classic is the original StrongDMM look.
+- **Compact Layout** reduces the spacing.
+- **Scale** changes the size of text and spacing.
 
 ## Collaboration
 
@@ -209,13 +256,14 @@ The [v.a.2 release](docs/releases/v.a.2.md) requires manual updates. Its release
 | --- | --- |
 | Move the map view | Drag with the middle mouse button, hold Space and drag, or use the arrow keys. |
 | Change the zoom | Use the mouse wheel or `+` / `-`. |
-| Select Add / Fill / Grab / Move / Pick / Delete / Replace | Press `1` / `2` / `3` / `4` / `5` / `6` / `7`. |
+| Select Add / Fill / Grab / Move / Pick / Delete / Replace / Brush | Press `1` / `2` / `3` / `4` / `5` / `6` / `7` / `8`. |
 | Temporarily select Pick / Delete / Replace | Hold `S` / `D` / `R`. |
 | Rotate the object held with Add or Move | Press `Q` / `E`. |
 | Rotate a Grab selection or placement preview | Press `[` / `]`. |
 | Make a horizontal or vertical mirror of a Grab selection or placement preview | Press `H` / `V`. |
 | Move a Grab selection by one tile | Press `Alt` + an arrow key. |
 | Apply or cancel a paste preview or stamp preview | Press `Enter` / `Esc`. |
+| Turn the in-game look or lighting preview on or off | Press `Ctrl+I` / `Ctrl+L`. |
 | Open the hotkey reference | Press `F1`. |
 
 Shortcuts depend on the active map, tool, and editor state. The hotkey reference and tooltips give more information about the controls.
@@ -269,7 +317,7 @@ available.
 
 ## Build from source
 
-Use **Go 1.25.13**, as specified in [go.mod](go.mod). Use **Rust 1.82.0** and **Task 3.x**. Git and a C/C++ toolchain are also necessary. The desktop uses CGO to link the Rust parser from this repository.
+Use **Go 1.26.9**, as specified in [go.mod](go.mod). Use **Rust 1.82.0** and **Task 3.x**. Git and a C/C++ toolchain are also necessary. The desktop uses CGO to link the Rust parser from this repository.
 
 Windows builds require **MinGW-w64** and the **GNU Rust toolchain**. Linux builds require X11/OpenGL and GTK development dependencies. The Ubuntu CI configuration installs `xorg-dev libgtk-3-dev`.
 
@@ -332,5 +380,7 @@ A plan can describe a function that the editor does not yet have. A plan is not 
 **[StrongDMM](https://github.com/SpaiR/StrongDMM)**, by SpaiR and other contributors, supplies the basic map editor. **[SpacemanDMM](https://github.com/SpaceManiac/SpacemanDMM)**, by SpaceManiac and other contributors, supplies the DM parser. The repository keeps upstream credits and source history.
 
 **Vinylspiders** made the AphelionDMM dog-astronaut artwork for [Meridian](https://meridian.a13.info) and its [wiki](https://meridian-wiki.a13.info/wiki/Main_Page). [Clément “Topy”](https://github.com/clement-or) made the historical StrongDMM application icon.
+
+**[IBM Plex Mono](https://github.com/IBM/plex)**, © IBM Corp., is the monospace font. It is licensed under the SIL Open Font License 1.1; the [font notes](internal/rsc/font/plex/README.md) record its origin.
 
 [LICENSE](LICENSE) contains the GPL-3.0 terms for the source code. The [artwork notes](docs/branding/README.md) contain information about the origin of the icon and its permitted uses.

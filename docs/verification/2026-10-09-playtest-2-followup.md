@@ -1,8 +1,8 @@
 # October 9 play-test 2 follow-up: implementation evidence
 
 Baseline `c6a6f662`. Rounds 1–6 are in `4a9a5738`, `8b3d10a0` and
-`b281ed07`. The Meridian UI refresh that followed is uncommitted and recorded
-in `docs/design/2026-10-09-ui-review.md`. Automated evidence only;
+`b281ed07`. The Meridian UI refresh that followed is in `6288ea85` and recorded
+in `docs/design/2026-10-09-ui-review.md`. Released as v.a.9. Automated evidence only;
 **nothing here has been exercised in an interactive desktop session.**
 
 | Report | Cause and change | Evidence | Open human checks |
