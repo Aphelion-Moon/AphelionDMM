@@ -74,7 +74,7 @@ func TestSQLiteAppendLatencyDoesNotGrowWithHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	const size, operations = 160, 60
 	snapshot := headSnapshot(size)
 	if err := store.Create(context.Background(), snapshot); err != nil {
@@ -114,7 +114,7 @@ func TestSQLiteVerifiedHeadFallsBackWhenTheDurableHeadMoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer first.Close()
+	defer func() { _ = first.Close() }()
 	const size = 12
 	snapshot := headSnapshot(size)
 	if err := first.Create(context.Background(), snapshot); err != nil {
@@ -124,7 +124,7 @@ func TestSQLiteVerifiedHeadFallsBackWhenTheDurableHeadMoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 	document, err := engine.NewDocument(snapshot)
 	if err != nil {
 		t.Fatal(err)

@@ -52,7 +52,7 @@ func TestRecoverHostedSessionsSkipsRetiredProtocolSessions(t *testing.T) {
 			t.Fatal(err)
 		}
 		response := postJSON(t, firstServer.URL+"/v1/hosted/sessions", "owner-auth", body)
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		var created HostedSessionResponse
 		if response.StatusCode != http.StatusCreated || json.NewDecoder(response.Body).Decode(&created) != nil {
 			t.Fatalf("create hosted session status = %d", response.StatusCode)

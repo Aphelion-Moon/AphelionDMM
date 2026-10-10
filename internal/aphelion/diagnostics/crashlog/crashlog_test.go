@@ -11,6 +11,10 @@ import (
 
 const childEnv = "APHELION_CRASHLOG_CHILD"
 
+// nilTiles is deliberately never initialised; a package-level variable keeps
+// the intentional nil map write from being flagged by staticcheck (SA5000).
+var nilTiles map[string]int
+
 // TestCaptureRecordsGoroutinePanic crashes a child process from a background
 // goroutine, the case that left no trace in the desktop session log.
 func TestCaptureRecordsGoroutinePanic(t *testing.T) {
@@ -23,8 +27,7 @@ func TestCaptureRecordsGoroutinePanic(t *testing.T) {
 			os.Exit(4)
 		}
 		go func() {
-			var tiles map[string]int
-			tiles["light"]++ // nil map write: an unrecovered runtime panic
+			nilTiles["light"]++ // nil map write: an unrecovered runtime panic
 		}()
 		// No deferred signal: deferred calls run while a panic unwinds, which
 		// let the main goroutine exit cleanly before the runtime crashed.

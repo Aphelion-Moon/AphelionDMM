@@ -35,12 +35,12 @@ func TestVerifiedHeadFallsBackWhenTheDurableHeadMoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer first.Close()
+	defer func() { _ = first.Close() }()
 	second, err := Open(context.Background(), Config{DSN: dsn, Schema: schema})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 	const size = 12
 	snapshot := appendLatencySnapshot(size)
 	if err := first.Create(context.Background(), snapshot); err != nil {

@@ -66,7 +66,7 @@ func TestAppendLatencyDoesNotGrowWithHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	snapshot := appendLatencySnapshot(size)
 	if err := store.Create(context.Background(), snapshot); err != nil {
 		t.Fatal(err)
