@@ -42,7 +42,15 @@ func (proxy *concurrentProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
-	back, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(proxy.upstream, "http")+r.URL.Path, &websocket.DialOptions{HTTPHeader: r.Header, Subprotocols: []string{"apheliondmm.collaboration.v1"}})
+	// Forward end-to-end headers only: each hop negotiates its own WebSocket
+	// handshake and extensions, as a real proxy does.
+	header := http.Header{}
+	for _, name := range []string{"Authorization", "Origin"} {
+		if value := r.Header.Get(name); value != "" {
+			header.Set(name, value)
+		}
+	}
+	back, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(proxy.upstream, "http")+r.URL.Path, &websocket.DialOptions{HTTPHeader: header, Subprotocols: []string{"apheliondmm.collaboration.v1"}})
 	if err != nil {
 		_ = front.CloseNow()
 		return

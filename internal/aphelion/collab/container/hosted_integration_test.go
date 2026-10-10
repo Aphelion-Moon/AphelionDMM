@@ -302,7 +302,7 @@ func authenticate(t *testing.T, client *http.Client, baseURL string, oidcPort in
 
 func createHostedSession(t *testing.T, client *http.Client, baseURL, token string) string {
 	t.Helper()
-	body := []byte(`{"snapshot":{"protocol_version":1,"schema_version":1,"document_id":"01890f3e-7b5c-7abc-8def-0123456789ab","revision":0,"environment_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","max_x":3,"max_y":1,"max_z":1,"tiles":[]}}`)
+	body := []byte(`{"snapshot":{"protocol_version":2,"schema_version":1,"document_id":"01890f3e-7b5c-7abc-8def-0123456789ab","revision":0,"environment_hash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","max_x":3,"max_y":1,"max_z":1,"tiles":[]}}`)
 	response := request(t, client, http.MethodPost, baseURL+"/v1/hosted/sessions", token, body, http.StatusCreated)
 	var created struct {
 		SessionID string `json:"session_id"`

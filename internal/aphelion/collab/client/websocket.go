@@ -102,6 +102,8 @@ func (transport *WebSocketTransport) Connect(ctx context.Context, request protoc
 	connection, response, err := websocket.Dial(dialContext, websocketURL, &websocket.DialOptions{
 		HTTPHeader:   http.Header{"Authorization": []string{"Bearer " + request.Token}, "Origin": []string{request.Origin}},
 		Subprotocols: []string{protocol.BulkSubprotocol, collaborationSubprotocol},
+		// Per-message compression without a shared window; see the server.
+		CompressionMode: websocket.CompressionNoContextTakeover,
 	})
 	cancelDial()
 	if err != nil {

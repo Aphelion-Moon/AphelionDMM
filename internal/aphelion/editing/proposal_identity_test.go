@@ -17,7 +17,7 @@ func TestPlacementRetainsCopiedIdentityAcrossTransformsAndTargets(t *testing.T) 
 	ctx := context.Background()
 	document, _ := model.NewDocumentID()
 	actor, _ := model.NewActorID()
-	snapshot := model.Snapshot{ProtocolVersion: 1, SchemaVersion: 1, DocumentID: document, EnvironmentHash: strings.Repeat("a", 64), MaxX: 4, MaxY: 4, MaxZ: 1}
+	snapshot := model.Snapshot{ProtocolVersion: model.ProtocolVersion, SchemaVersion: model.SchemaVersion, DocumentID: document, EnvironmentHash: strings.Repeat("a", 64), MaxX: 4, MaxY: 4, MaxZ: 1}
 	for y := 1; y <= 4; y++ {
 		for x := 1; x <= 4; x++ {
 			snapshot.Tiles = append(snapshot.Tiles, model.Tile{Coord: model.Coord{X: x, Y: y, Z: 1}})

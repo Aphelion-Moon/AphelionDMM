@@ -1,1 +1,0 @@
-{"protocol_version":1,"message_id":"message-11","session_id":"session-1","type":"presence_update","payload":{"actor_id":"01890f3e-7b5c-7abc-8def-0123456789ac","display_name":"Editor","sequence":2,"cursor":{"x":2,"y":2,"z":1},"selection":{"min":{"x":1,"y":1,"z":1},"max":{"x":2,"y":2,"z":1}},"status":"active"}}

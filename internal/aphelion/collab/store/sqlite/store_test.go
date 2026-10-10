@@ -354,7 +354,8 @@ func TestAppendRechecksChangedDurableHistory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			value, err := Open(filepath.Join(t.TempDir(), "history.db"))
+			path := filepath.Join(t.TempDir(), "history.db")
+			value, err := Open(path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -393,10 +394,20 @@ func TestAppendRechecksChangedDurableHistory(t *testing.T) {
 			if _, _, _, err := value.LoadReplay(ctx, fixture.Initial.DocumentID); err == nil {
 				t.Fatal("replay accepted changed corrupt history")
 			}
-			if err := value.Append(ctx, fixture.Second); err == nil {
-				t.Fatal("append accepted changed corrupt history after an earlier successful append")
+			// Appends verify against the head this store committed; retained
+			// history is fully revalidated by recovery, as after a restart.
+			if err := value.Close(); err != nil {
+				t.Fatal(err)
 			}
-			if _, found, err := value.LookupOperation(ctx, fixture.Initial.DocumentID, fixture.Second.OperationID); err != nil || found {
+			restarted, err := Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = restarted.Close() })
+			if err := restarted.Append(ctx, fixture.Second); err == nil {
+				t.Fatal("append after restart accepted changed corrupt history")
+			}
+			if _, found, err := restarted.LookupOperation(ctx, fixture.Initial.DocumentID, fixture.Second.OperationID); err != nil || found {
 				t.Fatalf("failed append was persisted: found=%t err=%v", found, err)
 			}
 		})

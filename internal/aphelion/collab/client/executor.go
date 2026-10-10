@@ -229,6 +229,7 @@ type NetworkExecutor struct {
 	sessionID string
 
 	tileIndexes    map[model.Coord]int
+	hasher         *model.CanonicalHasher // acknowledged snapshot's incremental hash; nil until the first accept
 	visibleTiles   map[model.Coord]model.TileState
 	visibleCoords  []model.Coord
 	changes        chan ProjectionUpdate
@@ -269,10 +270,12 @@ func NewNetworkExecutor(transport Transport, snapshot model.Snapshot, actor mode
 	if transport == nil {
 		return nil, fmt.Errorf("network executor transport is nil")
 	}
-	snapshotHash, err := snapshot.Hash()
+	// One full pass yields both the verified hash and the incremental hasher.
+	hasher, err := model.NewCanonicalHasher(snapshot)
 	if err != nil {
 		return nil, err
 	}
+	snapshotHash := hasher.Digest()
 	if err := actor.Validate(); err != nil {
 		return nil, err
 	}
@@ -295,6 +298,7 @@ func NewNetworkExecutor(transport Transport, snapshot model.Snapshot, actor mode
 		changes:          make(chan ProjectionUpdate, 1),
 	}
 	network.indexAcknowledgedLocked(snapshotHash)
+	network.hasher = hasher
 	network.publication.mu.Lock()
 	network.publishCaptureLocked()
 	network.publication.mu.Unlock()
@@ -661,10 +665,11 @@ func (network *NetworkExecutor) ReplaceAcknowledgedSnapshot(ctx context.Context,
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	replacementHash, err := snapshot.Hash()
+	replacementHasher, err := model.NewCanonicalHasher(snapshot)
 	if err != nil {
 		return err
 	}
+	replacementHash := replacementHasher.Digest()
 	network.mutex.Lock()
 	defer network.mutex.Unlock()
 	if network.terminal != nil {
@@ -692,6 +697,7 @@ func (network *NetworkExecutor) ReplaceAcknowledgedSnapshot(ctx context.Context,
 	}
 	network.projection = newProjection(snapshot, replacementHash)
 	network.indexAcknowledgedLocked(replacementHash)
+	network.hasher = replacementHasher
 	network.rebuildVisibleLocked()
 	network.verifiedHistory = map[model.Revision]string{snapshot.Revision: replacementHash}
 	// Snapshot fallback carries no operation IDs. Keep unresolved drafts; their

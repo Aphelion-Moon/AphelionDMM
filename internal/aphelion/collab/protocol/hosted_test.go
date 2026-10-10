@@ -10,7 +10,7 @@ import (
 
 func decodeFixtureStrict(t *testing.T, name string, value any) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "v1", name))
+	data, err := os.ReadFile(filepath.Join("testdata", "v2", name))
 	if err != nil {
 		t.Fatal(err)
 	}

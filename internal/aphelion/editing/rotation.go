@@ -195,7 +195,9 @@ func orientationScopeOf(prefab *dmmprefab.Prefab, lookups []PrefabLookup) orient
 	// its dir often picks a pipe or conveyor side even when the map sprite has
 	// one direction (thermomachines set their icon at runtime).
 	owned := typeOwnsDir(prefab, lookups) && (DirMayBeFunctional(path) || spriteTurns(vars))
-	return orientationScope{dir: explicit || helper || owned, helper: helper}
+	// A sprite known to have several directions has a real facing even when
+	// only /atom declares dir (iron smooth_half floors), so it turns too.
+	return orientationScope{dir: explicit || helper || owned || spriteHasDirections(vars), helper: helper}
 }
 
 var spriteDirections atomic.Pointer[func(icon, state string) (int, bool)]
@@ -231,6 +233,17 @@ func spriteTurns(vars *dmvars.Variables) bool {
 	}
 	dirs, ok := (*source)(vars.TextV("icon", ""), vars.TextV("icon_state", ""))
 	return !ok || dirs > 1
+}
+
+// spriteHasDirections reports whether the loaded DMI shows the sprite with
+// more than one direction. Unlike spriteTurns, unknown answers false.
+func spriteHasDirections(vars *dmvars.Variables) bool {
+	source := spriteDirections.Load()
+	if source == nil {
+		return false
+	}
+	dirs, ok := (*source)(vars.TextV("icon", ""), vars.TextV("icon_state", ""))
+	return ok && dirs > 1
 }
 
 // typeOwnsDir reports whether a type's own definition, rather than the root
@@ -292,7 +305,9 @@ func setDirection(path string, vars *dmvars.Variables, direction int, lookup []P
 	if targetPath, targetVars := directionalVariant(path, direction, lookup); targetVars != nil {
 		return targetPath, setOrientation(reparentExplicit(vars, targetVars), "dir", strconv.Itoa(direction))
 	}
-	if explicit {
+	// A multi-direction sprite stays turnable without the edit, so a dir equal
+	// to the inherited default is dropped rather than kept as a redundant edit.
+	if explicit && !spriteHasDirections(vars) {
 		return path, dmvars.Set(vars, "dir", strconv.Itoa(direction))
 	}
 	return path, setOrientation(vars, "dir", strconv.Itoa(direction))

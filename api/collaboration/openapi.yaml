@@ -573,7 +573,7 @@ components:
       properties:
         session_id: { type: string, minLength: 1, maxLength: 128 }
         document_id: { type: string, format: uuid }
-        protocol_version: { type: integer, const: 1 }
+        protocol_version: { type: integer, const: 2 }
         schema_version: { type: integer, const: 1 }
         revision: { type: integer, minimum: 0 }
         map_hash: { $ref: '#/components/schemas/SHA256' }
@@ -598,7 +598,7 @@ components:
       additionalProperties: false
       required: [protocol_version, schema_version, document_id, revision, environment_hash, max_x, max_y, max_z, tiles]
       properties:
-        protocol_version: { type: integer, const: 1 }
+        protocol_version: { type: integer, const: 2 }
         schema_version: { type: integer, const: 1 }
         document_id: { type: string, format: uuid }
         revision: { type: integer, minimum: 0 }

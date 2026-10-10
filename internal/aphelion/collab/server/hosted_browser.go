@@ -109,6 +109,10 @@ func (service *Service) handleJoinHostedSession(w http.ResponseWriter, r *http.R
 		writeError(w, 404, "unavailable", "Session is unavailable.")
 		return
 	}
+	if message := service.retiredSessionMessage(id); message != "" && found {
+		writeError(w, http.StatusGone, "retired_protocol", message)
+		return
+	}
 	if !service.hostedDocumentAvailable(id) || (!found && service.hostedParticipantCount(id) == 0) {
 		writeError(w, 404, "unavailable", "Session is unavailable. Refresh the browser.")
 		return

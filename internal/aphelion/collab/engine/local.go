@@ -52,10 +52,12 @@ func (document *Document) ensureHash() error {
 	if document.mapHash != "" {
 		return nil
 	}
-	digest, err := document.snapshot.Hash()
+	hasher, err := model.NewCanonicalHasher(document.snapshot)
 	if err != nil {
 		return err
 	}
+	digest := hasher.Digest()
+	document.hasher = hasher
 	document.mapHash = digest
 	document.hashes[document.snapshot.Revision] = digest
 	return nil
@@ -107,6 +109,7 @@ func (document *Document) ApplyLocal(ctx context.Context, request LocalRequest) 
 	document.installChanges(changes)
 	document.snapshot.Revision++
 	document.mapHash = ""
+	document.hasher = nil
 	return LocalAcceptance{DocumentID: request.Version.DocumentID, Revision: document.snapshot.Revision, Changes: model.CloneOperation(model.Operation{Changes: changes}).Changes}, nil
 }
 

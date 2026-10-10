@@ -21,6 +21,7 @@ type Document struct {
 	// and validation copies the tile table before replacing or appending states.
 	snapshot             model.Snapshot
 	mapHash              string
+	hasher               *model.CanonicalHasher // describes snapshot when mapHash is set; immutable, shared by clones
 	hashes               map[model.Revision]string
 	accepted             map[model.OperationID]model.AcceptedOperation
 	inverted             map[model.OperationID]model.OperationID
@@ -34,13 +35,15 @@ type Document struct {
 }
 
 func NewDocument(snapshot model.Snapshot) (*Document, error) {
-	mapHash, err := snapshot.Hash()
+	hasher, err := model.NewCanonicalHasher(snapshot)
 	if err != nil {
 		return nil, fmt.Errorf("validate initial snapshot: %w", err)
 	}
+	mapHash := hasher.Digest()
 	document := &Document{
 		snapshot: model.CloneSnapshot(snapshot),
 		mapHash:  mapHash,
+		hasher:   hasher,
 		hashes: map[model.Revision]string{
 			snapshot.Revision: mapHash,
 		},
@@ -72,7 +75,7 @@ func (document *Document) ApplyContext(ctx context.Context, operation model.Oper
 		return model.CloneAcceptedOperation(accepted), nil
 	}
 
-	normalized, candidate, candidateHash, err := document.validateContext(ctx, operation)
+	normalized, candidate, candidateHash, candidateHasher, err := document.validateContext(ctx, operation)
 	if err != nil {
 		return model.AcceptedOperation{}, err
 	}
@@ -99,6 +102,7 @@ func (document *Document) ApplyContext(ctx context.Context, operation model.Oper
 	document.scopedTileReaders = nil
 	document.updateIdentityOwners(normalized.Changes)
 	document.mapHash = candidateHash
+	document.hasher = candidateHasher
 	document.hashes[candidate.Revision] = candidateHash
 	// normalized was detached during validation and never escapes without a
 	// clone. History and candidate tiles may therefore share immutable payloads.
@@ -120,6 +124,7 @@ func (document *Document) Clone() *Document {
 	clone := &Document{
 		snapshot:             document.snapshot,
 		mapHash:              document.mapHash,
+		hasher:               document.hasher,
 		hashes:               make(map[model.Revision]string, len(document.hashes)),
 		accepted:             make(map[model.OperationID]model.AcceptedOperation, len(document.accepted)),
 		inverted:             make(map[model.OperationID]model.OperationID, len(document.inverted)),
@@ -142,55 +147,55 @@ func (document *Document) Clone() *Document {
 	return clone
 }
 
-func (document *Document) validate(operation model.Operation) (model.Operation, model.Snapshot, string, error) {
+func (document *Document) validate(operation model.Operation) (model.Operation, model.Snapshot, string, *model.CanonicalHasher, error) {
 	return document.validateContext(context.Background(), operation)
 }
 
-func (document *Document) validateContext(ctx context.Context, operation model.Operation) (model.Operation, model.Snapshot, string, error) {
+func (document *Document) validateContext(ctx context.Context, operation model.Operation) (model.Operation, model.Snapshot, string, *model.CanonicalHasher, error) {
 	if operation.ProtocolVersion != model.ProtocolVersion {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("protocol version is %d, want %d", operation.ProtocolVersion, model.ProtocolVersion))
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, fmt.Errorf("protocol version is %d, want %d", operation.ProtocolVersion, model.ProtocolVersion))
 	}
 	if err := operation.ActorID.Validate(); err != nil {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, err)
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, err)
 	}
 	if err := operation.OperationID.Validate(); err != nil {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, err)
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, err)
 	}
 	if operation.InverseOf != nil {
 		if err := operation.InverseOf.Validate(); err != nil {
-			return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, err)
+			return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, err)
 		}
 	}
 	if err := model.ValidateSHA256("environment hash", operation.EnvironmentHash); err != nil {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, err)
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, err)
 	}
 	if operation.EnvironmentHash != document.snapshot.EnvironmentHash {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeWrongEnvironment, fmt.Errorf("environment hash does not match document"))
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeWrongEnvironment, fmt.Errorf("environment hash does not match document"))
 	}
 	if err := model.ValidateSHA256("base map hash", operation.BaseMapHash); err != nil {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, err)
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, err)
 	}
 	baseHash, exists := document.hashes[operation.BaseRevision]
 	if !exists {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeUnknownBaseRevision, fmt.Errorf("base revision %d is not retained", operation.BaseRevision))
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeUnknownBaseRevision, fmt.Errorf("base revision %d is not retained", operation.BaseRevision))
 	}
 	if operation.BaseMapHash != baseHash {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeBaseHashMismatch, fmt.Errorf("base map hash does not match revision %d", operation.BaseRevision))
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeBaseHashMismatch, fmt.Errorf("base map hash does not match revision %d", operation.BaseRevision))
 	}
 	if operation.Kind != model.OperationKindTileChange && operation.Kind != model.OperationKindInverse {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("unsupported operation kind %q", operation.Kind))
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, fmt.Errorf("unsupported operation kind %q", operation.Kind))
 	}
 	if operation.Kind == model.OperationKindTileChange && operation.InverseOf != nil {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("forward tile change cannot name inverse target"))
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, fmt.Errorf("forward tile change cannot name inverse target"))
 	}
 	cellCount, err := document.snapshot.CellCount()
 	if err != nil || len(operation.Changes) == 0 || len(operation.Changes) > cellCount {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("tile change count is %d, want 1 through document cell count %d", len(operation.Changes), cellCount))
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, fmt.Errorf("tile change count is %d, want 1 through document cell count %d", len(operation.Changes), cellCount))
 	}
 
 	normalized, err := cloneOperationContext(ctx, operation)
 	if err != nil {
-		return model.Operation{}, model.Snapshot{}, "", err
+		return model.Operation{}, model.Snapshot{}, "", nil, err
 	}
 	sort.Slice(normalized.Changes, func(left int, right int) bool {
 		if normalized.Changes[left].Coord.Z != normalized.Changes[right].Coord.Z {
@@ -202,17 +207,17 @@ func (document *Document) validateContext(ctx context.Context, operation model.O
 		return normalized.Changes[left].Coord.X < normalized.Changes[right].Coord.X
 	})
 	if err := document.validateInverseContext(ctx, normalized); err != nil {
-		return model.Operation{}, model.Snapshot{}, "", err
+		return model.Operation{}, model.Snapshot{}, "", nil, err
 	}
 	if err := document.validateChanges(ctx, normalized.Changes); err != nil {
-		return model.Operation{}, model.Snapshot{}, "", err
+		return model.Operation{}, model.Snapshot{}, "", nil, err
 	}
 
 	candidate := document.snapshot
 	candidate.Tiles = slices.Clone(document.snapshot.Tiles)
 	for _, change := range normalized.Changes {
 		if err := ctx.Err(); err != nil {
-			return model.Operation{}, model.Snapshot{}, "", err
+			return model.Operation{}, model.Snapshot{}, "", nil, err
 		}
 		index, exists := document.tileIndexes[change.Coord]
 		if exists {
@@ -222,11 +227,22 @@ func (document *Document) validateContext(ctx context.Context, operation model.O
 		}
 	}
 
-	candidateHash, err := candidate.Hash()
-	if err != nil {
-		return model.Operation{}, model.Snapshot{}, "", document.reject(CodeInvalidOperation, fmt.Errorf("validate resulting map: %w", err))
+	// validateChanges proved bounds, coordinate and stable-ID uniqueness for the
+	// changed union, so the candidate is hashed without a whole-map revalidation,
+	// re-encoding only from the first changed tile in canonical order.
+	changed := make([]model.Coord, len(normalized.Changes))
+	for i, change := range normalized.Changes {
+		changed[i] = change.Coord
 	}
-	return normalized, candidate, candidateHash, nil
+	base := document.hasher
+	if base.Digest() != document.mapHash {
+		base = nil
+	}
+	candidateHasher, candidateHash, err := base.Update(candidate, document.tileIndexes, changed)
+	if err != nil {
+		return model.Operation{}, model.Snapshot{}, "", nil, document.reject(CodeInvalidOperation, fmt.Errorf("validate resulting map: %w", err))
+	}
+	return normalized, candidate, candidateHash, candidateHasher, nil
 }
 
 func cloneOperationContext(ctx context.Context, source model.Operation) (model.Operation, error) {

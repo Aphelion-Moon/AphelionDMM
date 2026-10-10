@@ -1,1 +1,0 @@
-{"protocol_version":1,"message_id":"message-4","session_id":"session-1","type":"presence_update","payload":{"sequence":1,"cursor":{"x":1,"y":2,"z":1},"selection":{"min":{"x":1,"y":2,"z":1},"max":{"x":3,"y":4,"z":1}},"status":"active"}}

@@ -88,7 +88,7 @@ func (state RecoveryState) RestoreAt(revision model.Revision) (*Document, error)
 				return nil, fmt.Errorf("stored history before-values: %w", err)
 			}
 			validator.hashes, validator.accepted, validator.inverted = document.hashes, document.accepted, document.inverted
-			normalized, _, _, err := validator.validate(accepted.Operation)
+			normalized, _, _, _, err := validator.validate(accepted.Operation)
 			if err != nil {
 				return nil, fmt.Errorf("stored history revision %d: %w", accepted.Revision, err)
 			}

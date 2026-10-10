@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 info:
   title: AphelionDMM Collaboration Stream API
   version: 1.0.0
-  description: Bounded JSON durable-operation and lossy-presence stream, with negotiated bulk-edit-v2 transaction frames. Compression is disabled.
+  description: Bounded JSON durable-operation and lossy-presence stream, with negotiated bulk-edit-v2 transaction frames. Messages use per-message deflate without context takeover when both peers negotiate it; size limits apply to decompressed messages.
 x-repository-descriptor:
   scope: No stream message changed. The optional host repository descriptor (dme_name, environment_hash, git_branch, git_commit) travels only on the hosted HTTP control plane (see openapi.yaml RepositoryDescriptor), after capability negotiation, so older strict stream decoders are unaffected. Environment hash agreement remains enforced by the snapshot and operation environment_hash fields, never by the descriptor.
 x-bulk-edit-v2:
@@ -101,7 +101,7 @@ components:
       additionalProperties: false
       required: [protocol_version, message_id, session_id, type, payload]
       properties:
-        protocol_version: { type: integer, const: 1 }
+        protocol_version: { type: integer, const: 2 }
         message_id: { type: string, minLength: 1, maxLength: 128 }
         session_id: { type: string, minLength: 1, maxLength: 128 }
         type: { type: string, minLength: 1, maxLength: 128 }

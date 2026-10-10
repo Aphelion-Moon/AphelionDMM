@@ -34,8 +34,9 @@ func TestHashMatchesBufferedCanonicalEncoding(t *testing.T) {
 	}
 }
 
-// Compatibility oracle: the pre-streaming wire hash, encoded independently into
-// one complete buffer. Keep this deliberately simple; it is not production code.
+// Compatibility oracle: the protocol v2 map hash as the design spec states it,
+// each level encoded independently into one complete buffer. Keep this
+// deliberately simple; it is not production code.
 func bufferedCanonicalHash(snapshot Snapshot) string {
 	tiles := append([]Tile(nil), snapshot.Tiles...)
 	sort.Slice(tiles, func(i, j int) bool {
@@ -48,38 +49,87 @@ func bufferedCanonicalHash(snapshot Snapshot) string {
 		}
 		return a.X < b.X
 	})
-	var buffer bytes.Buffer
-	number := func(v uint64) {
+	number := func(buffer *bytes.Buffer, v uint64) {
 		var encoded [8]byte
 		binary.BigEndian.PutUint64(encoded[:], v)
 		buffer.Write(encoded[:])
 	}
-	text := func(v string) { number(uint64(len(v))); buffer.WriteString(v) }
-	text("apheliondmm.map.v1")
-	for _, v := range []int{snapshot.MaxX, snapshot.MaxY, snapshot.MaxZ, len(tiles)} {
-		number(uint64(v))
-	}
-	for _, tile := range tiles {
+	text := func(buffer *bytes.Buffer, v string) { number(buffer, uint64(len(v))); buffer.WriteString(v) }
+	tileDigest := func(tile Tile) [32]byte {
+		var buffer bytes.Buffer
+		text(&buffer, "apheliondmm.tile.v2")
 		for _, v := range []int{tile.Coord.X, tile.Coord.Y, tile.Coord.Z, len(tile.State.Prefabs)} {
-			number(uint64(v))
+			number(&buffer, uint64(v))
 		}
 		for _, prefab := range tile.State.Prefabs {
-			text(string(prefab.StableID))
-			text(prefab.Path)
+			text(&buffer, string(prefab.StableID))
+			text(&buffer, prefab.Path)
 			var keys []string
 			for key := range prefab.Vars {
 				keys = append(keys, key)
 			}
 			sort.Strings(keys)
-			number(uint64(len(keys)))
+			number(&buffer, uint64(len(keys)))
 			for _, key := range keys {
-				text(key)
-				text(prefab.Vars[key])
+				text(&buffer, key)
+				text(&buffer, prefab.Vars[key])
 			}
 		}
+		return sha256.Sum256(buffer.Bytes())
+	}
+	type row struct {
+		z, y   int
+		digest [32]byte
+	}
+	var rows []row
+	for start := 0; start < len(tiles); {
+		end := start
+		for end < len(tiles) && tiles[end].Coord.Z == tiles[start].Coord.Z && tiles[end].Coord.Y == tiles[start].Coord.Y {
+			end++
+		}
+		var buffer bytes.Buffer
+		text(&buffer, "apheliondmm.row.v2")
+		number(&buffer, uint64(tiles[start].Coord.Z))
+		number(&buffer, uint64(tiles[start].Coord.Y))
+		number(&buffer, uint64(end-start))
+		for _, tile := range tiles[start:end] {
+			digest := tileDigest(tile)
+			buffer.Write(digest[:])
+		}
+		rows = append(rows, row{tiles[start].Coord.Z, tiles[start].Coord.Y, sha256.Sum256(buffer.Bytes())})
+		start = end
+	}
+	var buffer bytes.Buffer
+	text(&buffer, "apheliondmm.map.v2")
+	for _, v := range []int{snapshot.MaxX, snapshot.MaxY, snapshot.MaxZ, len(tiles), len(rows)} {
+		number(&buffer, uint64(v))
+	}
+	for _, row := range rows {
+		number(&buffer, uint64(row.z))
+		number(&buffer, uint64(row.y))
+		buffer.Write(row.digest[:])
 	}
 	digest := sha256.Sum256(buffer.Bytes())
 	return hex.EncodeToString(digest[:])
+}
+
+// The parallel full hash must equal the sequential oracle at sizes on both
+// sides of the threshold, including sparse rows and several levels.
+func TestParallelHashMatchesOracle(t *testing.T) {
+	for _, size := range []int{1, parallelTileThreshold - 1, parallelTileThreshold * 3} {
+		snapshot := hashVariableFixture(size, true)
+		snapshot.MaxX, snapshot.MaxY, snapshot.MaxZ = 128, size/128+1, 2
+		for i := range snapshot.Tiles {
+			snapshot.Tiles[i].Coord = Coord{X: i%128 + 1, Y: i/128 + 1, Z: i%2 + 1}
+		}
+		got, err := snapshot.Hash()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := bufferedCanonicalHash(snapshot); got != want {
+			t.Fatalf("%d tiles: parallel hash %s, oracle %s", size, got, want)
+		}
+	}
 }
 
 func TestCanonicalEncodingMemoryIsBounded(t *testing.T) {

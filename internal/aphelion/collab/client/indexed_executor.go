@@ -14,6 +14,7 @@ import (
 // Identity owners never escape the mutex. Published tile payloads stay immutable.
 func (network *NetworkExecutor) indexAcknowledgedLocked(hash string) {
 	network.projection.acknowledgedHash = hash
+	network.hasher = nil
 	network.tileIndexes = make(map[model.Coord]int, len(network.projection.Acknowledged.Tiles))
 	for index, tile := range network.projection.Acknowledged.Tiles {
 		network.tileIndexes[tile.Coord] = index
@@ -158,7 +159,17 @@ func (network *NetworkExecutor) acceptProjectionLocked(accepted model.AcceptedOp
 		}
 	}
 	next.Revision = accepted.Revision
-	actual, err := next.Hash()
+	// overlay.apply proved bounds and identity ownership for the changed union,
+	// so only the canonical suffix from the first changed tile is re-encoded.
+	changed := make([]model.Coord, len(accepted.Changes))
+	for i, change := range accepted.Changes {
+		changed[i] = change.Coord
+	}
+	hasher := network.hasher
+	if hasher.Digest() != network.projection.acknowledgedHash {
+		hasher = nil
+	}
+	nextHasher, actual, err := hasher.Update(next, indexes, changed)
 	if err != nil {
 		return err
 	}
@@ -175,6 +186,7 @@ func (network *NetworkExecutor) acceptProjectionLocked(accepted model.AcceptedOp
 	}
 	network.projection = Projection{Acknowledged: next, Pending: remaining, acknowledgedHash: hash}
 	network.tileIndexes = indexes
+	network.hasher = nextHasher
 	network.applyAuthorityChanges(accepted.Changes)
 	network.rebuildVisibleLocked()
 	return nil

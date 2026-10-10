@@ -33,6 +33,8 @@ func (s *repositoryService) handler(t *testing.T) http.Handler {
 				w.Header().Set(protocol.RepositoryCapabilityHeader, protocol.RepositoryCapabilityValue)
 			}
 			_ = json.NewEncoder(w).Encode(protocol.HostedCapabilities{Provider: "oidc", SessionBrowser: true})
+		case r.URL.Path == "/v1/version":
+			_ = json.NewEncoder(w).Encode(map[string]any{"protocol_versions": []uint16{model.ProtocolVersion}})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/hosted/sessions":
 			body, _ := io.ReadAll(r.Body)
 			s.createBody = nil

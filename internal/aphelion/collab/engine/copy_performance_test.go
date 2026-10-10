@@ -101,7 +101,7 @@ func BenchmarkDocumentCopyStages(b *testing.B) {
 			b.Run("Validate", func(b *testing.B) {
 				b.ReportAllocs()
 				for range b.N {
-					_, candidate, hash, err := document.validate(operation)
+					_, candidate, hash, _, err := document.validate(operation)
 					if err != nil || hash != wantHash {
 						b.Fatalf("validation differs: %v", err)
 					}

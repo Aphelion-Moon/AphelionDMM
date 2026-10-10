@@ -40,6 +40,9 @@ type Panel struct {
 	fixDisabled maplint.FixKinds
 	fixing      bool
 	fixMessage  string
+	// rescanFor is the editor whose applied fixes still await a rescan. A
+	// session edit cannot be scanned until the server acknowledges it.
+	rescanFor *editor.Editor
 }
 
 func (p *Panel) fixKinds() maplint.FixKinds { return maplint.AllFixes &^ p.fixDisabled }
@@ -60,7 +63,7 @@ func (p *Panel) Free() {
 		p.scan.cancel()
 	}
 	p.scan, p.owner, p.result, p.scanErr, p.selected = nil, nil, nil, "", -1
-	p.fixing, p.fixMessage = false, ""
+	p.fixing, p.fixMessage, p.rescanFor = false, "", nil
 	p.scanID++
 }
 
@@ -117,6 +120,10 @@ func (p *Panel) Process(int32) {
 		return
 	}
 	ed := p.app.CurrentEditor()
+	if p.rescanFor != nil && p.rescanFor == ed && p.scan == nil && !ed.CollaborationSynchronizing() {
+		p.rescanFor = nil
+		p.StartScan()
+	}
 	if ed == nil {
 		uikit.EmptyState("Open a map to scan it against the lint rules.")
 		return
@@ -225,8 +232,8 @@ func (p *Panel) applyFixes(ed *editor.Editor) {
 		default:
 			p.fixMessage = fmt.Sprintf("Applied %d fixes on %d tiles.", r.Fixes, r.Tiles)
 		}
-		if p.app.CurrentEditor() == ed {
-			p.StartScan()
+		if r.Err == nil && r.Tiles != 0 {
+			p.rescanFor = ed
 		}
 	})
 	if err != nil {

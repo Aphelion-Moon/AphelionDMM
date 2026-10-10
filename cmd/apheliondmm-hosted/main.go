@@ -105,7 +105,10 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		HostedProvider: config.SelectedAuthProvider(), HostedPublicOrigin: config.PublicOrigin,
 		HostedAuth: authentication, HostedLogin: authentication, HostedRegistry: store,
 		Telemetry: observability,
-		Document:  server.DocumentConfig{SnapshotOperationThreshold: 1000, SnapshotInterval: 5 * time.Minute},
+		OnRetiredSession: func(sessionID string, err error) {
+			_, _ = fmt.Fprintf(stderr, "skipping hosted session %s: %v; open it with the previous release to save the map\n", sessionID, err)
+		},
+		Document: server.DocumentConfig{SnapshotOperationThreshold: 1000, SnapshotInterval: 5 * time.Minute},
 	})
 	if err := service.RecoverHostedSessions(ctx); err != nil {
 		_ = service.Shutdown(context.Background())

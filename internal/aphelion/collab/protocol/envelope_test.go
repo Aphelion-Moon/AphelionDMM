@@ -64,8 +64,8 @@ func TestDecodeClientRejectsInvalidEnvelope(t *testing.T) {
 
 	valid := readFixture(t, "client_ping.json")
 	tests := map[string][]byte{
-		"unknown envelope field": []byte(`{"protocol_version":1,"message_id":"m","session_id":"s","type":"ping","payload":{"nonce":"n"},"extra":true}`),
-		"unknown message type":   []byte(`{"protocol_version":1,"message_id":"m","session_id":"s","type":"execute","payload":{}}`),
+		"unknown envelope field": []byte(`{"protocol_version":2,"message_id":"m","session_id":"s","type":"ping","payload":{"nonce":"n"},"extra":true}`),
+		"unknown message type":   []byte(`{"protocol_version":2,"message_id":"m","session_id":"s","type":"execute","payload":{}}`),
 		"missing version":        []byte(`{"message_id":"m","session_id":"s","type":"ping","payload":{"nonce":"n"}}`),
 		"oversized identifier":   []byte(strings.Replace(string(valid), `"message_id":"message-1"`, `"message_id":"`+strings.Repeat("x", MaxIdentifierBytes+1)+`"`, 1)),
 		"trailing document":      append(append([]byte(nil), valid...), []byte(` {}`)...),
@@ -105,7 +105,7 @@ func FuzzDecodeClient(f *testing.F) {
 	for _, seed := range [][]byte{
 		{},
 		[]byte(`{}`),
-		[]byte(`{"protocol_version":1,"message_id":"m","session_id":"s","type":"ping","payload":{"nonce":"n"}}`),
+		[]byte(`{"protocol_version":2,"message_id":"m","session_id":"s","type":"ping","payload":{"nonce":"n"}}`),
 	} {
 		f.Add(seed)
 	}
@@ -118,7 +118,7 @@ func FuzzDecodeServer(f *testing.F) {
 	for _, seed := range [][]byte{
 		{},
 		[]byte(`{}`),
-		[]byte(`{"protocol_version":1,"message_id":"m","session_id":"s","type":"pong","payload":{"nonce":"n"}}`),
+		[]byte(`{"protocol_version":2,"message_id":"m","session_id":"s","type":"pong","payload":{"nonce":"n"}}`),
 	} {
 		f.Add(seed)
 	}
@@ -471,7 +471,7 @@ func requireYAMLStrings(t *testing.T, values map[string]any, key string) []strin
 
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "v1", name))
+	data, err := os.ReadFile(filepath.Join("testdata", "v2", name))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -84,8 +84,12 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 	// on a supported workstation; keep the workload and exact outcome checks.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
+	// The healthy load is stopped explicitly eight offers after recovery; its
+	// size is only headroom for a slow recovery on a saturated machine (2464
+	// offers at 40/s outlast the one-minute deadline). The 32 spare cells of the
+	// 832x3 map are the writers' sixteen edits each.
 	scenario, err := loadscenario.GenerateConcurrent(loadscenario.ConcurrentConfig{Config: loadscenario.Config{
-		Seed: 20260920, Clients: 1, Operations: 800, MaxX: 832, MaxY: 1, TargetOperationsPerSecond: 40,
+		Seed: 20260920, Clients: 1, Operations: 2464, MaxX: 832, MaxY: 3, TargetOperationsPerSecond: 40,
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -100,10 +104,12 @@ func verifyMixedWriterRecovery(t *testing.T, store server.SessionStore, snapshot
 		healthyValues[change.Coord] = change.After
 	}
 	var spare []model.Coord
-	for x := 1; x <= scenario.Initial.MaxX; x++ {
-		coord := model.Coord{X: x, Y: 1, Z: 1}
-		if !used[coord] {
-			spare = append(spare, coord)
+	for y := 1; y <= scenario.Initial.MaxY; y++ {
+		for x := 1; x <= scenario.Initial.MaxX; x++ {
+			coord := model.Coord{X: x, Y: y, Z: 1}
+			if !used[coord] {
+				spare = append(spare, coord)
+			}
 		}
 	}
 	config := server.ServiceConfig{Store: store, AllowedOrigins: []string{"http://127.0.0.1"}, PresenceInterval: 16 * time.Millisecond}

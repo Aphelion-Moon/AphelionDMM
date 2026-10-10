@@ -40,6 +40,7 @@ type Store struct {
 	pool          *pgxpool.Pool
 	schemaVersion int
 	closed        bool
+	heads         collabstore.VerifiedHeads
 }
 
 func Open(ctx context.Context, config Config) (*Store, error) {
@@ -180,16 +181,32 @@ func (store *Store) appendOnce(ctx context.Context, accepted model.AcceptedOpera
 		}
 		return fmt.Errorf("operation %q conflicts with stored revision %d", accepted.OperationID, prior.Revision)
 	}
-	state, err := loadRecovery(ctx, transaction, accepted.DocumentID, true, store.schemaVersion)
-	if err != nil {
-		return err
+	// Lock the head row first. Its small columns decide whether the document
+	// this store last committed is still the durable head; only otherwise is the
+	// whole retained history read and replayed.
+	var head collabstore.HeadKey
+	err = transaction.QueryRow(ctx, `SELECT snapshot_revision, current_revision, current_hash FROM collaboration_documents WHERE document_id = $1 FOR UPDATE`, accepted.DocumentID).Scan(&head.SnapshotRevision, &head.Revision, &head.Hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return collabstore.ErrSessionMissing
 	}
-	if accepted.Revision != state.HeadRevision+1 {
-		return fmt.Errorf("accepted revision %d is not contiguous after %d", accepted.Revision, state.HeadRevision)
-	}
-	document, err := state.Restore()
 	if err != nil {
-		return err
+		return fmt.Errorf("lock PostgreSQL document head: %w", err)
+	}
+	if accepted.Revision != head.Revision+1 {
+		return fmt.Errorf("accepted revision %d is not contiguous after %d", accepted.Revision, head.Revision)
+	}
+	document := store.heads.Take(accepted.DocumentID, head)
+	if document == nil {
+		state, err := loadRecovery(ctx, transaction, accepted.DocumentID, true, store.schemaVersion)
+		if err != nil {
+			return err
+		}
+		if accepted.Revision != state.HeadRevision+1 {
+			return fmt.Errorf("accepted revision %d is not contiguous after %d", accepted.Revision, state.HeadRevision)
+		}
+		if document, err = state.Restore(); err != nil {
+			return err
+		}
 	}
 	verified, err := document.Apply(accepted.Operation, accepted.AcceptedAt)
 	if err != nil {
@@ -256,6 +273,7 @@ func (store *Store) appendOnce(ctx context.Context, accepted model.AcceptedOpera
 	if err := transaction.Commit(ctx); err != nil {
 		return fmt.Errorf("commit PostgreSQL append: %w", err)
 	}
+	store.heads.Put(accepted.DocumentID, collabstore.HeadKey{SnapshotRevision: head.SnapshotRevision, Revision: accepted.Revision, Hash: mapHash}, document)
 	return nil
 }
 
@@ -282,22 +300,10 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) e
 	if store.closed {
 		return collabstore.ErrStoreClosed
 	}
-	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
-	if err != nil {
-		return fmt.Errorf("begin PostgreSQL snapshot: %w", err)
-	}
-	defer func() { _ = transaction.Rollback(context.Background()) }()
-	state, err := loadRecovery(ctx, transaction, snapshot.DocumentID, true, store.schemaVersion)
-	if err != nil {
-		return err
-	}
-	retained, err := state.RestoreAt(snapshot.Revision)
-	if err != nil {
-		return err
-	}
-	if !retained.EqualSnapshot(snapshot) {
-		return fmt.Errorf("snapshot does not match retained revision")
-	}
+	// Hash and encode before taking the row lock: appends wait on that lock.
+	// The canonical hash proves the snapshot equals the retained revision; every
+	// retained row is still revalidated by full recovery, so publication cannot
+	// hide corrupt acknowledged history.
 	mapHash, err := snapshot.Hash()
 	if err != nil {
 		return err
@@ -305,6 +311,30 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) e
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		return fmt.Errorf("encode PostgreSQL snapshot: %w", err)
+	}
+	transaction, err := store.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable})
+	if err != nil {
+		return fmt.Errorf("begin PostgreSQL snapshot: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(context.Background()) }()
+	var head collabstore.HeadKey
+	err = transaction.QueryRow(ctx, `SELECT snapshot_revision, current_revision, current_hash FROM collaboration_documents WHERE document_id = $1 FOR UPDATE`, snapshot.DocumentID).Scan(&head.SnapshotRevision, &head.Revision, &head.Hash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return collabstore.ErrSessionMissing
+	}
+	if err != nil {
+		return fmt.Errorf("lock PostgreSQL document head: %w", err)
+	}
+	if snapshot.Revision < head.SnapshotRevision || snapshot.Revision > head.Revision {
+		return fmt.Errorf("snapshot revision %d is outside retained range %d through %d", snapshot.Revision, head.SnapshotRevision, head.Revision)
+	}
+	var retainedHash string
+	err = transaction.QueryRow(ctx, `SELECT map_hash FROM collaboration_revision_hashes WHERE document_id = $1 AND revision = $2`, snapshot.DocumentID, snapshot.Revision).Scan(&retainedHash)
+	if errors.Is(err, pgx.ErrNoRows) || err == nil && retainedHash != mapHash {
+		return fmt.Errorf("snapshot does not match retained revision")
+	}
+	if err != nil {
+		return fmt.Errorf("read PostgreSQL retained revision hash: %w", err)
 	}
 	result, err := transaction.Exec(ctx, `UPDATE collaboration_documents SET snapshot = $2, snapshot_revision = $3, snapshot_hash = $4 WHERE document_id = $1`, snapshot.DocumentID, encoded, snapshot.Revision, mapHash)
 	if err != nil {
@@ -316,6 +346,9 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) e
 	if err := transaction.Commit(ctx); err != nil {
 		return fmt.Errorf("commit PostgreSQL snapshot: %w", err)
 	}
+	moved := head
+	moved.SnapshotRevision = snapshot.Revision
+	store.heads.Rekey(snapshot.DocumentID, head, moved)
 	return nil
 }
 
@@ -487,6 +520,7 @@ func (store *Store) Close() error {
 		return nil
 	}
 	store.closed = true
+	store.heads.Clear()
 	store.pool.Close()
 	return nil
 }

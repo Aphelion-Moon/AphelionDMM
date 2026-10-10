@@ -1,7 +1,7 @@
 package model
 
 const (
-	ProtocolVersion uint16 = 1
+	ProtocolVersion uint16 = 2
 	SchemaVersion   uint16 = 1
 )
 

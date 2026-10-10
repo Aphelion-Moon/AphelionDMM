@@ -68,7 +68,7 @@ func TestWebSocketTransportRejectsMalformedServerEnvelope(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		_, _, _ = connection.Read(ctx)
-		_ = connection.Write(ctx, websocket.MessageText, []byte(`{"protocol_version":1,"type":"unknown"}`))
+		_ = connection.Write(ctx, websocket.MessageText, []byte(`{"protocol_version":2,"type":"unknown"}`))
 	}))
 	defer testServer.Close()
 

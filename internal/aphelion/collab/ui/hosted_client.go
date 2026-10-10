@@ -310,6 +310,9 @@ func (client *SessionClient) RedeemHostedInvitation(ctx context.Context, invitat
 		return Invitation{}, fmt.Errorf("redeem hosted collaboration invitation: %w", err)
 	}
 	defer func() { _ = response.Body.Close() }()
+	if err := retiredSessionError(response); err != nil {
+		return Invitation{}, err
+	}
 	if response.StatusCode != http.StatusOK {
 		return Invitation{}, fmt.Errorf("redeem hosted collaboration invitation returned HTTP %d", response.StatusCode)
 	}

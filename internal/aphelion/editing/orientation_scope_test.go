@@ -103,6 +103,42 @@ func TestTypeOwnedDirTurnsOnlyWhenTheSpriteHasDirections(t *testing.T) {
 	}
 }
 
+// A type that inherits dir only from /atom still has a real facing when its
+// sprite has several directions (tgstation's iron smooth_half floors). Held
+// Q/E rotation of the palette prefab must turn it without first needing an
+// explicit dir edit; single-direction and unreadable sprites stay untouched.
+func TestInheritedDirTurnsWhenTheSpriteHasDirections(t *testing.T) {
+	lookup := scopeFixture()
+	sprites := map[string]int{"smooth_half": 4, "floor": 1}
+	SetSpriteDirections(func(icon, state string) (int, bool) { d, ok := sprites[state]; return d, ok })
+	t.Cleanup(func() { SetSpriteDirections(nil) })
+	floor := func(state string) *dmmprefab.Prefab {
+		return dmmprefab.New(0, "/turf/open/floor", dmvars.Set(dmvars.FromParent(lookup("/turf/open/floor")), "icon_state", `"`+state+`"`))
+	}
+	half := floor("smooth_half")
+	got, err := rotatePrefab(half, true, lookup)
+	if err != nil || got == half || got.Vars().ValueV("dir", "") != "8" {
+		t.Fatalf("multi-direction floor did not turn: dir %q (%v)", got.Vars().ValueV("dir", ""), err)
+	}
+	var held HeldPrefab
+	held.SetSource(half)
+	if err := held.Rotate(false, lookup); err != nil || held.Value().Vars().ValueV("dir", "") != "4" {
+		t.Fatalf("held counter-clockwise turn: %v", err)
+	}
+	for range 3 {
+		if got, err = rotatePrefab(got, true, lookup); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertSameRepresentation(t, got, half)
+	for _, state := range []string{"floor", "unknown"} {
+		source := floor(state)
+		if got, err := rotatePrefab(source, true, lookup); err != nil || got != source {
+			t.Fatalf("%s sprite gained a dir edit (%v)", state, err)
+		}
+	}
+}
+
 func TestRotateAndMirrorNeverWriteDirOntoArea(t *testing.T) {
 	lookup := scopeFixture()
 	explicit := dmvars.Set(dmvars.FromParent(lookup("/area/station")), "dir", "1")

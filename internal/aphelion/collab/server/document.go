@@ -247,7 +247,8 @@ func (owner *DocumentOwner) run(ctx context.Context, document *engine.Document, 
 					document = accepted.document
 					if !accepted.duplicate {
 						acceptedSinceSnapshot++
-						owner.publishDurable(accepted.operation)
+						mapHash, _ := accepted.document.CachedHash()
+						owner.publishDurable(accepted.operation, mapHash)
 					}
 				}
 				request.response <- response{accepted: accepted.operation, duplicate: accepted.duplicate, err: err}

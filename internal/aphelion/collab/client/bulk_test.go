@@ -43,7 +43,7 @@ func TestBulkSessionWholeLevelAcceptanceRetryInverse(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, _ := model.NewDocumentID()
-	snapshot := model.Snapshot{ProtocolVersion: 1, SchemaVersion: 1, DocumentID: id, EnvironmentHash: strings.Repeat("a", 64), MaxX: 256, MaxY: 256, MaxZ: 1}
+	snapshot := model.Snapshot{ProtocolVersion: model.ProtocolVersion, SchemaVersion: model.SchemaVersion, DocumentID: id, EnvironmentHash: strings.Repeat("a", 64), MaxX: 256, MaxY: 256, MaxZ: 1}
 	for i := 0; i < 65536; i++ {
 		snapshot.Tiles = append(snapshot.Tiles, model.Tile{Coord: model.Coord{X: i%256 + 1, Y: i/256 + 1, Z: 1}})
 	}
@@ -105,13 +105,13 @@ func TestBulkSessionWholeLevelAcceptanceRetryInverse(t *testing.T) {
 	execution.Store(network)
 	peer, nextPeer := connectBulkObserver(t, ctx, host.URL, created.SessionID, created.OwnerToken, snapshot)
 	presence, _ := json.Marshal(protocol.PresenceUpdatePayload{Sequence: 1, Selection: &protocol.PresenceSelection{Min: model.Coord{X: 1, Y: 1, Z: 1}, Max: model.Coord{X: 256, Y: 256, Z: 1}}, Status: "active"})
-	if err := transport.Send(ctx, protocol.ClientEnvelope{ProtocolVersion: 1, MessageID: "whole-selection", SessionID: created.SessionID, Type: protocol.ClientPresenceUpdate, Payload: presence}); err != nil {
+	if err := transport.Send(ctx, protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "whole-selection", SessionID: created.SessionID, Type: protocol.ClientPresenceUpdate, Payload: presence}); err != nil {
 		t.Fatal(err)
 	}
 	next(protocol.ServerPresenceUpdate)
 	opID, _ := model.NewOperationID()
 	hash, _ := snapshot.Hash()
-	op := model.Operation{ProtocolVersion: 1, DocumentID: id, OperationID: opID, ActorID: joined.ActorID, EnvironmentHash: snapshot.EnvironmentHash, BaseMapHash: hash, Kind: model.OperationKindTileChange}
+	op := model.Operation{ProtocolVersion: model.ProtocolVersion, DocumentID: id, OperationID: opID, ActorID: joined.ActorID, EnvironmentHash: snapshot.EnvironmentHash, BaseMapHash: hash, Kind: model.OperationKindTileChange}
 	for i := 0; i < 65536; i++ {
 		op.Changes = append(op.Changes, model.TileChange{Coord: model.Coord{X: i%256 + 1, Y: i/256 + 1, Z: 1}, After: model.TileState{Prefabs: []model.PrefabState{{StableID: model.StableID(fmt.Sprintf("01890f3e-7b5c-7abc-8def-%012x", i+1)), Path: "/obj/unknown", Vars: map[string]string{"raw": `list("a" = 12)`}}}}})
 	}
@@ -146,7 +146,7 @@ func TestBulkSessionWholeLevelAcceptanceRetryInverse(t *testing.T) {
 		t.Fatal("conflicting retry changed revision")
 	}
 	payload, _ := json.Marshal(protocol.InverseRequestPayload{OperationID: opID})
-	if err := transport.Send(ctx, protocol.ClientEnvelope{ProtocolVersion: 1, MessageID: "inverse", SessionID: created.SessionID, Type: protocol.ClientInverseRequest, Payload: payload}); err != nil {
+	if err := transport.Send(ctx, protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "inverse", SessionID: created.SessionID, Type: protocol.ClientInverseRequest, Payload: payload}); err != nil {
 		t.Fatal(err)
 	}
 	inverse := next(protocol.ServerOperationAccepted).Payload.(*protocol.OperationAcceptedPayload)
@@ -181,7 +181,7 @@ func TestBulkSessionWholeLevelAcceptanceRetryInverse(t *testing.T) {
 		t.Fatal(err)
 	}
 	joinPayload, _ := json.Marshal(protocol.JoinPayload{JoinToken: joined.ResumptionToken})
-	joinBytes, _ := json.Marshal(protocol.ClientEnvelope{ProtocolVersion: 1, MessageID: "legacy", SessionID: created.SessionID, Type: protocol.ClientJoin, Payload: joinPayload})
+	joinBytes, _ := json.Marshal(protocol.ClientEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "legacy", SessionID: created.SessionID, Type: protocol.ClientJoin, Payload: joinPayload})
 	if err := legacy.Write(ctx, websocket.MessageText, joinBytes); err != nil {
 		t.Fatal(err)
 	}

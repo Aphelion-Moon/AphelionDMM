@@ -113,6 +113,58 @@ func TestSessionClientPublishPresenceUsesNegotiatedInterval(t *testing.T) {
 	}
 }
 
+// The map publishes the pointer every frame; an unchanged pointer must not
+// reach the network each interval, only as a keepalive before peers expire it.
+func TestSessionClientSkipsUnchangedPresenceUntilKeepalive(t *testing.T) {
+	t.Parallel()
+
+	now := time.Unix(100, 0)
+	scheduler := &manualPresenceScheduler{}
+	transport := &capturingSessionTransport{}
+	client := NewSessionClient(SessionClientConfig{
+		Now:      func() time.Time { return now },
+		Schedule: scheduler.schedule,
+	})
+	client.transport = transport
+	client.sessionID = "session-1"
+	client.presenceInterval = 100 * time.Millisecond
+
+	cursor := model.Coord{X: 4, Y: 5, Z: 1}
+	for frame := 0; frame < 120; frame++ { // two seconds of frames, pointer still
+		if err := client.PublishPresence(context.Background(), &cursor, nil, "active"); err != nil {
+			t.Fatal(err)
+		}
+		now = now.Add(16 * time.Millisecond)
+	}
+	if len(transport.sent) != 1 || scheduler.job != nil {
+		t.Fatalf("unchanged pointer sent %d messages, pending flush %t; want 1, false", len(transport.sent), scheduler.job != nil)
+	}
+	// A real move is sent at once.
+	moved := model.Coord{X: 6, Y: 5, Z: 1}
+	_ = client.PublishPresence(context.Background(), &moved, nil, "active")
+	_ = client.PublishPresence(context.Background(), &cursor, nil, "active")
+	if len(transport.sent) != 2 {
+		t.Fatalf("a real move was not sent: %d messages", len(transport.sent))
+	}
+	now = now.Add(presenceKeepalive)
+	if err := client.PublishPresence(context.Background(), &moved, nil, "active"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.PublishPresence(context.Background(), &moved, nil, "active"); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.sent) != 3 {
+		t.Fatalf("keepalive messages = %d, want 3", len(transport.sent))
+	}
+	now = now.Add(presenceKeepalive)
+	if err := client.PublishPresence(context.Background(), &moved, nil, "active"); err != nil {
+		t.Fatal(err)
+	}
+	if len(transport.sent) != 4 {
+		t.Fatalf("unchanged presence was not refreshed before expiry: %d messages", len(transport.sent))
+	}
+}
+
 func TestSessionClientUpdatesAuthenticatedDisplayName(t *testing.T) {
 	t.Parallel()
 	transport := &capturingSessionTransport{}

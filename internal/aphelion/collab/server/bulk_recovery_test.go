@@ -35,8 +35,8 @@ func TestSparse512LevelCommitErrorRestartRetryAndUndo(t *testing.T) {
 	actor, _ := model.NewActorID()
 	opID, _ := model.NewOperationID()
 	const width = 512
-	snapshot := model.Snapshot{ProtocolVersion: 1, SchemaVersion: 1, DocumentID: docID, EnvironmentHash: strings.Repeat("a", 64), MaxX: width, MaxY: width, MaxZ: 2}
-	op := model.Operation{ProtocolVersion: 1, DocumentID: docID, ActorID: actor, OperationID: opID, EnvironmentHash: snapshot.EnvironmentHash, Kind: model.OperationKindTileChange}
+	snapshot := model.Snapshot{ProtocolVersion: model.ProtocolVersion, SchemaVersion: model.SchemaVersion, DocumentID: docID, EnvironmentHash: strings.Repeat("a", 64), MaxX: width, MaxY: width, MaxZ: 2}
+	op := model.Operation{ProtocolVersion: model.ProtocolVersion, DocumentID: docID, ActorID: actor, OperationID: opID, EnvironmentHash: snapshot.EnvironmentHash, Kind: model.OperationKindTileChange}
 	for i := 0; i < width*width; i++ {
 		coord := model.Coord{X: i%width + 1, Y: i/width + 1, Z: 1}
 		snapshot.Tiles = append(snapshot.Tiles, model.Tile{Coord: coord})

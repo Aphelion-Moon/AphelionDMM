@@ -34,10 +34,10 @@ func (owner *DocumentOwner) subscribeDurable(buffer int) (<-chan model.AcceptedO
 
 // Only the authoritative mutation loop publishes. Slow consumers lose their
 // subscription instead of delaying the next durable operation.
-func (owner *DocumentOwner) publishDurable(accepted model.AcceptedOperation) {
+func (owner *DocumentOwner) publishDurable(accepted model.AcceptedOperation, mapHash string) {
 	owner.durableMutex.Lock()
 	defer owner.durableMutex.Unlock()
-	owner.publishSharedDurable(accepted)
+	owner.publishSharedDurable(accepted, mapHash)
 	for id, subscriber := range owner.durableSubscribers {
 		select {
 		case subscriber <- model.CloneAcceptedOperation(accepted):

@@ -30,6 +30,7 @@ type Store struct {
 	schemaVersion int
 	closed        bool
 	recovery      recoveryCache
+	heads         collabstore.VerifiedHeads
 }
 
 func Open(path string) (*Store, error) {
@@ -176,14 +177,28 @@ func (store *Store) append(ctx context.Context, accepted model.AcceptedOperation
 	if !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("lookup duplicate operation: %w", err)
 	}
-	var encodedBytes int
-	state, err := readRecovery(ctx, transaction, accepted.DocumentID, &encodedBytes, store.schemaVersion)
+	// The durable head decides whether the document this store last committed
+	// can verify the operation; only otherwise is the whole retained history
+	// read and replayed.
+	head, err := readHead(ctx, transaction, accepted.DocumentID)
 	if err != nil {
 		return err
 	}
-	document, err := store.recovery.restore(state)
-	if err != nil {
-		return err
+	if accepted.Revision != head.Revision+1 {
+		return fmt.Errorf("accepted revision %d is not contiguous after %d", accepted.Revision, head.Revision)
+	}
+	var encodedBytes int
+	var state engine.RecoveryState
+	document := store.heads.Take(accepted.DocumentID, head)
+	fromHead := document != nil
+	if !fromHead {
+		state, err = readRecovery(ctx, transaction, accepted.DocumentID, &encodedBytes, store.schemaVersion)
+		if err != nil {
+			return err
+		}
+		if document, err = store.recovery.restore(state); err != nil {
+			return err
+		}
 	}
 	verified, err := document.Apply(accepted.Operation, accepted.AcceptedAt)
 	if err != nil {
@@ -250,6 +265,12 @@ func (store *Store) append(ctx context.Context, accepted model.AcceptedOperation
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit append: %w", err)
 	}
+	defer store.heads.Put(accepted.DocumentID, collabstore.HeadKey{SnapshotRevision: head.SnapshotRevision, Revision: accepted.Revision, Hash: mapHash}, document)
+	if fromHead {
+		// The validated-load cache describes an older head; Load revalidates.
+		store.recovery.clear()
+		return nil
+	}
 	state.Operations = append(state.Operations, model.CloneAcceptedOperation(accepted))
 	state.Hashes[accepted.Revision] = mapHash
 	state.HeadRevision, state.HeadHash = accepted.Revision, mapHash
@@ -258,7 +279,9 @@ func (store *Store) append(ctx context.Context, accepted model.AcceptedOperation
 	} else {
 		encodedBytes += len(encoded) + int(bodyBytes) + len(accepted.OperationID) + 2*len(mapHash) + 16
 	}
-	store.recovery.retain(state, document, encodedBytes)
+	// The verified head owns document; the load cache keeps an independent
+	// copy-on-write branch.
+	store.recovery.retain(state, document.Clone(), encodedBytes)
 	return nil
 }
 
@@ -293,22 +316,9 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) e
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	transaction, err := store.database.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin snapshot: %w", err)
-	}
-	defer func() { _ = transaction.Rollback() }()
-	state, err := readRecovery(ctx, transaction, snapshot.DocumentID, nil, store.schemaVersion)
-	if err != nil {
-		return err
-	}
-	retained, err := state.RestoreAt(snapshot.Revision)
-	if err != nil {
-		return err
-	}
-	if !retained.EqualSnapshot(snapshot) {
-		return fmt.Errorf("snapshot does not match retained revision")
-	}
+	// The canonical hash proves the snapshot equals the retained revision, so
+	// publication no longer replays history; full recovery still revalidates
+	// every retained row. Hashing first keeps the write transaction short.
 	mapHash, err := snapshot.Hash()
 	if err != nil {
 		return err
@@ -316,6 +326,26 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) e
 	encoded, err := json.Marshal(snapshot)
 	if err != nil {
 		return fmt.Errorf("encode snapshot: %w", err)
+	}
+	transaction, err := store.database.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin snapshot: %w", err)
+	}
+	defer func() { _ = transaction.Rollback() }()
+	head, err := readHead(ctx, transaction, snapshot.DocumentID)
+	if err != nil {
+		return err
+	}
+	if snapshot.Revision < head.SnapshotRevision || snapshot.Revision > head.Revision {
+		return fmt.Errorf("snapshot revision %d is outside retained range %d through %d", snapshot.Revision, head.SnapshotRevision, head.Revision)
+	}
+	var retainedHash string
+	err = transaction.QueryRowContext(ctx, "SELECT map_hash FROM revision_hashes WHERE document_id = ? AND revision = ?", snapshot.DocumentID, snapshot.Revision).Scan(&retainedHash)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && retainedHash != mapHash {
+		return fmt.Errorf("snapshot does not match retained revision")
+	}
+	if err != nil {
+		return fmt.Errorf("read retained revision hash: %w", err)
 	}
 	result, err := transaction.ExecContext(ctx, "UPDATE documents SET snapshot = ?, snapshot_revision = ?, snapshot_hash = ? WHERE document_id = ?", encoded, snapshot.Revision, mapHash, snapshot.DocumentID)
 	if err != nil {
@@ -331,7 +361,27 @@ func (store *Store) SaveSnapshot(ctx context.Context, snapshot model.Snapshot) e
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit snapshot: %w", err)
 	}
+	moved := head
+	moved.SnapshotRevision = snapshot.Revision
+	store.heads.Rekey(snapshot.DocumentID, head, moved)
 	return nil
+}
+
+// readHead returns the durable head: the published snapshot revision and the
+// newest retained revision with its hash.
+func readHead(ctx context.Context, database queryer, documentID model.DocumentID) (collabstore.HeadKey, error) {
+	var head collabstore.HeadKey
+	err := database.QueryRowContext(ctx, `SELECT d.snapshot_revision,
+		COALESCE((SELECT revision FROM revision_hashes WHERE document_id = d.document_id ORDER BY revision DESC LIMIT 1), d.snapshot_revision),
+		COALESCE((SELECT map_hash FROM revision_hashes WHERE document_id = d.document_id ORDER BY revision DESC LIMIT 1), d.snapshot_hash)
+		FROM documents d WHERE d.document_id = ?`, documentID).Scan(&head.SnapshotRevision, &head.Revision, &head.Hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return head, collabstore.ErrSessionMissing
+	}
+	if err != nil {
+		return head, fmt.Errorf("read document head: %w", err)
+	}
+	return head, nil
 }
 
 func (store *Store) RevisionHash(ctx context.Context, documentID model.DocumentID, revision model.Revision) (string, bool, error) {
@@ -600,6 +650,7 @@ func (store *Store) Close() error {
 	}
 	store.closed = true
 	store.recovery.clear()
+	store.heads.Clear()
 	return store.database.Close()
 }
 

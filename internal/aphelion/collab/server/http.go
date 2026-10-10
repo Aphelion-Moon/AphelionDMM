@@ -33,17 +33,20 @@ const (
 )
 
 type ServiceConfig struct {
-	BulkSpoolBytes                int64
-	BulkWorkingBytes              int64
-	BulkSpoolDirectory            string
-	Store                         SessionStore
-	Document                      DocumentConfig
-	Limits                        Limits
-	Telemetry                     *collabtelemetry.Telemetry
-	AllowedOrigins                []string
-	Build                         string
-	Revision                      string
-	OnWebSocketError              func(error)
+	BulkSpoolBytes     int64
+	BulkWorkingBytes   int64
+	BulkSpoolDirectory string
+	Store              SessionStore
+	Document           DocumentConfig
+	Limits             Limits
+	Telemetry          *collabtelemetry.Telemetry
+	AllowedOrigins     []string
+	Build              string
+	Revision           string
+	OnWebSocketError   func(error)
+	// OnRetiredSession reports a stored hosted session skipped at recovery
+	// because it was written by a retired protocol version.
+	OnRetiredSession              func(sessionID string, err error)
 	LaunchTokenTTL                time.Duration
 	JoinTokenTTL                  time.Duration
 	ResumptionTokenTTL            time.Duration
@@ -127,6 +130,7 @@ type Service struct {
 	tokens               map[string]tokenRecord
 	sessions             map[string]sessionRecord
 	recoveryErrors       map[model.DocumentID]error
+	retiredSessions      map[string]uint16 // hosted session ID -> stored protocol version
 	desktopHandoffs      map[[sha256.Size]byte]desktopAuthHandoff
 	desktopAuthStates    map[[sha256.Size]byte][sha256.Size]byte
 	activeConnections    int
@@ -200,6 +204,7 @@ func NewService(config ServiceConfig) *Service {
 		hostedConnections: make(map[uint64]hostedConnection),
 		housekeepingDone:  make(chan struct{}),
 		recoveryErrors:    make(map[model.DocumentID]error),
+		retiredSessions:   make(map[string]uint16),
 		desktopHandoffs:   make(map[[sha256.Size]byte]desktopAuthHandoff),
 		desktopAuthStates: make(map[[sha256.Size]byte][sha256.Size]byte),
 		server:            http.NewServeMux(),

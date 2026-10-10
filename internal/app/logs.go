@@ -6,6 +6,12 @@ import (
 	"sdmm/internal/util"
 	"time"
 
+	// APHELION EDIT ADDITION START - CRASH LOG
+	"fmt"
+
+	"sdmm/internal/aphelion/diagnostics/crashlog"
+	// APHELION EDIT ADDITION END
+
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -22,6 +28,12 @@ func initializeLogs(internalDir string) string {
 	if err != nil {
 		panic("unable to open log file")
 	}
+	// APHELION EDIT ADDITION START - CRASH LOG
+	// The GUI build has no console; keep crash stack traces in the session log.
+	if err := crashlog.Capture(file); err != nil {
+		_, _ = fmt.Fprintln(file, "unable to capture crash reports:", err)
+	}
+	// APHELION EDIT ADDITION END
 
 	// Attach log output to the log file and an application terminal.
 	fileWriter := zerolog.ConsoleWriter{

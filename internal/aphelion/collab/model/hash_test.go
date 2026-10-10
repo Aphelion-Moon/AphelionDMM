@@ -275,7 +275,10 @@ func TestCanonicalMapGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("hash golden snapshot: %v", err)
 	}
-	const want = "3744333e7cc77dd06e903b3882701ffd020ceedbe438447cc6893904b063eda4"
+	const want = "12aaa1816719e155615275d8d53aa18252d356b369ed12e1dc994b65285fa839"
+	if oracle := bufferedCanonicalHash(snapshot); oracle != want {
+		t.Fatalf("golden hash %q disagrees with the specification oracle %q", want, oracle)
+	}
 	if got != want {
 		t.Fatalf("golden hash changed: got %q, want %q", got, want)
 	}
@@ -315,5 +318,15 @@ func fixtureSnapshot() Snapshot {
 				State: TileState{Prefabs: []PrefabState{}},
 			},
 		},
+	}
+}
+
+// Protocol v1 hashes are retired: a snapshot stamped with another protocol
+// version cannot be hashed or applied, so a v1 session is refused.
+func TestSnapshotRejectsRetiredProtocolVersion(t *testing.T) {
+	snapshot := fixtureSnapshot()
+	snapshot.ProtocolVersion = 1
+	if _, err := snapshot.Hash(); err == nil || !strings.Contains(err.Error(), "protocol version is 1, want 2") {
+		t.Fatalf("v1 snapshot hash error = %v", err)
 	}
 }

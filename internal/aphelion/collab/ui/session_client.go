@@ -56,6 +56,8 @@ type SessionClient struct {
 	cursorColor             *int // APHELION EDIT ADDITION - COLLABORATION CURSOR COLOR
 	nextPresenceAt          time.Time
 	pendingPresence         *protocol.PresenceUpdatePayload
+	sentPresence            *protocol.PresenceUpdatePayload // last sent, without sequence
+	sentPresenceAt          time.Time
 	cancelPresence          func()
 	presenceGeneration      uint64
 	resumptionToken         string
@@ -761,6 +763,13 @@ func (client *SessionClient) PublishPresence(ctx context.Context, cursor *model.
 	}
 	now := client.config.Now()
 	payload := clonePresencePayload(protocol.PresenceUpdatePayload{Cursor: cursor, Selection: selection, Status: status})
+	// The map publishes the pointer every frame. Every participant receives
+	// each update, so an unchanged state is only resent as a keepalive before
+	// observers expire it.
+	if client.sentPresence != nil && samePresence(*client.sentPresence, payload) && now.Sub(client.sentPresenceAt) < presenceKeepalive {
+		client.clearPendingPresenceLocked()
+		return nil
+	}
 	if now.Before(client.nextPresenceAt) {
 		client.pendingPresence = &payload
 		if client.cancelPresence == nil {
@@ -901,7 +910,21 @@ func (client *SessionClient) sendPresenceLocked(ctx context.Context, payload pro
 	}
 	client.presenceSequence = sequence
 	client.nextPresenceAt = now.Add(client.presenceInterval)
+	sent := clonePresencePayload(payload)
+	sent.Sequence = 0
+	client.sentPresence, client.sentPresenceAt = &sent, now
 	return nil
+}
+
+// presenceKeepalive resends an unchanged presence well before observers
+// expire it (PresenceTimeout).
+const presenceKeepalive = PresenceTimeout / 3
+
+func samePresence(a, b protocol.PresenceUpdatePayload) bool {
+	if a.Status != b.Status || (a.Cursor == nil) != (b.Cursor == nil) || (a.Selection == nil) != (b.Selection == nil) {
+		return false
+	}
+	return (a.Cursor == nil || *a.Cursor == *b.Cursor) && (a.Selection == nil || *a.Selection == *b.Selection)
 }
 
 func (client *SessionClient) clearPendingPresenceLocked() {
@@ -915,6 +938,7 @@ func (client *SessionClient) clearPendingPresenceLocked() {
 func (client *SessionClient) stopPresencePublicationLocked() {
 	client.clearPendingPresenceLocked()
 	client.presenceGeneration++
+	client.sentPresence = nil // a new connection starts without peers' copy
 }
 
 func clonePresencePayload(payload protocol.PresenceUpdatePayload) protocol.PresenceUpdatePayload {
@@ -938,6 +962,7 @@ func (client *SessionClient) recordJoined(machine *collabclient.StateMachine, pa
 		client.role = payload.Role
 		client.revision = payload.Revision
 		client.presenceInterval = time.Duration(payload.PresenceIntervalMS) * time.Millisecond
+		client.sentPresence = nil // the server forgets presence on disconnect
 		client.resumptionToken = payload.ResumptionToken
 		client.resumptionExpiresAt = payload.ResumptionTokenExpiresAt
 		client.documentID = payload.DocumentID

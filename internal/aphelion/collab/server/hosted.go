@@ -334,6 +334,11 @@ func (service *Service) handleRedeemHostedInvitation(writer http.ResponseWriter,
 		writeHostedDecodeError(writer, err, "invalid hosted invitation redemption")
 		return
 	}
+	if message := service.retiredSessionMessage(request.PathValue("session_id")); message != "" {
+		// Do not spend a single-use invitation on a session that cannot open.
+		writeError(writer, http.StatusGone, "retired_protocol", message)
+		return
+	}
 	member, err := service.config.HostedRegistry.RedeemHostedInvitation(
 		request.Context(), request.PathValue("session_id"), sha256.Sum256([]byte(body.Token)),
 		collabstore.HostedIdentity{Issuer: identity.Issuer, Subject: identity.Subject, ActorID: identity.ActorID, DisplayName: identity.DisplayName},
@@ -394,11 +399,36 @@ func (service *Service) RecoverHostedSessions(ctx context.Context) error {
 	}
 	for _, hostedSession := range sessions {
 		if err := service.recoverHostedSession(ctx, hostedSession); err != nil {
+			// A session stored by a retired protocol is refused, not an outage:
+			// its data is left untouched for an older release to export, and
+			// joins explain why it cannot open. Anything else stops startup.
+			var retired *model.UnsupportedProtocolError
+			if errors.As(err, &retired) {
+				service.mutex.Lock()
+				service.retiredSessions[hostedSession.SessionID] = retired.Version
+				service.mutex.Unlock()
+				if service.config.OnRetiredSession != nil {
+					service.config.OnRetiredSession(hostedSession.SessionID, err)
+				}
+				continue
+			}
 			service.setDocumentRecoveryError(hostedSession.DocumentID, err)
 			return err
 		}
 	}
 	return nil
+}
+
+// retiredSessionMessage explains why a stored session cannot open, or is
+// empty when the session is not retired.
+func (service *Service) retiredSessionMessage(sessionID string) string {
+	service.mutex.RLock()
+	version, retired := service.retiredSessions[sessionID]
+	service.mutex.RUnlock()
+	if !retired {
+		return ""
+	}
+	return fmt.Sprintf("Session %s was hosted with collaboration protocol v%d and cannot be opened by this server (protocol v%d). Open it with the previous AphelionDMM release to save the map, then host it again.", sessionID, version, model.ProtocolVersion)
 }
 
 func (service *Service) recoverHostedSession(ctx context.Context, hostedSession collabstore.HostedSession) error {

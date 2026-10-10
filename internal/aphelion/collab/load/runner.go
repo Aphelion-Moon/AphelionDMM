@@ -259,7 +259,7 @@ func mintEditorToken(ctx context.Context, client *http.Client, config RunConfig,
 
 func connectEditor(ctx context.Context, config RunConfig, token string) (*websocket.Conn, error) {
 	websocketURL := "ws" + strings.TrimPrefix(strings.TrimRight(config.Endpoint, "/"), "http") + "/v1/collaboration"
-	connection, _, err := websocket.Dial(ctx, websocketURL, &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + token}, "Origin": []string{config.Origin}}, Subprotocols: []string{protocol.BulkSubprotocol, "apheliondmm.collaboration.v1"}})
+	connection, _, err := websocket.Dial(ctx, websocketURL, &websocket.DialOptions{HTTPHeader: http.Header{"Authorization": []string{"Bearer " + token}, "Origin": []string{config.Origin}}, Subprotocols: []string{protocol.BulkSubprotocol, "apheliondmm.collaboration.v1"}, CompressionMode: websocket.CompressionNoContextTakeover})
 	if err != nil {
 		return nil, err
 	}

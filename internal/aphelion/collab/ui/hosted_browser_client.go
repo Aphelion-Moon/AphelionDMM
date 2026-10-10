@@ -108,8 +108,42 @@ func (client *SessionClient) HostedCapabilities(ctx context.Context) (protocol.H
 	if err == nil && !result.SessionBrowser {
 		err = ErrHostedBrowserUnsupported
 	}
+	if err == nil {
+		err = client.checkServiceProtocol(ctx, account.Origin)
+	}
 	return result, err
 }
+
+// checkServiceProtocol names a collaboration protocol mismatch before any
+// session is created or joined, where it would otherwise surface as a bare
+// HTTP or close error. A service whose version cannot be read is not refused.
+func (client *SessionClient) checkServiceProtocol(ctx context.Context, origin string) error {
+	request, err := client.request(ctx, http.MethodGet, origin+"/v1/version", "", nil)
+	if err != nil {
+		return nil
+	}
+	response, err := client.http.Do(request)
+	if err != nil {
+		return nil
+	}
+	defer func() { _ = response.Body.Close() }()
+	var version struct {
+		ProtocolVersions []uint16 `json:"protocol_versions"`
+	}
+	if response.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&version) != nil || len(version.ProtocolVersions) == 0 {
+		return nil
+	}
+	for _, supported := range version.ProtocolVersions {
+		if supported == model.ProtocolVersion {
+			return nil
+		}
+	}
+	return fmt.Errorf("%w: the collaboration service uses protocol v%d but this AphelionDMM requires v%d; update the service or use the matching AphelionDMM release", ErrServiceProtocolMismatch, version.ProtocolVersions[0], model.ProtocolVersion)
+}
+
+// ErrServiceProtocolMismatch reports a hosted service on another collaboration
+// protocol version.
+var ErrServiceProtocolMismatch = errors.New("collaboration protocol mismatch")
 
 func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account HostedAccount, method, path string, query url.Values, body any, result any) error {
 	client.mutex.Lock()
@@ -169,6 +203,9 @@ func (client *SessionClient) hostedBrowserRequest(ctx context.Context, account H
 		return ErrHostedSignInRequired
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		if err := retiredSessionError(response); err != nil {
+			return err
+		}
 		if response.StatusCode == http.StatusConflict {
 			var conflict struct {
 				Code string `json:"code"`
@@ -294,4 +331,23 @@ func (client *SessionClient) RepositoryDescriptorSupported() bool {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
 	return client.hostedRepository
+}
+
+// retiredSessionError returns the service's explanation for a session stored
+// by a retired collaboration protocol, or nil for any other response.
+func retiredSessionError(response *http.Response) error {
+	if response.StatusCode != http.StatusGone {
+		return nil
+	}
+	var body struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&body) != nil || body.Code != "retired_protocol" || body.Message == "" {
+		return nil
+	}
+	if len(body.Message) > 512 {
+		body.Message = body.Message[:512]
+	}
+	return errors.New(body.Message)
 }

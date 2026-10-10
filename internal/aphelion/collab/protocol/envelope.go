@@ -290,7 +290,7 @@ func DecodeServerForSession(data []byte, bulk bool) (DecodedServer, error) {
 
 func validateEnvelope(version uint16, messageID, sessionID string) error {
 	if version != model.ProtocolVersion {
-		return fmt.Errorf("protocol version is %d, want %d", version, model.ProtocolVersion)
+		return &model.UnsupportedProtocolError{Version: version}
 	}
 	if err := validateIdentifier("message id", messageID); err != nil {
 		return err

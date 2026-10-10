@@ -237,6 +237,26 @@ Canonical hash input uses:
 6. variable values preserved as parser-normalized DreamMaker text;
 7. length-prefixed fields to prevent concatenation ambiguity.
 
+Protocol v2 (October 2026) structures the hash in three levels so an edit
+rehashes only its tiles, their rows and the root. Integers are unsigned 64-bit
+big-endian; strings are a length integer followed by the bytes; a digest is its
+32 raw bytes.
+
+- Tile digest: SHA-256 of `"apheliondmm.tile.v2"`, `x`, `y`, `z`, the prefab
+  count, then for each prefab in order its stable ID, path, variable count and
+  each sorted variable name and value.
+- Row digest, one per `(z, y)` holding at least one tile: SHA-256 of
+  `"apheliondmm.row.v2"`, `z`, `y`, the tile count, then the tile digests in `x`
+  order.
+- Map hash: lowercase hex SHA-256 of `"apheliondmm.map.v2"`, `max_x`, `max_y`,
+  `max_z`, the tile count, the row count, then for each row in `(z, y)` order its
+  `z`, `y` and row digest.
+
+Protocol v1 hashed the same fields as one flat stream. v1 data is retired, not
+converted: a v2 service skips stored v1 sessions at recovery, leaves their rows
+untouched for an older release to export, and answers joins with
+`retired_protocol` (HTTP 410).
+
 Golden fixtures prove Windows, Linux, and macOS produce identical hashes.
 
 ## Operation semantics
@@ -350,13 +370,13 @@ Server messages are:
 - `session_notice`;
 - `pong`.
 
-Every envelope contains protocol version, message type, message ID, and session ID. Durable messages also contain document ID and revision metadata. Binary compression is disabled initially; bounded JSON keeps inspection and compatibility straightforward.
+Every envelope contains protocol version, message type, message ID, and session ID. Durable messages also contain document ID and revision metadata. Messages remain bounded JSON (and negotiated bulk frames). WebSockets negotiate per-message deflate without context takeover, so each message is compressed independently and a credential never shares a compression window with attacker-chosen bytes; size limits apply to the decompressed message.
 
 After initial authentication, the server sends a dedicated opaque resumption credential scoped to the session and actor. It is short-lived, held only in client memory, never placed in a URL or persistent configuration, and rotated on every successful reconnect. Invitation and join credentials remain one-purpose and are erased after join. A reconnect presents the last acknowledged revision and the current resumption credential; authentication or protocol failure stops retries and clears the credential. When that revision predates retained replay history, the server sends `snapshot_required` and closes without a partial replay. The client fetches the authoritative snapshot through authenticated HTTP, installs the compatible non-rollback baseline, and reconnects again from its revision so operations accepted during the fallback window arrive through ordinary replay.
 
 ### Versioning
 
-Protocol version 1 begins when conformance fixtures and contracts are accepted. During implementation, pre-release versions use `0.x` in build metadata but still reject incompatible schemas. Additive optional fields require a defined absent meaning. Changed semantics require a new negotiated protocol version.
+Protocol version 1 began when conformance fixtures and contracts were accepted; protocol version 2 replaced the flat canonical map hash with the tile/row/map structure above. During implementation, pre-release versions use `0.x` in build metadata but still reject incompatible schemas. Additive optional fields require a defined absent meaning. Changed semantics require a new negotiated protocol version.
 
 ## Persistence and recovery
 

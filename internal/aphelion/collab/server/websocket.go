@@ -62,7 +62,10 @@ func (service *Service) handleWebSocket(writer http.ResponseWriter, request *htt
 
 	connection, err := websocket.Accept(writer, request, &websocket.AcceptOptions{
 		Subprotocols:    []string{protocol.BulkSubprotocol, WebSocketSubprotocol},
-		CompressionMode: websocket.CompressionDisabled,
+		// Each message is compressed on its own (no shared window), so a message
+		// carrying a credential never shares a window with attacker-chosen bytes.
+		// Read limits apply to the decompressed message.
+		CompressionMode: websocket.CompressionNoContextTakeover,
 		// Origin was matched exactly against the configured allowlist before the upgrade.
 		InsecureSkipVerify: true,
 	})
@@ -107,6 +110,12 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		return fmt.Errorf("read join: %w", err)
 	}
 	decoded, err := protocol.DecodeClient(data)
+	var unsupported *model.UnsupportedProtocolError
+	if errors.As(err, &unsupported) {
+		// Name both versions so an outdated editor can tell the user to update.
+		_ = connection.Close(websocket.StatusPolicyViolation, fmt.Sprintf("unsupported collaboration protocol v%d; this server requires v%d", unsupported.Version, model.ProtocolVersion))
+		return fmt.Errorf("validate join envelope: %w", err)
+	}
 	if err != nil || decoded.Envelope.Type != protocol.ClientJoin || (!auth.hosted && decoded.Envelope.SessionID != auth.sessionID) {
 		_ = connection.Close(websocket.StatusPolicyViolation, "valid join required")
 		return fmt.Errorf("validate join envelope: %w", err)
@@ -304,14 +313,37 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		if accepted.Revision != sentRevision+1 {
 			return fmt.Errorf("durable revision gap: got %d after %d", accepted.Revision, sentRevision)
 		}
-		acceptedHash, found, hashErr := service.store.RevisionHash(parent, accepted.DocumentID, accepted.Revision)
-		if hashErr != nil {
-			return fmt.Errorf("load durable hash: %w", hashErr)
+		// The owner publishes the hash it just committed; only events without
+		// one read it back from the store, once per connection.
+		acceptedHash := event.mapHash
+		if acceptedHash == "" {
+			storedHash, found, hashErr := service.store.RevisionHash(parent, accepted.DocumentID, accepted.Revision)
+			if hashErr != nil {
+				return fmt.Errorf("load durable hash: %w", hashErr)
+			}
+			if !found {
+				return fmt.Errorf("durable hash at revision %d is not retained", accepted.Revision)
+			}
+			acceptedHash = storedHash
 		}
-		if !found {
-			return fmt.Errorf("durable hash at revision %d is not retained", accepted.Revision)
+		envelope := protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "accepted-" + string(accepted.OperationID), SessionID: auth.sessionID, Type: protocol.ServerOperationAccepted}
+		payload := protocol.OperationAcceptedPayload{Operation: accepted, MapHash: acceptedHash}
+		// Small JSON acceptances are byte-identical for every connection of the
+		// session: encode once per event. Bulk frames and oversized messages
+		// keep the per-connection path below.
+		if acceptedHash == event.mapHash && (bulkCodec(parent) == nil || len(accepted.Changes) <= 64) {
+			if data, shared, err := event.sharedJSON(auth.sessionID, envelope, payload); shared && err == nil && len(data) <= protocol.MaxMessageBytes {
+				writeContext, cancel := context.WithTimeout(parent, webSocketIOTimeout)
+				err := connection.Write(writeContext, websocket.MessageText, data)
+				cancel()
+				if err != nil {
+					return err
+				}
+				sentRevision = accepted.Revision
+				return nil
+			}
 		}
-		if err := writeServerEnvelope(parent, connection, protocol.ServerEnvelope{ProtocolVersion: model.ProtocolVersion, MessageID: "accepted-" + string(accepted.OperationID), SessionID: auth.sessionID, Type: protocol.ServerOperationAccepted}, protocol.OperationAcceptedPayload{Operation: accepted, MapHash: acceptedHash}); err != nil {
+		if err := writeServerEnvelope(parent, connection, envelope, payload); err != nil {
 			return err
 		}
 		sentRevision = accepted.Revision
