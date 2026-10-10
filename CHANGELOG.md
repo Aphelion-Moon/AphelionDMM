@@ -1,3 +1,11 @@
+# v.a.10 — Collaboration protocol v2
+
+* Collaboration protocol v2: incremental tile/row/map hashing. v.a.9 editors and services are incompatible; v.a.9 hosted sessions are retired, not converted, so save them with v.a.9 before updating.
+* Verify each session edit against the last committed head instead of replaying history, compress WebSocket messages per message, encode accepted edits once per session and stop resending unchanged cursors.
+* Name protocol mismatches and retired sessions in the editor instead of failing with a bare connection error.
+* Turn multi-direction sprites that only inherit `dir` from `/atom` (such as iron `smooth_half` floors).
+* Fix Map Lint rescanning a session map before the server acknowledged its fixes, and write crash stack traces to the session log.
+
 # v.a.9 — Mapping aids and the Meridian theme
 
 * Add an in-game look for smoothing, cables, smart pipes and window spawners (View > In-Game Look, Ctrl+I).
