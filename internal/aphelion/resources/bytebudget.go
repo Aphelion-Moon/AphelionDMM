@@ -236,3 +236,19 @@ func formatBytes(value uint64) string {
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(value)/float64(div), "KMGTPE"[exp])
 }
+
+// LowMemoryThreshold is the free host memory below which a large environment
+// parse is likely to page heavily; a typical parse peaks near 450 MiB.
+const LowMemoryThreshold uint64 = 1 << 30
+
+// HostAvailableMemory reports memory currently available to the host.
+func HostAvailableMemory() (uint64, error) { return hostAvailableMemory() }
+
+// LowMemoryNotice returns user-facing text when available is below
+// LowMemoryThreshold, otherwise an empty string.
+func LowMemoryNotice(available uint64) string {
+	if available == 0 || available >= LowMemoryThreshold {
+		return ""
+	}
+	return fmt.Sprintf("Only %s of memory is free. Loading may take several minutes; closing other applications will speed it up.", formatBytes(available))
+}

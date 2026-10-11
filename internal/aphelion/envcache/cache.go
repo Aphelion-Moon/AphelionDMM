@@ -167,15 +167,43 @@ func (c *Cache) Load(ctx context.Context, root, parser string) (entry *Entry, re
 	return &Entry{Tree: stored.Tree, Trace: stored.Trace, lease: lease}, nil
 }
 
+// PutEstimate is the temporary memory Put needs beyond the caller's own tree.
+func PutEstimate(tree []byte, trace Trace) uint64 {
+	return uint64(len(tree))*5 + uint64(len(trace.Accesses)+len(trace.Probes))*2048
+}
+
 func (c *Cache) Put(ctx context.Context, root, parser string, tree []byte, trace Trace) error {
 	if int64(len(tree)) > MaxEntryBytes/2 || len(trace.Accesses)+len(trace.Probes) > maxInputs {
 		return fmt.Errorf("cache payload is invalid or oversized")
 	}
-	lease, err := resources.DefaultBudget().Reserve(uint64(len(tree))*5 + uint64(len(trace.Accesses)+len(trace.Probes))*2048)
+	lease, err := resources.DefaultBudget().Reserve(PutEstimate(tree, trace))
 	if err != nil {
 		return err
 	}
 	defer lease.Release()
+	return c.put(ctx, root, parser, tree, trace)
+}
+
+// PutAdmitted writes under a reservation the caller already holds for tree, so
+// the same bytes are not charged twice. The reservation is grown to the write
+// estimate if needed and remains owned by the caller.
+func (c *Cache) PutAdmitted(ctx context.Context, root, parser string, tree []byte, trace Trace, lease *resources.Reservation) error {
+	if int64(len(tree)) > MaxEntryBytes/2 || len(trace.Accesses)+len(trace.Probes) > maxInputs {
+		return fmt.Errorf("cache payload is invalid or oversized")
+	}
+	if lease == nil {
+		return fmt.Errorf("cache write requires a memory reservation")
+	}
+	if need := PutEstimate(tree, trace); lease.Bytes() < need {
+		if err := lease.Resize(need); err != nil {
+			return err
+		}
+	}
+	return c.put(ctx, root, parser, tree, trace)
+}
+
+func (c *Cache) put(ctx context.Context, root, parser string, tree []byte, trace Trace) error {
+	var err error
 	var canonical bytes.Buffer
 	if err := json.Compact(&canonical, tree); err != nil {
 		return err

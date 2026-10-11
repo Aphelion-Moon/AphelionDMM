@@ -71,7 +71,7 @@ func (r *Result) Persist() {
 		defer cancel()
 		stage := uistage.Begin("aphelion.environment.cache_write")
 		defer stage.End()
-		if err := cache.Put(ctx, root, parserIdentity, raw, trace); err != nil {
+		if err := cache.PutAdmitted(ctx, root, parserIdentity, raw, trace, lease); err != nil {
 			log.Debug().Err(err).Msg("environment cache write skipped")
 		}
 	}()
@@ -165,6 +165,10 @@ func Load(ctx context.Context, path string, options Options) (*Result, error) {
 		return nil, err
 	}
 	result.Tree = &tree
+	if lease == nil {
+		result.Status += "; cache write skipped: memory admission refused"
+		return result, nil
+	}
 	if traced.Trace.Complete && directory != "" {
 		// Observed parse-time drift is not published. Retry once from native.
 		if err = envcache.ValidateInputs(ctx, root, traced.Trace); err != nil {
@@ -197,6 +201,10 @@ func Load(ctx context.Context, path string, options Options) (*Result, error) {
 			if err != nil {
 				result.Close()
 				return nil, err
+			}
+			if lease == nil {
+				result.Status += "; cache write skipped: memory admission refused"
+				return result, nil
 			}
 			if err == nil && traced.Trace.Complete {
 				err = envcache.ValidateInputs(ctx, root, traced.Trace)

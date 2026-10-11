@@ -20,6 +20,8 @@ import (
 var ErrTraceTransferLimit = errors.New("parser trace output exceeds 256 MiB transfer limit")
 
 // The caller owns the admitted bytes until it finishes decoding or persisting.
+// A nil reservation with a nil error means memory admission was refused; the
+// output is still valid but must not be retained for cache publication.
 func ParseEnvironmentTraced(path string) ([]byte, *resources.Reservation, error) {
 	nativePath := C.CString(path)
 	defer C.free(unsafe.Pointer(nativePath))
@@ -33,7 +35,13 @@ func ParseEnvironmentTraced(path string) ([]byte, *resources.Reservation, error)
 	}
 	lease, err := resources.DefaultBudget().Reserve(size*6 + 1<<20)
 	if err != nil {
-		return nil, nil, err
+		var admission *resources.AdmissionError
+		if !errors.As(err, &admission) {
+			return nil, nil, err
+		}
+		// The reservation only sizes the cache write. Refusing it must not fail an
+		// environment the plain parser would load, so continue without a lease.
+		lease = nil
 	}
 	stage = uistage.Begin("aphelion.parser.native_transfer")
 	data := C.GoBytes(unsafe.Pointer(output), C.int(size))

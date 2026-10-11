@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+	"sdmm/internal/aphelion/resources"
 )
 
 func TestCacheValidatesConsumedBytesAndNegativeProbes(t *testing.T) {
@@ -207,3 +208,46 @@ func TestCacheFailureAndWriterContentionPreservePublishedRecord(t *testing.T) {
 	}
 	entry.Close()
 }
+
+func TestPutAdmittedUsesCallersReservationInsteadOfReservingAgain(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "project.dme")
+	data := []byte("#define VALUE 1\n")
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	trace := Trace{SchemaVersion: 1, Complete: true, WorkingDir: cwd, ConfigMode: "default-no-autodetect", Accesses: []Access{{Kind: "read", Path: path, ResolvedPath: path, SHA256: fmt.Sprintf("%x", sha256.Sum256(data))}}}
+	tree := []byte(`{"path":"/"}`)
+	cache := New(privateTestDirectory(t))
+
+	small, err := resources.NewFixedBudget(1024).Reserve(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer small.Release()
+	if err = cache.PutAdmitted(context.Background(), path, "parser", tree, trace, small); err == nil {
+		t.Fatal("reservation that cannot grow to the write estimate was accepted")
+	}
+
+	// The budget is exhausted by the caller's own reservation; a second
+	// reservation inside the write would be refused.
+	budget := resources.NewFixedBudget(1 << 20)
+	lease, err := budget.Reserve(PutEstimate(tree, trace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Release()
+	if err = cache.PutAdmitted(context.Background(), path, "parser", tree, trace, lease); err != nil {
+		t.Fatal(err)
+	}
+	if budget.Used() != lease.Bytes() {
+		t.Fatalf("write changed caller reservation: used %d lease %d", budget.Used(), lease.Bytes())
+	}
+	entry, err := cache.Load(context.Background(), path, "parser")
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry.Close()
+}
+

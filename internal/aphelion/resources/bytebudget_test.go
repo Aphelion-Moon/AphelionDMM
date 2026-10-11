@@ -58,3 +58,15 @@ func TestAdmissionReportsIncrementalRequestAndLiveOwners(t *testing.T) {
 		t.Fatal("released owner survived", err)
 	}
 }
+
+func TestLowMemoryNotice(t *testing.T) {
+	if got := LowMemoryNotice(580 << 20); !strings.Contains(got, "580.0 MiB") || !strings.Contains(got, "several minutes") {
+		t.Fatalf("notice = %q", got)
+	}
+	if got := LowMemoryNotice(LowMemoryThreshold); got != "" {
+		t.Fatalf("notice at threshold = %q", got)
+	}
+	if got := LowMemoryNotice(0); got != "" {
+		t.Fatalf("unknown memory produced notice %q", got)
+	}
+}

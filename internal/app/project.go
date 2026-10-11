@@ -7,6 +7,7 @@ import (
 	"sdmm/internal/aphelion/envresolve"
 	"sdmm/internal/aphelion/envsnapshot"
 	"sdmm/internal/aphelion/maplint"
+	"sdmm/internal/aphelion/resources"
 	"sdmm/internal/aphelion/mapindex"
 	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - SPRITE DIRECTIONS
@@ -241,6 +242,11 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 	a.environmentLoadCancel = cancel
 	progress := &envload.Progress{}
 	started := time.Now()
+	lowMemory := ""
+	if available, memErr := resources.HostAvailableMemory(); memErr == nil {
+		log.Info().Uint64("host_available_bytes", available).Msg("environment load starting")
+		lowMemory = resources.LowMemoryNotice(available)
+	}
 	published := false
 	dlg := dialog.TypeCustom{Title: "Loading", Layout: w.Layout{w.Text(path), w.Custom(func() {
 		label := progress.Stage()
@@ -248,6 +254,9 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 			label = "Cancelling - waiting for the current preparation step"
 		}
 		imgui.TextWrapped(label)
+		if lowMemory != "" {
+			imgui.TextWrapped(lowMemory)
+		}
 		imgui.Text(fmt.Sprint(time.Since(started).Round(time.Second)))
 		imgui.BeginDisabledV(ctx.Err() != nil)
 		cancelLabel := "Cancel load"
@@ -396,7 +405,8 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 				} else {
 					dialog.Open(dialog.TypeInformation{
 						Title:       "Error!",
-						Information: "Unable to open environment: " + path,
+						// APHELION EDIT CHANGE - OWNED ENVIRONMENT LOAD - ORIGINAL: Information: "Unable to open environment: " + path,
+						Information: "Unable to open environment: " + path + "\n" + err.Error(),
 					})
 				}
 				return
