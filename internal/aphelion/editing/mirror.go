@@ -99,7 +99,7 @@ func mirrorPrefab(prefab *dmmprefab.Prefab, axis MirrorAxis, lookup ...PrefabLoo
 		return prefab, nil
 	}
 	if raw, exists := vars.Value("dir"); exists && scope.dir {
-		direction, ok := parseDirection(raw)
+		direction, ok := facing(raw)
 		if !ok {
 			return nil, fmt.Errorf("cannot mirror dir = %s", raw)
 		}
@@ -145,5 +145,5 @@ func mirrorPrefab(prefab *dmmprefab.Prefab, axis MirrorAxis, lookup ...PrefabLoo
 	if path == prefab.Path() && vars == sourceVars {
 		return prefab, nil
 	}
-	return dmmprefab.New(dmmprefab.IdNone, path, vars), nil
+	return lintTurn(prefab, dmmprefab.New(dmmprefab.IdNone, path, vars), "mirror")
 }

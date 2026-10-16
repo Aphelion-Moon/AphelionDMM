@@ -289,6 +289,8 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 		a.pathsFilter = newPathsFilter(env)
 		// APHELION EDIT ADDITION START - PLACEMENT LINT
 		maplint.Active().Begin(env.RootFile, window.RunLater)
+		// Rotation and mirroring never write an edit the repository bans.
+		editing.SetOrientationRules(maplint.Active().RuleSet)
 		// APHELION EDIT ADDITION END
 		// APHELION EDIT ADDITION START - SPRITE DIRECTIONS
 		spritedirs.Activate(spritedirs.New(env.RootDir))
@@ -635,6 +637,7 @@ func (a *app) freeEnvironmentResources() {
 	a.pathsFilter = dm.NewPathsFilterEmpty()
 	// APHELION EDIT ADDITION START - PLACEMENT LINT
 	maplint.Active().Reset()
+	editing.SetOrientationRules(nil)
 	a.layout.MapLint.Free()
 	// APHELION EDIT ADDITION START - MAPPING HELPER PANEL
 	a.layout.Helpers.Free()

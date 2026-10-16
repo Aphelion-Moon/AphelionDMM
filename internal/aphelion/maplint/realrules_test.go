@@ -46,6 +46,17 @@ func TestRealRepositoryRules(t *testing.T) {
 	if got := rs.CheckTile([]Atom{atom("/obj/structure/cable", "d1", "1")}); len(got) == 0 {
 		t.Errorf("cable_varedits did not fire")
 	}
+	// What rotation consults: cables may never take a dir, disposal pipes
+	// may, and windoor dir is restricted to non-cardinal values.
+	if got := rs.EditViolations(atom("/obj/structure/cable"), atom("/obj/structure/cable", "dir", "4")); len(got) != 1 || !got[0].AnyValue {
+		t.Errorf("cable dir edit: %+v", got)
+	}
+	if got := rs.EditViolations(atom("/obj/structure/disposalpipe/segment"), atom("/obj/structure/disposalpipe/segment", "dir", "8")); len(got) != 0 {
+		t.Errorf("disposal dir edit: %+v", got)
+	}
+	if got := rs.EditViolations(atom("/obj/machinery/door/window/brigdoor"), atom("/obj/machinery/door/window/brigdoor", "dir", "8")); len(got) != 1 || got[0].AnyValue {
+		t.Errorf("windoor dir edit: %+v", got)
+	}
 }
 
 func TestAdapterFromPrefab(t *testing.T) {

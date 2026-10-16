@@ -68,6 +68,11 @@ type Violation struct {
 	// i.e. the neighbor is an exact duplicate of the subject.
 	Identical bool
 
+	// AnyValue is true when a banned_variables rule bans the variable
+	// whatever its value (no allow or deny list): the type's mapper may not
+	// edit it at all.
+	AnyValue bool
+
 	// Paths lists the offending paths: the subject, then the neighbor if any.
 	Paths []string
 
@@ -309,6 +314,7 @@ func (r *rule) eval(lf *lintFile, fileIdx, ruleIdx int, file string, tile []pAto
 	if r.bannedVarsAll {
 		if len(a.Vars) > 0 {
 			emit(KindBannedVariables, "Typepath "+a.Path+" should not have any variable edits"+whenText+".", -1, "", "")
+			(*out)[len(*out)-1].AnyValue = true
 		}
 		return
 	}
@@ -323,6 +329,7 @@ func (r *rule) eval(lf *lintFile, fileIdx, ruleIdx int, file string, tile []pAto
 			continue
 		}
 		emit(KindBannedVariable, "Typepath "+a.Path+" has a banned variable (set to "+c.pyStr()+")"+whenText+": "+bv.name+". "+reason, -1, "", bv.name)
+		(*out)[len(*out)-1].AnyValue = bv.allow == nil && bv.deny == nil
 	}
 }
 

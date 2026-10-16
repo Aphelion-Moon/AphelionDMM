@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"sdmm/internal/aphelion/maplint"
 	"sdmm/internal/dmapi/dm"
 	"sdmm/internal/dmapi/dmmap"
 	"sdmm/internal/dmapi/dmmap/dmmdata/dmmprefab"
@@ -113,7 +114,7 @@ func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool, lookup ...PrefabLook
 		return prefab, nil
 	}
 	if raw, ok := vars.Value("dir"); ok && scope.dir {
-		direction, ok := parseDirection(raw)
+		direction, ok := facing(raw)
 		if !ok {
 			return nil, fmt.Errorf("cannot rotate dir = %s", raw)
 		}
@@ -173,7 +174,60 @@ func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool, lookup ...PrefabLook
 	if path == prefab.Path() && vars == sourceVars {
 		return prefab, nil
 	}
-	return dmmprefab.New(dmmprefab.IdNone, path, vars), nil
+	return lintTurn(prefab, dmmprefab.New(dmmprefab.IdNone, path, vars), "rotate")
+}
+
+// lintTurn keeps a turn within the loaded repository's map lint rules. A rule
+// that bans editing a variable at all (Meridian-Rift's cable_varedits.yml:
+// cables find their connections in game) means the type has no facing for a
+// mapper to set, so the atom moves unturned, even when the map already holds
+// such an edit: the lint fixer, not rotation, removes those. A rule that bans
+// only some values of a variable that matters (windoor dir: use the
+// directional helpers) cannot be met by leaving the atom pointing the old
+// way, so the whole transform is refused with the rule's own explanation.
+func lintTurn(source, turned *dmmprefab.Prefab, verb string) (*dmmprefab.Prefab, error) {
+	rules := orientationRules.Load()
+	if rules == nil {
+		return turned, nil
+	}
+	rs, before, after := (*rules)(), maplint.AtomFromPrefab(source), maplint.AtomFromPrefab(turned)
+	for _, v := range rs.AtomViolations(after) {
+		// banned_variables: true covers whatever the turn wrote; a single
+		// banned variable matters only when the turn is what writes it.
+		if v.AnyValue && (v.Variable == "" || before.Vars[v.Variable] != after.Vars[v.Variable]) {
+			return source, nil
+		}
+	}
+	for _, v := range rs.EditViolations(before, after) {
+		text := v.Help
+		if text == "" {
+			text = v.Message
+		}
+		return nil, fmt.Errorf("cannot %s without breaking %s: %s", verb, v.RuleFile, strings.Join(strings.Fields(text), " "))
+	}
+	return turned, nil
+}
+
+// facing reads dir as BYOND shows and runs it: an atom's dir is never 0, so a
+// type declaring dir = NONE (disposal pipes) faces SOUTH.
+func facing(raw string) (int, bool) {
+	direction, ok := parseDirection(raw)
+	if ok && direction == 0 {
+		direction = dm.DirSouth
+	}
+	return direction, ok
+}
+
+// declaresNoDir reports a type that declares dir = NONE, which already faces
+// SOUTH, so writing SOUTH onto its instances would be a redundant edit.
+func declaresNoDir(vars *dmvars.Variables) bool {
+	if parent := vars.Parent(); parent != nil {
+		if inherited, ok := parent.Value("dir"); ok {
+			direction, ok := parseDirection(inherited)
+			return ok && direction == 0
+		}
+	}
+	return false
 }
 
 // orientationScope says which inherited orientation values belong to a prefab.
@@ -198,6 +252,19 @@ func orientationScopeOf(prefab *dmmprefab.Prefab, lookups []PrefabLookup) orient
 	// A sprite known to have several directions has a real facing even when
 	// only /atom declares dir (iron smooth_half floors), so it turns too.
 	return orientationScope{dir: explicit || helper || owned || spriteHasDirections(vars), helper: helper}
+}
+
+var orientationRules atomic.Pointer[func() *maplint.RuleSet]
+
+// SetOrientationRules installs the source of the loaded repository's map lint
+// rules (nil clears it); rotation and mirroring never write an edit those
+// rules ban. Like SetSpriteDirections it is safe from any goroutine.
+func SetOrientationRules(rules func() *maplint.RuleSet) {
+	if rules == nil {
+		orientationRules.Store(nil)
+		return
+	}
+	orientationRules.Store(&rules)
 }
 
 var spriteDirections atomic.Pointer[func(icon, state string) (int, bool)]
@@ -310,6 +377,9 @@ func setDirection(path string, vars *dmvars.Variables, direction int, lookup []P
 	if explicit && !spriteHasDirections(vars) {
 		return path, dmvars.Set(vars, "dir", strconv.Itoa(direction))
 	}
+	if direction == dm.DirSouth && declaresNoDir(vars) {
+		return path, dmvars.Delete(vars, "dir")
+	}
 	return path, setOrientation(vars, "dir", strconv.Itoa(direction))
 }
 
@@ -323,7 +393,7 @@ func setOrientation(vars *dmvars.Variables, name, value string) *dmvars.Variable
 }
 
 func parseDirection(raw string) (int, bool) {
-	if value, ok := map[string]int{"NORTH": 1, "SOUTH": 2, "EAST": 4, "WEST": 8, "NORTHEAST": 5, "NORTHWEST": 9, "SOUTHEAST": 6, "SOUTHWEST": 10}[strings.TrimSpace(raw)]; ok {
+	if value, ok := map[string]int{"NONE": 0, "NORTH": 1, "SOUTH": 2, "EAST": 4, "WEST": 8, "NORTHEAST": 5, "NORTHWEST": 9, "SOUTHEAST": 6, "SOUTHWEST": 10}[strings.TrimSpace(raw)]; ok {
 		return value, true
 	}
 	value, err := strconv.Atoi(strings.TrimSpace(raw))
