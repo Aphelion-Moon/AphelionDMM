@@ -1,3 +1,12 @@
+# v.a.11 — Audit repairs
+
+* Fix a rejoining editor being disconnected by its own cursor while the connection it replaced lingered; presence ordering is per connection and stale presence is dropped, never fatal.
+* Fix hosted display names reverting to the login name on reauthorization.
+* Make rotation and mirroring respect repository map lint rules; turn disposal pipes as facing south; show parser errors and low-memory notices when loading an environment.
+* Evict the stalest join-limiter entry instead of refusing new addresses when the table is full; key IPv6 peers per /64.
+* Serve session snapshots from a pinned capture and the owner's cached hash instead of copying and rehashing the map on the editing path.
+* Fix the source lint failure on `main`.
+
 # v.a.10 — Collaboration protocol v2
 
 * Collaboration protocol v2: incremental tile/row/map hashing. v.a.9 editors and services are incompatible; v.a.9 hosted sessions are retired, not converted, so save them with v.a.9 before updating.
