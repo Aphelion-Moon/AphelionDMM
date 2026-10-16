@@ -198,7 +198,8 @@ func lintTurn(source, turned *dmmprefab.Prefab, verb string) (*dmmprefab.Prefab,
 			return source, nil
 		}
 	}
-	for _, v := range rs.EditViolations(before, after) {
+	if violations := rs.EditViolations(before, after); len(violations) > 0 {
+		v := violations[0]
 		text := v.Help
 		if text == "" {
 			text = v.Message

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -52,13 +53,51 @@ func TestPresenceRejectsOldSequenceAndRemovesOnDisconnect(t *testing.T) {
 	if err := manager.updateAt(principal, PresenceUpdate{Sequence: 2, Status: "active"}, time.Unix(1, 0)); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.Update(principal, PresenceUpdate{Sequence: 1, Status: "active"}); err == nil {
-		t.Fatal("old presence sequence accepted")
+	if err := manager.Update(principal, PresenceUpdate{Sequence: 1, Status: "active"}); !errors.Is(err, ErrStalePresence) {
+		t.Fatalf("old presence sequence error = %v, want ErrStalePresence", err)
 	}
 	manager.Remove(principal.ActorID())
 	snapshot, _, cancel := manager.Subscribe(1)
 	defer cancel()
 	if len(snapshot) != 0 {
 		t.Fatalf("snapshot after disconnect length = %d, want 0", len(snapshot))
+	}
+}
+
+// A newer socket for the same actor restarts its sequence and supersedes the
+// older socket; the older socket's late updates and late removal are ignored.
+func TestPresenceNewerConnectionSupersedesOlderSequence(t *testing.T) {
+	t.Parallel()
+
+	manager := NewPresenceManager(time.Minute)
+	principal := testPrincipal(t, "Editor", RoleEditor)
+	at := time.Unix(1, 0)
+	if err := manager.updateAt(principal, PresenceUpdate{Sequence: 5, Status: "active", Connection: 1}, at); err != nil {
+		t.Fatal(err)
+	}
+	manager.SetCursorColorFrom(principal, 2, 2)
+	if err := manager.updateAt(principal, PresenceUpdate{Sequence: 1, Status: "idle", Connection: 2}, at); err != nil {
+		t.Fatalf("replacement connection error = %v, want nil", err)
+	}
+	if err := manager.updateAt(principal, PresenceUpdate{Sequence: 6, Status: "active", Connection: 1}, at); !errors.Is(err, ErrStalePresence) {
+		t.Fatalf("superseded connection error = %v, want ErrStalePresence", err)
+	}
+	if err := manager.updateAt(principal, PresenceUpdate{Sequence: 1, Status: "active", Connection: 2}, at); !errors.Is(err, ErrStalePresence) {
+		t.Fatalf("repeated sequence error = %v, want ErrStalePresence", err)
+	}
+	manager.RemoveConnection(principal.ActorID(), 1)
+	snapshot, _, cancel := manager.Subscribe(1)
+	cancel()
+	if len(snapshot) != 1 || snapshot[0].Sequence != 1 || snapshot[0].Status != "idle" {
+		t.Fatalf("presence after older connection removal = %#v, want the replacement retained", snapshot)
+	}
+	if snapshot[0].CursorColor == nil || *snapshot[0].CursorColor != 2 {
+		t.Fatalf("cursor color after older connection removal = %v, want 2", snapshot[0].CursorColor)
+	}
+	manager.RemoveConnection(principal.ActorID(), 2)
+	snapshot, _, cancel = manager.Subscribe(1)
+	cancel()
+	if len(snapshot) != 0 {
+		t.Fatalf("presence after owning connection removal = %#v, want none", snapshot)
 	}
 }

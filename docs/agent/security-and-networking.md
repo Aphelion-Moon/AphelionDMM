@@ -23,7 +23,7 @@ The collaboration protocol may carry document identifiers and map operations. It
 - Set read, write, idle, handshake, and shutdown deadlines.
 - Apply byte limits before JSON decoding and collection-count limits after decoding.
 - Reject unsupported protocol versions before joining a session.
-- Rate-limit durable operations, joins, reconnects, and presence independently.
+- Rate-limit durable operations, joins, reconnects, and presence independently. A full per-address table evicts its least recently seen key rather than refusing new peers, and IPv6 peers are keyed per /64.
 - Coalesce lossy presence updates. Never let presence backpressure durable acknowledgements.
 - Use structured logs with actor/session identifiers but exclude map content, tokens, and sensitive headers.
 

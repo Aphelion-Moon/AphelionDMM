@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -23,6 +24,10 @@ import (
 
 const webSocketIOTimeout = 5 * time.Second
 
+// presenceConnections numbers every served socket so presence ordering can be
+// scoped to the socket that published it (see PresenceUpdate.Connection).
+var presenceConnections atomic.Uint64
+
 func (service *Service) handleWebSocket(writer http.ResponseWriter, request *http.Request) {
 	if !service.originAllowed(request.Header.Get("Origin")) {
 		writeError(writer, http.StatusForbidden, "origin_rejected", "WebSocket origin is not allowed")
@@ -32,7 +37,7 @@ func (service *Service) handleWebSocket(writer http.ResponseWriter, request *htt
 		writeError(writer, http.StatusBadRequest, "protocol_required", "WebSocket protocol version is required")
 		return
 	}
-	if !service.joinLimiter.Allow(remoteIP(request), service.config.Now()) {
+	if !service.joinLimiter.Allow(rateLimitKey(remoteIP(request)), service.config.Now()) {
 		writeError(writer, http.StatusTooManyRequests, "join_rate_limited", "collaboration join rate exceeded")
 		return
 	}
@@ -147,8 +152,11 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 		}
 		parent = context.WithValue(parent, bulkContextKey{}, bulkConnection{codec: service.bulk, canUpload: auth.principal.CanEdit()})
 	}
+	// A reconnect restarts its presence sequence and must supersede the socket
+	// it replaces, which may still linger until its read deadline.
+	presenceConnection := presenceConnections.Add(1)
 	if auth.hosted {
-		unregister := service.trackHostedConnection(auth.sessionID, auth.principal.ActorID(), auth.expiresAt)
+		unregister := service.trackHostedConnectionFor(auth.sessionID, auth.principal.ActorID(), auth.expiresAt, presenceConnection)
 		if unregister == nil {
 			return ErrSessionNotFound
 		}
@@ -168,7 +176,7 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 	}
 	defer cancelPresence()
 	if !auth.hosted {
-		defer service.hub.DisconnectPresence(auth.sessionID, auth.principal.ActorID())
+		defer service.hub.DisconnectPresenceConnection(auth.sessionID, auth.principal.ActorID(), presenceConnection)
 	}
 	snapshot, _, err := session.owner.ReadAuthority(parent, nil)
 	if err != nil {
@@ -410,7 +418,7 @@ func (service *Service) serveWebSocket(parent context.Context, connection *webso
 					return fmt.Errorf("reauthorize hosted message: %w", err)
 				}
 			}
-			err := service.handleClientMessage(parent, connection, session, auth, message.decoded, presenceGate, flushThrough)
+			err := service.handleClientMessage(parent, connection, session, auth, message.decoded, presenceGate, presenceConnection, flushThrough)
 			message.release()
 			if err != nil {
 				return err
@@ -510,7 +518,7 @@ func readClientMessages(ctx context.Context, connection *websocket.Conn, session
 	}
 }
 
-func (service *Service) handleClientMessage(ctx context.Context, connection *websocket.Conn, session sessionRecord, auth tokenRecord, message protocol.DecodedClient, presenceGate *presenceGate, flushThrough func(model.Revision) error) error {
+func (service *Service) handleClientMessage(ctx context.Context, connection *websocket.Conn, session sessionRecord, auth tokenRecord, message protocol.DecodedClient, presenceGate *presenceGate, presenceConnection uint64, flushThrough func(model.Revision) error) error {
 	switch message.Envelope.Type {
 	case protocol.ClientPing:
 		ping := message.Payload.(*protocol.PingPayload)
@@ -526,7 +534,13 @@ func (service *Service) handleClientMessage(ctx context.Context, connection *web
 			return nil
 		}
 		presence := message.Payload.(*protocol.PresenceUpdatePayload)
-		if err := service.hub.UpdatePresence(auth.sessionID, auth.principal, PresenceUpdate{Sequence: presence.Sequence, Cursor: presence.Cursor, Selection: presence.Selection, Status: presence.Status}); err != nil {
+		err := service.hub.UpdatePresence(auth.sessionID, auth.principal, PresenceUpdate{Sequence: presence.Sequence, Cursor: presence.Cursor, Selection: presence.Selection, Status: presence.Status, Connection: presenceConnection})
+		if errors.Is(err, ErrStalePresence) {
+			// Lossy presence that a newer update already superseded is dropped;
+			// it is never a reason to close a connection carrying durable edits.
+			return nil
+		}
+		if err != nil {
 			return fmt.Errorf("update presence: %w", err)
 		}
 		return nil
@@ -552,7 +566,7 @@ func (service *Service) handleClientMessage(ctx context.Context, connection *web
 		}
 		// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
 		if profile.CursorColor != nil {
-			if err := service.hub.UpdateCursorColor(auth.sessionID, auth.principal, *profile.CursorColor); err != nil {
+			if err := service.hub.UpdateCursorColorFrom(auth.sessionID, auth.principal, *profile.CursorColor, presenceConnection); err != nil {
 				return fmt.Errorf("update cursor color: %w", err)
 			}
 		}

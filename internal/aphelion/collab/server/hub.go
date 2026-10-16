@@ -117,8 +117,20 @@ func (hub *Hub) Join(sessionID string, principal Principal) error {
 	if !exists {
 		return ErrSessionNotFound
 	}
-	if existing, exists := session.members[principal.ActorID()]; exists && existing.ID() != principal.ID() {
-		return ErrUnauthorized
+	if existing, exists := session.members[principal.ActorID()]; exists {
+		if existing.ID() != principal.ID() {
+			return ErrUnauthorized
+		}
+		// A hosted reauthorization rejoins with the login's display name. The
+		// member's chosen session name (persisted by profile_update) outlives
+		// it; only the role follows the fresh authorization.
+		if existing.DisplayName() != principal.DisplayName() {
+			renamed, err := NewPrincipal(principal.ID(), principal.ActorID(), existing.DisplayName(), principal.Role())
+			if err != nil {
+				return err
+			}
+			principal = renamed
+		}
 	}
 	session.members[principal.ActorID()] = principal
 	return nil
@@ -172,6 +184,12 @@ var ErrInvalidCursorColor = errors.New("cursor color is outside the palette")
 // UpdateCursorColor records an ephemeral palette index for the authenticated
 // member and republishes its presence. It never touches durable state.
 func (hub *Hub) UpdateCursorColor(sessionID string, principal Principal, index int) error {
+	return hub.UpdateCursorColorFrom(sessionID, principal, index, 0)
+}
+
+// UpdateCursorColorFrom records the colour on behalf of one socket; see
+// PresenceManager.SetCursorColorFrom.
+func (hub *Hub) UpdateCursorColorFrom(sessionID string, principal Principal, index int, connection uint64) error {
 	if !protocol.ValidCursorColor(index) {
 		return ErrInvalidCursorColor
 	}
@@ -187,7 +205,7 @@ func (hub *Hub) UpdateCursorColor(sessionID string, principal Principal, index i
 	if !joined || member.ID() != principal.ID() {
 		return ErrNotJoined
 	}
-	presence.SetCursorColor(member, index)
+	presence.SetCursorColorFrom(member, index, connection)
 	return nil
 }
 
@@ -282,11 +300,17 @@ func (hub *Hub) UpdatePresence(sessionID string, principal Principal, update Pre
 }
 
 func (hub *Hub) DisconnectPresence(sessionID string, actorID model.ActorID) {
+	hub.DisconnectPresenceConnection(sessionID, actorID, 0)
+}
+
+// DisconnectPresenceConnection removes the actor's presence only while the
+// given socket still owns it. Zero removes unconditionally.
+func (hub *Hub) DisconnectPresenceConnection(sessionID string, actorID model.ActorID, connection uint64) {
 	hub.mutex.RLock()
 	session, exists := hub.sessions[sessionID]
 	hub.mutex.RUnlock()
 	if exists {
-		session.presence.Remove(actorID)
+		session.presence.RemoveConnection(actorID, connection)
 	}
 }
 

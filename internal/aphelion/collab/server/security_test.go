@@ -269,17 +269,45 @@ func TestRateLimiterBoundsEntriesAndExpiresIdleKeys(t *testing.T) {
 
 	now := time.Unix(100, 0)
 	limiter := newRateLimiter(RateLimit{Burst: 1, Window: time.Minute}, 2)
-	if !limiter.Allow("first", now) || !limiter.Allow("second", now) {
+	if !limiter.Allow("first", now) || !limiter.Allow("second", now.Add(time.Second)) {
 		t.Fatal("limiter rejected entries within its cardinality bound")
 	}
-	if limiter.Allow("third", now) {
-		t.Fatal("limiter admitted a third live key beyond its cardinality bound")
+	// A full table evicts its least recently seen key instead of refusing every
+	// newcomer, so a flood of fresh addresses cannot lock other peers out.
+	if !limiter.Allow("third", now.Add(2*time.Second)) {
+		t.Fatal("limiter refused a new key instead of evicting its stalest entry")
 	}
-	if !limiter.Allow("third", now.Add(time.Minute)) {
+	if len(limiter.entries) != 2 {
+		t.Fatalf("limiter entries = %d, want the cardinality bound 2", len(limiter.entries))
+	}
+	if _, exists := limiter.entries["first"]; exists {
+		t.Fatal("limiter evicted a key other than the least recently seen")
+	}
+	if limiter.Allow("second", now.Add(3*time.Second)) {
+		t.Fatal("eviction reset the budget of a surviving key")
+	}
+	if !limiter.Allow("fourth", now.Add(2*time.Minute)) {
 		t.Fatal("limiter did not expire idle keys after the configured window")
 	}
 	if len(limiter.entries) != 1 {
 		t.Fatalf("retained limiter entries = %d, want 1 after expiry", len(limiter.entries))
+	}
+}
+
+func TestRateLimitKeyBucketsIPv6ByPrefix(t *testing.T) {
+	t.Parallel()
+
+	if rateLimitKey("2001:db8::1") != rateLimitKey("2001:db8::ffff:1") {
+		t.Fatal("addresses in one IPv6 /64 did not share a limiter key")
+	}
+	if rateLimitKey("2001:db8::1") == rateLimitKey("2001:db8:0:1::1") {
+		t.Fatal("addresses in different IPv6 /64s shared a limiter key")
+	}
+	if rateLimitKey("192.0.2.1") != "192.0.2.1" || rateLimitKey("192.0.2.1") == rateLimitKey("192.0.2.2") {
+		t.Fatal("IPv4 addresses are not keyed individually")
+	}
+	if rateLimitKey("not-an-address") != "not-an-address" {
+		t.Fatal("an unparsable address did not key as itself")
 	}
 }
 

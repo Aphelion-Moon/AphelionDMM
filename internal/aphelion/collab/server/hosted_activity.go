@@ -22,6 +22,12 @@ type hostedConnection struct {
 
 // Each socket owns exactly one registration, independent of cursor presence.
 func (service *Service) trackHostedConnection(sessionID string, actorID model.ActorID, expiresAt time.Time) func() {
+	return service.trackHostedConnectionFor(sessionID, actorID, expiresAt, 0)
+}
+
+// trackHostedConnectionFor also names the socket's presence connection, so its
+// last-socket cleanup removes only presence that socket still owns.
+func (service *Service) trackHostedConnectionFor(sessionID string, actorID model.ActorID, expiresAt time.Time, presenceConnection uint64) func() {
 	service.mutex.Lock()
 	if session := service.sessions[sessionID]; session.closing {
 		service.mutex.Unlock()
@@ -54,7 +60,7 @@ func (service *Service) trackHostedConnection(sessionID string, actorID model.Ac
 			}
 			// Serialize last-socket cleanup with registration of a newer socket.
 			if !actorConnected {
-				service.hub.DisconnectPresence(sessionID, actorID)
+				service.hub.DisconnectPresenceConnection(sessionID, actorID, presenceConnection)
 			}
 		})
 	}

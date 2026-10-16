@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -11,11 +12,21 @@ import (
 	collabtelemetry "sdmm/internal/aphelion/collab/telemetry"
 )
 
+// ErrStalePresence reports an update that an equal or newer presence for the
+// same actor has already superseded. Presence is lossy, so callers drop such
+// an update; it is never a reason to close the connection that sent it.
+var ErrStalePresence = errors.New("presence update is stale")
+
 type PresenceUpdate struct {
 	Sequence  uint64
 	Cursor    *model.Coord
 	Selection *protocol.PresenceSelection
 	Status    string
+	// Connection identifies the socket publishing the update. Sequences are
+	// ordered within one connection; a newer connection for the same actor
+	// supersedes an older one regardless of sequence, since a fresh socket
+	// restarts its counter. Zero leaves ordering to the sequence alone.
+	Connection uint64
 }
 
 type Presence struct {
@@ -29,6 +40,26 @@ type Presence struct {
 	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
 	CursorColor *int
 	// APHELION EDIT ADDITION END
+	connection uint64
+}
+
+// supersededBy reports whether update may replace this presence.
+func (presence Presence) supersededBy(update PresenceUpdate) error {
+	if update.Connection != 0 && presence.connection != 0 && update.Connection != presence.connection {
+		if update.Connection < presence.connection {
+			return fmt.Errorf("%w: connection %d was replaced by %d", ErrStalePresence, update.Connection, presence.connection)
+		}
+		return nil
+	}
+	if update.Sequence <= presence.Sequence {
+		return fmt.Errorf("%w: sequence %d is not after %d", ErrStalePresence, update.Sequence, presence.Sequence)
+	}
+	return nil
+}
+
+type presenceColor struct {
+	index      int
+	connection uint64
 }
 
 type PresenceManager struct {
@@ -36,7 +67,7 @@ type PresenceManager struct {
 	timeout time.Duration
 	current map[model.ActorID]Presence
 	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
-	colors map[model.ActorID]int // in-memory only; cleared on Remove
+	colors map[model.ActorID]presenceColor // in-memory only; cleared on Remove
 	// APHELION EDIT ADDITION END
 	subscribers map[uint64]chan Presence
 	nextID      uint64
@@ -54,7 +85,7 @@ func NewPresenceManagerWithTelemetry(timeout time.Duration, observability *colla
 	return &PresenceManager{
 		timeout:     timeout,
 		current:     make(map[model.ActorID]Presence),
-		colors:      make(map[model.ActorID]int),
+		colors:      make(map[model.ActorID]presenceColor),
 		subscribers: make(map[uint64]chan Presence),
 		telemetry:   observability,
 	}
@@ -80,8 +111,10 @@ func (manager *PresenceManager) updateAt(principal Principal, update PresenceUpd
 
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
-	if current, exists := manager.current[principal.ActorID()]; exists && update.Sequence <= current.Sequence {
-		return fmt.Errorf("presence sequence is %d, current is %d", update.Sequence, current.Sequence)
+	if current, exists := manager.current[principal.ActorID()]; exists {
+		if err := current.supersededBy(update); err != nil {
+			return err
+		}
 	}
 	value := Presence{
 		ActorID:     principal.ActorID(),
@@ -91,6 +124,7 @@ func (manager *PresenceManager) updateAt(principal Principal, update PresenceUpd
 		Selection:   cloneSelection(update.Selection),
 		Status:      update.Status,
 		UpdatedAt:   updatedAt,
+		connection:  update.Connection,
 	}
 	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
 	value.CursorColor = manager.colorLocked(value.ActorID)
@@ -101,11 +135,22 @@ func (manager *PresenceManager) updateAt(principal Principal, update PresenceUpd
 }
 
 func (manager *PresenceManager) Remove(actorID model.ActorID) {
+	manager.RemoveConnection(actorID, 0)
+}
+
+// RemoveConnection removes the actor's presence and colour only while that
+// connection still owns them, so a lingering older socket closing late cannot
+// erase the state of the socket that replaced it. Zero removes unconditionally.
+func (manager *PresenceManager) RemoveConnection(actorID model.ActorID, connection uint64) {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
-	delete(manager.current, actorID)
+	if current, exists := manager.current[actorID]; !exists || connection == 0 || current.connection == 0 || current.connection == connection {
+		delete(manager.current, actorID)
+	}
 	// APHELION EDIT ADDITION START - COLLABORATION CURSOR COLOR
-	delete(manager.colors, actorID)
+	if color, exists := manager.colors[actorID]; !exists || connection == 0 || color.connection == 0 || color.connection == connection {
+		delete(manager.colors, actorID)
+	}
 	// APHELION EDIT ADDITION END
 }
 
@@ -229,9 +274,15 @@ func validatePresenceSelection(selection *protocol.PresenceSelection) error {
 // presence, if any. The caller validates the index. The colour is ephemeral and
 // is never persisted or hashed.
 func (manager *PresenceManager) SetCursorColor(principal Principal, index int) {
+	manager.SetCursorColorFrom(principal, index, 0)
+}
+
+// SetCursorColorFrom records the colour on behalf of one connection, so the
+// late close of an older socket for the same actor does not clear it.
+func (manager *PresenceManager) SetCursorColorFrom(principal Principal, index int, connection uint64) {
 	manager.mutex.Lock()
 	defer manager.mutex.Unlock()
-	manager.colors[principal.ActorID()] = index
+	manager.colors[principal.ActorID()] = presenceColor{index: index, connection: connection}
 	current, exists := manager.current[principal.ActorID()]
 	if !exists {
 		return
@@ -242,10 +293,11 @@ func (manager *PresenceManager) SetCursorColor(principal Principal, index int) {
 }
 
 func (manager *PresenceManager) colorLocked(actorID model.ActorID) *int {
-	index, ok := manager.colors[actorID]
+	color, ok := manager.colors[actorID]
 	if !ok {
 		return nil
 	}
+	index := color.index
 	return &index
 }
 

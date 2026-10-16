@@ -94,7 +94,10 @@ func (limiter *rateLimiter) Allow(key string, now time.Time) bool {
 	limiter.cleanup(now)
 	entry, exists := limiter.entries[key]
 	if !exists && len(limiter.entries) >= limiter.maxEntries {
-		return false
+		// A full table refuses nobody. Evicting the least recently seen key keeps
+		// the table bounded without letting a flood of fresh addresses lock every
+		// other peer out for a whole window; the flood's own keys stay limited.
+		limiter.evictStalest()
 	}
 	if !exists || now.Sub(entry.windowStarted) >= limiter.policy.Window {
 		limiter.entries[key] = rateEntry{windowStarted: now, lastSeen: now, count: 1}
@@ -116,6 +119,34 @@ func (limiter *rateLimiter) cleanup(now time.Time) {
 		}
 	}
 	limiter.lastCleanup = now
+}
+
+func (limiter *rateLimiter) evictStalest() {
+	var stalest string
+	var stalestSeen time.Time
+	found := false
+	for key, entry := range limiter.entries {
+		if !found || entry.lastSeen.Before(stalestSeen) {
+			stalest, stalestSeen, found = key, entry.lastSeen, true
+		}
+	}
+	if found {
+		delete(limiter.entries, stalest)
+	}
+}
+
+// rateLimitKey buckets a peer address for per-address limits. An IPv6 host
+// usually has a whole /64 to itself, so it is counted per /64 rather than per
+// address; otherwise the table could be filled from a single host.
+func rateLimitKey(address string) string {
+	ip := net.ParseIP(address)
+	if ip == nil {
+		return address
+	}
+	if v4 := ip.To4(); v4 != nil {
+		return v4.String()
+	}
+	return ip.Mask(net.CIDRMask(64, 128)).String() + "/64"
 }
 
 func remoteIP(request *http.Request) string {

@@ -66,6 +66,8 @@ Undo is a new inverse operation authored by the requesting actor. It names the t
 
 Cursor, selection, viewport, tool preview, typing, and user status are ephemeral. They are not written to the durable operation log, do not affect map hashes, may be dropped or coalesced, and expire after disconnect or timeout.
 
+Presence ordering is scoped to the connection that publishes it. A newer connection for the same actor supersedes an older one regardless of sequence, a stale update is dropped and never closes the connection, and an older connection's disconnect removes only presence it still owns.
+
 The server advertises the permitted client publication interval in the authenticated `joined` message. Protocol v1 requires `presence_interval_ms` in the inclusive range 16 through 5000. Clients publish no faster than that interval and continue using the separate lossy presence queue; this limit never applies backpressure to durable operations.
 
 ## Map fidelity and persistence

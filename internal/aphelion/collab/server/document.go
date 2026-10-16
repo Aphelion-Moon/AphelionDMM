@@ -40,7 +40,7 @@ type request struct {
 
 type response struct {
 	accepted  model.AcceptedOperation
-	snapshot  model.Snapshot
+	capture   engine.SnapshotCapture
 	duplicate bool
 	err       error
 	release   func()
@@ -119,9 +119,22 @@ func (owner *DocumentOwner) SubmitWithStatus(ctx context.Context, operation mode
 	return result.accepted, result.duplicate, err
 }
 
+// Snapshot materializes the current revision on the caller's goroutine. The
+// owner turn only pins immutable tile payloads, so a whole-station export does
+// not stall every edit for the duration of the copy.
 func (owner *DocumentOwner) Snapshot(ctx context.Context) (model.Snapshot, error) {
+	snapshot, _, err := owner.SnapshotWithHash(ctx)
+	return snapshot, err
+}
+
+// SnapshotWithHash also returns the canonical hash the owner already holds for
+// that revision, so consumers need not rehash the materialized copy.
+func (owner *DocumentOwner) SnapshotWithHash(ctx context.Context) (model.Snapshot, string, error) {
 	result, err := owner.request(ctx, request{kind: requestSnapshot})
-	return result.snapshot, err
+	if err != nil {
+		return model.Snapshot{}, "", err
+	}
+	return result.capture.Snapshot(), result.metadata.MapHash, nil
 }
 
 // ReadAuthority returns the header and requested conflict values from one
@@ -256,7 +269,14 @@ func (owner *DocumentOwner) run(ctx context.Context, document *engine.Document, 
 					scheduleSnapshot()
 				}
 			case requestSnapshot:
-				request.response <- response{snapshot: document.Snapshot()}
+				result := response{err: request.context.Err()}
+				if result.err == nil {
+					result.metadata, result.err = document.Metadata()
+				}
+				if result.err == nil {
+					result.capture = document.CaptureSnapshot()
+				}
+				request.response <- result
 			case requestAuthority:
 				result := response{err: request.context.Err()}
 				if result.err == nil {

@@ -39,7 +39,7 @@ func (service *Service) handleHostedDesktopAuthBegin(writer http.ResponseWriter,
 		writeError(writer, http.StatusServiceUnavailable, "unavailable", "hosted authentication is unavailable")
 		return
 	}
-	if !service.joinLimiter.Allow("desktop-auth-begin:"+remoteIP(request), service.config.Now()) {
+	if !service.joinLimiter.Allow("desktop-auth-begin:"+rateLimitKey(remoteIP(request)), service.config.Now()) {
 		writeError(writer, http.StatusTooManyRequests, "rate_limited", "hosted authentication rate limit exceeded")
 		return
 	}

@@ -508,12 +508,11 @@ func (service *Service) handleGetSnapshot(writer http.ResponseWriter, request *h
 		return
 	}
 	defer release()
-	snapshot, err := record.owner.Snapshot(request.Context())
+	snapshot, hash, err := record.owner.SnapshotWithHash(request.Context())
 	if err != nil {
 		writeError(writer, http.StatusServiceUnavailable, "unavailable", "session is unavailable")
 		return
 	}
-	hash, _ := snapshot.Hash()
 	writer.Header().Set("ETag", `"`+hash+`"`)
 	writeSnapshotJSON(writer, request, snapshot)
 }
