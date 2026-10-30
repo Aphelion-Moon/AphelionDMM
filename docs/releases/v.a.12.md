@@ -35,9 +35,14 @@ This alpha fixes a map that could no longer be saved and an editor that went bla
   - Outdoor areas without base lighting stay dark, as they are in game.
   - Light between z-levels is not modelled.
 
+### Security
+
+- **Go 1.26.10:** editors and the hosted service build with Go 1.26.10, which fixes GO-2026-6809 in `crypto/x509`.
+- **go-jose v4.1.6:** the hosted service's sign-in token handling moves to go-jose v4.1.6, which fixes CVE-2026-116587, a denial of service through crafted RSA keys.
+
 ## Hosted service
 
-No protocol or schema change.
+No protocol or schema change. Update the service to pick up the Go and go-jose security fixes.
 
 ## Downloads
 

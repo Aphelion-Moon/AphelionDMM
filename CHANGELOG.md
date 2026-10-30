@@ -5,6 +5,7 @@
 * Hide unknown-type instances with their nearest known ancestor (such as `/area`); stop forcing environment tree nodes open for undefined selections.
 * Add variable copy and paste (per variable, or every changed variable as one undoable edit), Export selection to new map, and Go to Definition in the tile menu.
 * Draw neon carpet patterns in the in-game look, and light planet maps from lava borders in the lighting preview.
+* Build with Go 1.26.10 (GO-2026-6809) and move the hosted service to go-jose v4.1.6 (CVE-2026-116587).
 
 # v.a.11 — Audit repairs
 
