@@ -499,7 +499,7 @@ func (o *Overrides) supersede(profileRules []Rule, path string, visible bool) {
 		return
 	}
 	for _, rule := range profileRules {
-		if within(rule.Path) && rule.Visible != visible && !(rule.Path == path && rule.Scope == ScopeSubtree) {
+		if within(rule.Path) && rule.Visible != visible && (rule.Path != path || rule.Scope != ScopeSubtree) {
 			o.setRule(Rule{Path: rule.Path, Scope: rule.Scope, Visible: visible})
 		}
 	}

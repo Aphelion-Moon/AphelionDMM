@@ -194,7 +194,7 @@ func decodePNG(path string) (image.Image, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	return png.Decode(file)
 }
 
