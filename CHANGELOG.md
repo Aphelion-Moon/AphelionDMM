@@ -1,3 +1,11 @@
+# v.a.12 — Save safety, unknown-type fixes and mapper tools
+
+* Refuse variable values that cannot be saved unchanged (a lone `"` becomes `""`), report unterminated map definitions instead of reading an empty map, and name the offending type, variable and tile when a save is refused.
+* Fix the editor fading to invisible, with an invisible blocking save prompt, after selecting an unknown type; repeated close presses no longer stack prompts.
+* Hide unknown-type instances with their nearest known ancestor (such as `/area`); stop forcing environment tree nodes open for undefined selections.
+* Add variable copy and paste (per variable, or every changed variable as one undoable edit), Export selection to new map, and Go to Definition in the tile menu.
+* Draw neon carpet patterns in the in-game look, and light planet maps from lava borders in the lighting preview.
+
 # v.a.11 — Audit repairs
 
 * Fix a rejoining editor being disconnected by its own cursor while the connection it replaced lingered; presence ordering is per connection and stale presence is dropped, never fatal.
