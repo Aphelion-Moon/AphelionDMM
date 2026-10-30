@@ -33,6 +33,11 @@ type atomInfo struct {
 	emits       bool
 	source      lighting.Source // X and Y are filled per instance
 	skips       []skipKey
+	// edge marks a turf whose light the game switches on at the border of its
+	// family (lava); emissive a turf drawn at full light.
+	edge      bool
+	edgeLight lighting.EdgeLight
+	emissive  bool
 }
 
 // Classifier caches per-prefab classification for one environment and
@@ -40,12 +45,13 @@ type atomInfo struct {
 type Classifier struct {
 	set      Settings
 	profiles []lighting.Profile
+	edges    []lighting.EdgeProfile
 	cache    map[*dmmprefab.Prefab]*atomInfo
 }
 
 // NewClassifier returns a classifier using the built-in profiles (N13).
 func NewClassifier(set Settings) *Classifier {
-	return &Classifier{set: set, profiles: lighting.DefaultProfiles(), cache: make(map[*dmmprefab.Prefab]*atomInfo)}
+	return &Classifier{set: set, profiles: lighting.DefaultProfiles(), edges: lighting.DefaultEdgeProfiles(), cache: make(map[*dmmprefab.Prefab]*atomInfo)}
 }
 
 func (c *Classifier) size() int { return len(c.cache) }
@@ -93,6 +99,15 @@ func (c *Classifier) classify(p *dmmprefab.Prefab) *atomInfo {
 		// Space emits through derived starlight, not through its own light vars
 		// (light_on is FALSE until the game enables it, space.dm:64-69).
 		info.space = true
+		return info
+	}
+	if edge, ok := lighting.ExtractEdge(lighting.Atom{Path: path, Var: get}, c.edges); ok {
+		// lava.dm: light_on is FALSE until refresh_light() finds a non-lava
+		// neighbour, so the light is derived per tile, never skipped as off.
+		info.edge, info.edgeLight, info.emissive = true, edge.Light, edge.Emissive
+		if edge.Unparsable {
+			info.skips = append(info.skips, skipKey{Path: path, Reason: edge.Skip, Unparsable: true})
+		}
 		return info
 	}
 	ex := lighting.ExtractSource(lighting.Atom{Path: path, Var: get}, c.profiles)

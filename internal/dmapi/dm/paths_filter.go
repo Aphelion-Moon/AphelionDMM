@@ -29,6 +29,9 @@ type PathsFilter struct {
 	hiddenDescendantCount map[string]int
 	policyRevision        uint64
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - UNKNOWN TYPE VISIBILITY
+	isKnownPath func(string) bool
+	// APHELION EDIT ADDITION END
 }
 
 func NewPathsFilter(findDirectChildren func(string) []string) *PathsFilter {
@@ -69,6 +72,9 @@ func (p *PathsFilter) Copy() PathsFilter {
 		// APHELION EDIT ADDITION START - VISIBILITY POLICY CACHE
 		hiddenDescendantCount,
 		p.policyRevision,
+		// APHELION EDIT ADDITION END
+		// APHELION EDIT ADDITION START - UNKNOWN TYPE VISIBILITY
+		p.isKnownPath,
 		// APHELION EDIT ADDITION END
 	}
 }
@@ -148,8 +154,34 @@ func parentTypePath(path string) string {
 // APHELION EDIT ADDITION END
 
 func (p *PathsFilter) IsHiddenPath(path string) bool {
-	return p.filteredPaths[path]
+	// APHELION EDIT CHANGE - UNKNOWN TYPE VISIBILITY - ORIGINAL: return p.filteredPaths[path]
+	return p.filteredPaths[path] || p.isHiddenUnknownPath(path)
 }
+
+// APHELION EDIT ADDITION START - UNKNOWN TYPE VISIBILITY
+// SetKnownPath supplies the loaded environment's type catalogue. Hidden paths
+// are only ever recorded for known types, so without it an instance of a type
+// the environment no longer defines (drawn with the missing-icon fallback)
+// could never be hidden. With it, such an instance follows the visibility of
+// its nearest known ancestor by path. Known types keep exact-path semantics.
+// The predicate must be safe for concurrent reads; Copy shares it.
+func (p *PathsFilter) SetKnownPath(isKnownPath func(string) bool) {
+	p.isKnownPath = isKnownPath
+}
+
+func (p *PathsFilter) isHiddenUnknownPath(path string) bool {
+	if p.isKnownPath == nil || len(p.filteredPaths) == 0 || p.isKnownPath(path) {
+		return false
+	}
+	for ancestor := parentTypePath(path); ancestor != ""; ancestor = parentTypePath(ancestor) {
+		if p.isKnownPath(ancestor) {
+			return p.filteredPaths[ancestor]
+		}
+	}
+	return false
+}
+
+// APHELION EDIT ADDITION END
 
 func (p *PathsFilter) IsVisiblePath(path string) bool {
 	return !p.IsHiddenPath(path)

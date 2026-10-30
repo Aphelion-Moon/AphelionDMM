@@ -106,3 +106,53 @@ func TestNeighborhoodCoversEdgesWithoutDuplicates(t *testing.T) {
 		t.Fatalf("neighbourhood = %v", got)
 	}
 }
+
+func neonCarpetPrefab() *dmmprefab.Prefab {
+	return inGamePrefab("/turf/open/floor/carpet/neon/simple/pink",
+		"icon", "'icons/turf/floors/carpet_neon_base.dmi'", "icon_state", `"base-255"`, "base_icon_state", `"base"`,
+		"smoothing_flags", "1", "smoothing_groups", `"47,"`, "canSmoothWith", `"47,"`,
+		"neon_icon", "'icons/turf/floors/carpet_neon_light.dmi'", "neon_icon_state", `"light"`, "neon_color", `"#FF00FF"`, "alpha", "255")
+}
+
+// A neon carpet's glowing pattern is drawn over its smoothed base in game,
+// unless the icon index proves the predicted state missing.
+func TestInGameNeonCarpetDrawsItsPatternOverlay(t *testing.T) {
+	dmm := newChunkTestMap(2, 1, 1)
+	carpet := neonCarpetPrefab()
+	for x := 1; x <= 2; x++ {
+		dmm.GetTile(util.Point{X: x, Y: 1, Z: 1}).InstancesAdd(carpet)
+	}
+	instance := dmm.GetTile(util.Point{X: 1, Y: 1, Z: 1}).Instances()[0]
+	m := ingame.DmmMap(dmm)
+	parts := inGameOverlays(m, 1, 1, 1, instance)
+	if len(parts) != 1 || parts[0].Override.Icon != "icons/turf/floors/carpet_neon_light.dmi" || parts[0].Override.IconState != "light-4" {
+		t.Fatalf("neon overlay = %+v", parts)
+	}
+	if got := parts[0].Prefab.Vars().TextV("color", ""); got != "#FF00FF" {
+		t.Fatalf("overlay colour %q", got)
+	}
+	spritedirs.Activate(spritedirs.New(t.TempDir()))
+	t.Cleanup(func() { spritedirs.Activate(nil) })
+	if parts := inGameOverlays(m, 1, 1, 1, instance); len(parts) != 0 {
+		t.Fatal("overlay drawn with a state the icon does not have")
+	}
+	spritedirs.Activate(nil)
+
+	if chunkTestWindow == nil {
+		t.Skip("set APHELIONDMM_GL_TEST=1: units need a GL context for sprites")
+	}
+	runtime.LockOSThread()
+	t.Cleanup(runtime.UnlockOSThread)
+	chunkTestWindow.MakeContextCurrent()
+	t.Cleanup(glfw.DetachCurrentContext)
+	units := inGameUnits(m, 1, 1, 1, instance, nil)
+	if len(units) != 2 || units[0].Icon() != "icons/turf/floors/carpet_neon_base.dmi" || units[1].Icon() != "icons/turf/floors/carpet_neon_light.dmi" {
+		t.Fatalf("units = %d", len(units))
+	}
+	if units[1].Instance() != instance || units[1].Layer() != units[0].Layer() {
+		t.Fatal("the pattern must pick the carpet and share its layer")
+	}
+	if units[1].R() != 1 || units[1].G() != 0 || units[1].B() != 1 {
+		t.Fatalf("pattern tint = %v %v %v, want neon_color", units[1].R(), units[1].G(), units[1].B())
+	}
+}

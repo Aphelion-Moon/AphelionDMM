@@ -245,8 +245,19 @@ func (e *Environment) nodeFlags(node *treeNode, leaf bool) imgui.TreeNodeFlags {
 }
 
 func (e *Environment) isPartOfSelectedPath(node *treeNode) bool {
-	return e.tmpDoSelectPath && strings.HasPrefix(e.selectedPath, node.orig.Path)
+	// APHELION EDIT CHANGE - UNKNOWN TYPES - ORIGINAL: return e.tmpDoSelectPath && strings.HasPrefix(e.selectedPath, node.orig.Path)
+	return e.tmpDoSelectPath && isPathOrAncestor(node.orig.Path, e.selectedPath)
 }
+
+// APHELION EDIT ADDITION START - UNKNOWN TYPES
+
+// isPathOrAncestor compares whole path segments: /area/hall is not an ancestor
+// of /area/hallway.
+func isPathOrAncestor(ancestor, path string) bool {
+	return path == ancestor || strings.HasPrefix(path, ancestor+"/")
+}
+
+// APHELION EDIT ADDITION END
 
 func (e *Environment) scrollToSelectedPath(node *treeNode) {
 	if e.tmpDoSelectPath && e.selectedPath == node.orig.Path {

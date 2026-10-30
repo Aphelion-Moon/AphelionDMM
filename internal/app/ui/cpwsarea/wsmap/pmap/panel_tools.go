@@ -363,6 +363,9 @@ func (p *PaneMap) drawSelectionPopup() {
 			if imgui.Button("Clear selection") {
 				p.DoDeselect()
 			}
+			// APHELION EDIT ADDITION START - EXPORT SELECTION
+			p.showExportSelectionButton()
+			// APHELION EDIT ADDITION END
 		}
 		imgui.Separator()
 		if p.editor != nil && tools.IsSelected(tools.TNGrab) && tools.Selected().(*tools.ToolGrab).HasSelectedArea() {

@@ -28,6 +28,15 @@ func (l *Level) Clone() *Level {
 	if l.Sources != nil {
 		c.Sources = append([]Source(nil), l.Sources...)
 	}
+	if l.Edge != nil {
+		c.Edge = append([]uint16(nil), l.Edge...)
+	}
+	if l.EdgeLights != nil {
+		c.EdgeLights = append([]EdgeLight(nil), l.EdgeLights...)
+	}
+	if l.Emissive != nil {
+		c.Emissive = append([]bool(nil), l.Emissive...)
+	}
 	return c
 }
 

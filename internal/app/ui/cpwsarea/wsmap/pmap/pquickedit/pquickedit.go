@@ -64,16 +64,24 @@ func (p *Panel) Process() {
 func (p *Panel) ProcessV(instance *dmminstance.Instance) {
 	// APHELION EDIT ADDITION START - UNKNOWN TYPES
 	reason := p.unavailableReason(instance)
+	/* APHELION EDIT REMOVAL START - DISABLED ALPHA
 	imgui.BeginDisabledV(reason != "")
+	APHELION EDIT REMOVAL END */
 	// APHELION EDIT ADDITION END
-	imgui.BeginDisabledV(!dm.IsMovable(instance.Prefab().Path()))
+	// The pinned ImGui overwrites its single disabled-alpha backup on nested
+	// BeginDisabled calls, which permanently fades every later window. Keep the
+	// unknown-type refusal in sibling scopes instead of an enclosing one.
+	// APHELION EDIT CHANGE - DISABLED ALPHA - ORIGINAL: imgui.BeginDisabledV(!dm.IsMovable(instance.Prefab().Path()))
+	imgui.BeginDisabledV(reason != "" || !dm.IsMovable(instance.Prefab().Path()))
 	p.showNudgeOption("Nudge X", true, instance)
 	p.showNudgeOption("Nudge Y", false, instance)
 	imgui.EndDisabled()
 
 	p.showDirOption(instance)
 	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	/* APHELION EDIT REMOVAL START - DISABLED ALPHA
 	imgui.EndDisabled()
+	APHELION EDIT REMOVAL END */
 	if reason != "" {
 		imgui.TextDisabled("Quick edit unavailable: unknown type")
 		if imgui.IsItemHovered() {
@@ -203,7 +211,8 @@ func (p *Panel) showDirOption(instance *dmminstance.Instance) {
 	value := _dirToRelativeIndex[dir]
 	maxDirs := p.getIconMaxDirs(instance.Prefab().Vars())
 
-	imgui.BeginDisabledV(maxDirs <= 1)
+	// APHELION EDIT CHANGE - DISABLED ALPHA - ORIGINAL: imgui.BeginDisabledV(maxDirs <= 1)
+	imgui.BeginDisabledV(maxDirs <= 1 || p.unavailableReason(instance) != "")
 
 	label := fmt.Sprint("Dir##dir_", p.editor.Dmm().Name)
 

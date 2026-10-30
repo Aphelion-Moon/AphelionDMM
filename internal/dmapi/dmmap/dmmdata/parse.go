@@ -59,6 +59,10 @@ func parse(file namedReader) (*DmmData, error) {
 
 		currKey []rune
 
+		// APHELION EDIT ADDITION START - UNTERMINATED DEFINITION
+		definitionLine int
+		// APHELION EDIT ADDITION END
+
 		// Functions:
 		flushCurrPrefab = func() {
 			currData = append(currData, dmmprefab.New(dmmprefab.IdNone, currPath, currVariables.ToImmutable()))
@@ -208,6 +212,7 @@ func parse(file namedReader) (*DmmData, error) {
 				if !afterDataBlock {
 					return nil, lineErr("failed to start a data block")
 				}
+				definitionLine = lineNo // APHELION EDIT ADDITION - UNTERMINATED DEFINITION
 				inKeyBlock = true
 				afterDataBlock = false
 			} else if c == '(' {
@@ -220,6 +225,14 @@ func parse(file namedReader) (*DmmData, error) {
 			}
 		}
 	}
+
+	// APHELION EDIT ADDITION START - UNTERMINATED DEFINITION
+	// An unclosed string or definition consumes the grid as dictionary text.
+	// Returning an empty map here would let a save or reopen lose every tile.
+	if inKeyBlock || inDataBlock {
+		return nil, fmt.Errorf("at line %d: definition of key %q is not terminated (unclosed string or list)", definitionLine, string(currKey))
+	}
+	// APHELION EDIT ADDITION END
 
 	type axis int
 

@@ -148,6 +148,11 @@ APHELION EDIT REMOVAL END */
 func (e *Environment) process(environment *dmenv.Dme) {
 	e.tmpNewTreeNodesCount = 0
 	e.setTreeEnvironment(environment)
+	// APHELION EDIT ADDITION START - UNKNOWN TYPES
+	if e.tmpDoSelectPath && !definesPath(e.treeEnvironment, e.selectedPath) {
+		e.tmpDoSelectPath = false
+	}
+	// APHELION EDIT ADDITION END
 	e.prepareFilter()
 	e.continueFilter()
 }
@@ -175,9 +180,21 @@ func (e *Environment) SelectPath(path string) {
 	if path != e.selectedPath {
 		log.Printf("environment path selected: [%s]", path)
 		e.selectedPath = path
-		e.tmpDoSelectPath = true
+		// APHELION EDIT CHANGE - UNKNOWN TYPES - ORIGINAL: e.tmpDoSelectPath = true
+		e.tmpDoSelectPath = definesPath(e.app.LoadedEnvironment(), path)
 	}
 }
+
+// APHELION EDIT ADDITION START - UNKNOWN TYPES
+
+// definesPath reports whether the environment has a tree node for path. An
+// unknown type preserved in a map has none, so a reveal request for it could
+// never finish and would force its ancestors open on every frame.
+func definesPath(environment *dmenv.Dme, path string) bool {
+	return environment != nil && environment.Objects[path] != nil
+}
+
+// APHELION EDIT ADDITION END
 
 /* APHELION EDIT REMOVAL START - OBJECT TREE FILTER CLIPPING
 func (e *Environment) doFilter() {

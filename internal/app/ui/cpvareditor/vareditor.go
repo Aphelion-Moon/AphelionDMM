@@ -14,6 +14,9 @@ import (
 	// APHELION EDIT ADDITION START - OFFSET REFRESH
 	"sdmm/internal/util"
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - VARIABLE CLIPBOARD
+	"sdmm/internal/aphelion/varclip"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/util/slice"
 	"strings"
 
@@ -69,6 +72,11 @@ type VarEditor struct {
 
 	// APHELION EDIT ADDITION START - COLOR PICKER
 	colorPick colorPick
+	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - VARIABLE CLIPBOARD
+	varClip       varclip.Clipboard
+	notice        string
+	noticeIsError bool
 	// APHELION EDIT ADDITION END
 }
 
@@ -169,6 +177,11 @@ func (v *VarEditor) setInstanceVariable(varName, varValue string) {
 		return
 	}
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - VALUE ROUND TRIP
+	if !v.acceptValue(varName, varValue) {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - PROPERTY CAPTURE
 	currentEditor := v.app.CurrentEditor()
 	if currentEditor == nil {
@@ -235,6 +248,11 @@ func (v *VarEditor) setPrefabVariable(varName, varValue string) {
 		return
 	}
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - VALUE ROUND TRIP
+	if !v.acceptValue(varName, varValue) {
+		return
+	}
+	// APHELION EDIT ADDITION END
 	if len(varValue) == 0 {
 		varValue = dmvars.NullValue
 	}
@@ -269,6 +287,7 @@ func (v *VarEditor) resetSession() {
 	v.sessionEditMode = emPrefab
 	v.instance = nil
 	v.prefab = nil
+	v.notice, v.noticeIsError = "", false // APHELION EDIT ADDITION - VARIABLE CLIPBOARD
 	log.Print("session reset")
 }
 
@@ -317,7 +336,9 @@ func (v *VarEditor) correctVarIssue(varValue string) string {
 	if isString {
 		//we start and end with a quotation mark so we probably shouldnt break
 		enclosingCharacter = `"`
-		hasIssue = !strings.HasSuffix(varValue, enclosingCharacter)
+		// APHELION EDIT CHANGE - VALUE ROUND TRIP - ORIGINAL: hasIssue = !strings.HasSuffix(varValue, enclosingCharacter)
+		hasIssue = len(varValue) == 1 || !strings.HasSuffix(varValue, enclosingCharacter) // a lone quote opens a string
+
 	} else if isList {
 		//if list is enclosed
 		enclosingCharacter = `)`

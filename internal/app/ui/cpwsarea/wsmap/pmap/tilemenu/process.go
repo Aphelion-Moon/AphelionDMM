@@ -196,6 +196,9 @@ func (t *TileMenu) showInstanceControls(i *dmminstance.Instance, idx int) w.Layo
 			Icon(icon.Search),
 		w.MenuItem(fmt.Sprint("Search by Prefab ID##search_by_prefab_id_", idx), t.doSearchByPrefabID(i)).
 			Icon(icon.Search),
+		// APHELION EDIT ADDITION START - MAP GO TO DEFINITION
+		w.Custom(func() { t.showGoToDefinition(i, idx) }),
+		// APHELION EDIT ADDITION END
 	}
 }
 

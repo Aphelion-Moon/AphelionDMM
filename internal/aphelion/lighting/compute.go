@@ -102,6 +102,11 @@ func effectiveSources(lvl *Level, opts Options, scan Rect) []effSource {
 			out = append(out, e)
 		}
 	}
+	for _, s := range lvl.edgeSourcesIn(scan) {
+		if e, ok := normalize(lvl, s, opts); ok {
+			out = append(out, e)
+		}
+	}
 	return out
 }
 
@@ -328,7 +333,8 @@ func normaliseCorner(c RGB) RGB {
 // Tile returns the final displayed brightness at the four corners of tile
 // (x, y) in lighting_object.dm:89-92 order: SW, SE, NW, NE. Each value is
 // corner light (zero for tiles without a lighting object) plus the tile's
-// ambient, clamped to 0..1, then floored at Options.Cutoff.
+// ambient, clamped to 0..1, then floored at Options.Cutoff. Emissive tiles are
+// fully lit.
 func (r *Result) Tile(lvl *Level, x, y int) [4]RGB {
 	cw := r.W + 1
 	idx := [4]int{y*cw + x, y*cw + x + 1, (y+1)*cw + x, (y+1)*cw + x + 1}
@@ -339,6 +345,12 @@ func (r *Result) Tile(lvl *Level, x, y int) [4]RGB {
 	}
 	unlit := lvl.Unlit != nil && lvl.Unlit[t]
 	var out [4]RGB
+	if lvl.Emissive != nil && lvl.Emissive[t] {
+		for k := range out {
+			out[k] = RGB{1, 1, 1}
+		}
+		return out
+	}
 	for k, ci := range idx {
 		var c RGB
 		if !unlit {

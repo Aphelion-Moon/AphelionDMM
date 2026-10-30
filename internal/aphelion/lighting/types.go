@@ -173,6 +173,13 @@ type Level struct {
 	Space     []bool
 	Starlight Starlight
 	Sources   []Source
+	// Edge is, per tile, the 1-based index into EdgeLights (0 = none): turf
+	// lights the game switches on only at the border of their family (lava).
+	Edge       []uint16
+	EdgeLights []EdgeLight
+	// Emissive marks tiles whose turf draws an emissive overlay over the whole
+	// tile (lava's light mask); they show at full light.
+	Emissive []bool
 }
 
 // NewLevel returns an empty level with a transparent BoolGrid and starlight off.

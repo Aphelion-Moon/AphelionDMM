@@ -62,6 +62,7 @@ type result struct {
 	rows       rowSpan
 	sources    []lighting.Source
 	starlight  int
+	edge       int
 }
 
 // Controller owns the preview of one level of one map view. Every method except
@@ -251,6 +252,7 @@ func (c *Controller) poll() {
 	if c.state != nil {
 		c.report = c.state.report()
 		c.report.Starlight = res.starlight
+		c.report.EdgeLights = res.edge
 	}
 }
 
@@ -310,6 +312,7 @@ func runJob(j *job) *result {
 	if lvl.Starlight.Enabled {
 		out.starlight = len(lvl.StarlightSources())
 	}
+	out.edge = len(lvl.EdgeSources())
 	if j.full || j.prev == nil {
 		out.res = lighting.Compute(lvl, j.opts)
 		out.tiles = make([]float32, w*h*12)

@@ -306,3 +306,48 @@ func TestVisibilityHistoryRemainsBoundedAndRecoversLatestChange(t *testing.T) {
 		t.Fatal("history expiry lost latest undo")
 	}
 }
+
+// Alt-Pick hides exact types. A later subtree toggle, such as the Area layer
+// or a tree checkbox, must show or hide that whole subtree again instead of
+// leaving the earlier exact hides stuck behind it.
+func TestSubtreeToggleSupersedesDescendantRules(t *testing.T) {
+	env := testCatalog()
+	filter := testFilter(env)
+	var s Session
+	for _, step := range []Rule{
+		{Path: "/obj/foo/leaf", Scope: ScopeExact},
+		{Path: "/obj/foo/child", Scope: ScopeSubtree},
+		{Path: "/obj", Scope: ScopeSubtree},
+		{Path: "/obj", Scope: ScopeSubtree, Visible: true},
+	} {
+		if err := s.SetVisibility(step.Path, step.Scope, step.Visible, env, filter); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if hidden := filter.HiddenPaths(); len(hidden) != 0 {
+		t.Fatalf("showing /obj left %v hidden", hidden)
+	}
+	if err := s.SetVisibility("/obj/foo/leaf", ScopeExact, false, env, filter); err != nil {
+		t.Fatal(err)
+	}
+	if hidden := filter.HiddenPaths(); !reflect.DeepEqual(hidden, []string{"/obj/foo/leaf"}) {
+		t.Fatalf("exact hide after subtree show = %v", hidden)
+	}
+
+	// Rules saved into the active profile are overridden the same way, and
+	// the rule outside the toggled subtree is untouched.
+	var saved Session
+	profile := Profile{ID: "custom", Name: "saved", DefaultVisible: true, Rules: []Rule{
+		{Path: "/obj/foo/leaf", Scope: ScopeExact, Visible: false},
+		{Path: "/obj/foobar", Scope: ScopeExact, Visible: false},
+	}}
+	if err := saved.Apply(profile, env, filter); err != nil {
+		t.Fatal(err)
+	}
+	if err := saved.SetVisibility("/obj/foo", ScopeSubtree, true, env, filter); err != nil {
+		t.Fatal(err)
+	}
+	if hidden := filter.HiddenPaths(); !reflect.DeepEqual(hidden, []string{"/obj/foobar"}) {
+		t.Fatalf("showing /obj/foo over a saved profile = %v", hidden)
+	}
+}

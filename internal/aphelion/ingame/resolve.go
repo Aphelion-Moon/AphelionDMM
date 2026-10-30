@@ -25,7 +25,7 @@ func Resolve(m Map, x, y, z int, prefab *dmmprefab.Prefab) (Override, bool) {
 		return smartPipe(m, x, y, z, a)
 	case a.cable && !a.multilayer:
 		return cable(m, x, y, z, a)
-	case a.smoothFlags&usesSmoothing != 0 && a.smoothFlags&(smoothBorderObject|smoothProcFilter) == 0 && a.baseState != "":
+	case a.smooths():
 		return smooth(m, x, y, z, a)
 	}
 	return Override{}, false
@@ -39,7 +39,7 @@ func Affects(prefab *dmmprefab.Prefab) bool {
 	}
 	a := factsOf(prefab)
 	return len(a.spawned) != 0 || a.smartPipe || (a.cable && !a.multilayer) ||
-		(a.smoothFlags&usesSmoothing != 0 && a.smoothFlags&(smoothBorderObject|smoothProcFilter) == 0 && a.baseState != "")
+		a.smooths()
 }
 
 func facts(m Map, x, y, z int) ([]*atom, bool) {
@@ -81,6 +81,22 @@ func smooth(m Map, x, y, z int, a *atom) (Override, bool) {
 	if a.brokenFloor {
 		return Override{}, false // set_smoothed_icon_state returns early
 	}
+	junction := smoothingJunction(m, x, y, z, a)
+	state := a.baseState + "-" + strconv.Itoa(junction)
+	if a.turf && isType(a.path, "/turf/closed") && a.smoothFlags&smoothDiagonalCorners != 0 && diagonalJunction(junction) {
+		state += "-diagonal" // the underlay a real wall copies is not drawn
+	}
+	return Override{IconState: state, Dir: a.dir}, true
+}
+
+// smooths reports whether the smoothing rules predict a's icon state.
+func (a *atom) smooths() bool {
+	return a.smoothFlags&usesSmoothing != 0 && a.smoothFlags&(smoothBorderObject|smoothProcFilter) == 0 && a.baseState != ""
+}
+
+// smoothingJunction is the smoothing_junction bitmask_smooth gives a at
+// (x, y, z).
+func smoothingJunction(m Map, x, y, z int, a *atom) int {
 	here, _ := facts(m, x, y, z)
 	limit := ""
 	for _, h := range here {
@@ -135,11 +151,7 @@ func smooth(m Map, x, y, z int, a *atom) (Override, bool) {
 			}
 		}
 	}
-	state := a.baseState + "-" + strconv.Itoa(junction)
-	if a.turf && isType(a.path, "/turf/closed") && a.smoothFlags&smoothDiagonalCorners != 0 && diagonalJunction(junction) {
-		state += "-diagonal" // the underlay a real wall copies is not drawn
-	}
-	return Override{IconState: state, Dir: a.dir}, true
+	return junction
 }
 
 // lastTurf is the tile's turf; with stacked turfs DM keeps the last one.

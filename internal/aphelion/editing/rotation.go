@@ -118,13 +118,13 @@ func rotatePrefab(prefab *dmmprefab.Prefab, clockwise bool, lookup ...PrefabLook
 		if !ok {
 			return nil, fmt.Errorf("cannot rotate dir = %s", raw)
 		}
-		rotated := 0
+		rotated, flipped := horizontalFlip(path, direction, sourceVars, scope)
 		for _, pair := range [][2]int{{dm.DirNorth, dm.DirEast}, {dm.DirEast, dm.DirSouth}, {dm.DirSouth, dm.DirWest}, {dm.DirWest, dm.DirNorth}} {
 			from, to := pair[0], pair[1]
 			if !clockwise {
 				from, to = to, from
 			}
-			if direction&from != 0 {
+			if !flipped && direction&from != 0 {
 				rotated |= to
 			}
 		}
@@ -279,6 +279,54 @@ func SetSpriteDirections(dirs func(icon, state string) (int, bool)) {
 		return
 	}
 	spriteDirections.Store(&dirs)
+}
+
+var horizontalTwins atomic.Pointer[func(icon, state string) (north, south int, ok bool)]
+
+// SetHorizontalTwins installs the loaded environment's source of two-look
+// side-facing sprites (nil clears it). Like SetSpriteDirections it must be safe
+// to call from any goroutine.
+func SetHorizontalTwins(twins func(icon, state string) (north, south int, ok bool)) {
+	if twins == nil {
+		horizontalTwins.Store(nil)
+		return
+	}
+	horizontalTwins.Store(&twins)
+}
+
+// horizontalFlip turns a sprite that only faces sideways, such as a bed or a
+// bedsheet whose NORTH and SOUTH frames repeat EAST and WEST. A quarter turn has
+// no upright look to land on, so every turn flips between EAST and WEST and
+// never writes a look-alike NORTH or SOUTH. Helpers, mob facing and pipe sides
+// keep exact arithmetic; machinery such as stasis beds only uses such a dir for
+// the headrest side its sprite already shows.
+func horizontalFlip(path string, direction int, vars *dmvars.Variables, scope orientationScope) (int, bool) {
+	source := horizontalTwins.Load()
+	if source == nil || scope.helper {
+		return 0, false
+	}
+	for _, root := range []string{"/mob", "/obj/machinery/atmospherics"} {
+		if path == root || strings.HasPrefix(path, root+"/") {
+			return 0, false
+		}
+	}
+	north, south, ok := (*source)(vars.TextV("icon", ""), vars.TextV("icon_state", ""))
+	if !ok {
+		return 0, false
+	}
+	switch direction {
+	case dm.DirNorth:
+		direction = north
+	case dm.DirSouth:
+		direction = south
+	case dm.DirEast, dm.DirWest:
+	default:
+		return 0, false
+	}
+	if direction == dm.DirEast {
+		return dm.DirWest, true
+	}
+	return dm.DirEast, true
 }
 
 // DirMayBeFunctional reports types whose dir can matter in game even when the

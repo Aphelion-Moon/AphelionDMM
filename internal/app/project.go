@@ -295,6 +295,7 @@ func (a *app) forceLoadEnvironmentWithOptions(path string, callback func(), opti
 		// APHELION EDIT ADDITION START - SPRITE DIRECTIONS
 		spritedirs.Activate(spritedirs.New(env.RootDir))
 		editing.SetSpriteDirections(spritedirs.ActiveDirs)
+		editing.SetHorizontalTwins(spritedirs.ActiveHorizontalTwins)
 		ingame.SetTypes(func(path string) *dmvars.Variables {
 			if object := env.Objects[path]; object != nil {
 				return object.Vars
@@ -451,13 +452,20 @@ APHELION EDIT REMOVAL END */
 
 // Configure paths filter to access a newly opened environment.
 func newPathsFilter(env *dmenv.Dme) *dm.PathsFilter {
-	return dm.NewPathsFilter(func(path string) []string {
+	// APHELION EDIT CHANGE - UNKNOWN TYPE VISIBILITY - ORIGINAL: return dm.NewPathsFilter(func(path string) []string {
+	filter := dm.NewPathsFilter(func(path string) []string {
 		// APHELION EDIT CHANGE - FILTER PROFILES - ORIGINAL: return env.Objects[path].DirectChildren
 		if object := env.Objects[path]; object != nil {
 			return object.DirectChildren
 		}
 		return nil
 	})
+	// APHELION EDIT ADDITION START - UNKNOWN TYPE VISIBILITY
+	// Instances of types the environment no longer defines follow their
+	// nearest known ancestor's visibility. env.Objects is read-only once loaded.
+	filter.SetKnownPath(func(path string) bool { return env.Objects[path] != nil })
+	return filter
+	// APHELION EDIT ADDITION END
 }
 
 func (a *app) loadMap(path string, workspace *workspace.Workspace) {
@@ -646,6 +654,7 @@ func (a *app) freeEnvironmentResources() {
 	// APHELION EDIT ADDITION START - SPRITE DIRECTIONS
 	spritedirs.Activate(nil)
 	editing.SetSpriteDirections(nil)
+	editing.SetHorizontalTwins(nil)
 	ingame.SetTypes(nil)
 	// APHELION EDIT ADDITION END
 

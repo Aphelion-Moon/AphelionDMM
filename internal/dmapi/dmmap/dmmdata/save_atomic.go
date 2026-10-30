@@ -119,11 +119,11 @@ func (d DmmData) ValidateSaved(path string) error {
 func ValidateSavedPair(path string, output, intended DmmData) error {
 	reparsed, err := New(path)
 	if err != nil {
-		return fmt.Errorf("reparse staged map: %w", err)
+		return output.explainValidationFailure(fmt.Errorf("reparse staged map: %w", err))
 	}
 	validation := savedMapValidation{data: reparsed}
 	if err := validation.compare(output, output.IsTgm); err != nil {
-		return err
+		return output.explainValidationFailure(err)
 	}
 	if err := validation.compare(intended, intended.IsTgm); err != nil {
 		return fmt.Errorf("saved map differs from intended input: %w", err)
@@ -134,10 +134,13 @@ func ValidateSavedPair(path string, output, intended DmmData) error {
 func (d DmmData) validateSaved(path string, isTGM bool) error {
 	reparsed, err := New(path)
 	if err != nil {
-		return fmt.Errorf("reparse staged map: %w", err)
+		return d.explainValidationFailure(fmt.Errorf("reparse staged map: %w", err))
 	}
 	validation := savedMapValidation{data: reparsed}
-	return validation.compare(d, isTGM)
+	if err := validation.compare(d, isTGM); err != nil {
+		return d.explainValidationFailure(err)
+	}
+	return nil
 }
 
 // One reparsed stage supplies the actual digest for both independent oracles.

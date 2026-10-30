@@ -1,10 +1,17 @@
 package cpenvironment
 
 import (
+	// APHELION EDIT ADDITION START - MAP GO TO DEFINITION
+	"errors"
+	// APHELION EDIT ADDITION END
 	"fmt"
 	"os/exec"
 	"path/filepath"
 
+	// APHELION EDIT ADDITION START - MAP GO TO DEFINITION
+	"sdmm/internal/aphelion/definition"
+	"sdmm/internal/dmapi/dmenv"
+	// APHELION EDIT ADDITION END
 	"sdmm/internal/app/prefs"
 	"sdmm/internal/app/ui/layout/lnode"
 	// APHELION EDIT ADDITION START - ICON RECOVERY
@@ -72,6 +79,63 @@ func (e *Environment) doGoToDefinition(n *treeNode) func() {
 		prefab := dmmap.PrefabStorage.Initial(n.orig.Path)
 		log.Print("do go to definition:", prefab.Path())
 
+		// APHELION EDIT ADDITION START - MAP GO TO DEFINITION
+		// The tile menu shares this launcher; see OpenDefinition.
+		if err := OpenDefinition(e.app.LoadedEnvironment(), e.app.Prefs().Editor.CodeEditor, n.orig.Path); err != nil {
+			log.Print("unable to open definition file: ", err)
+		}
+	}
+}
+
+// ErrNoDefinition reports a type the loaded environment does not define.
+var ErrNoDefinition = errors.New("type is not defined by the loaded environment")
+
+// HasDefinition reports whether OpenDefinition can locate typePath's source.
+func HasDefinition(env *dmenv.Dme, typePath string) bool {
+	return env != nil && env.Objects[typePath] != nil
+}
+
+// OpenDefinition opens typePath's DM source definition in the configured code
+// editor. The executable comes only from the fixed preference table below and
+// no shell is invoked; the source file must resolve inside the environment root.
+func OpenDefinition(env *dmenv.Dme, codeEditor string, typePath string) error {
+	if !HasDefinition(env, typePath) {
+		return fmt.Errorf("%w: %s", ErrNoDefinition, typePath)
+	}
+	location := env.Objects[typePath].Location
+	path, err := definition.SourcePath(filepath.FromSlash(env.RootDir), location.File)
+	if err != nil {
+		return err
+	}
+	var command *exec.Cmd
+
+	switch codeEditor {
+	case prefs.CodeEditorVSC:
+		root := filepath.FromSlash(env.RootDir)
+		argument := path + ":" + fmt.Sprint(location.Line) + ":" + fmt.Sprint(location.Column)
+		command = exec.Command(prefs.CodeEditorVSCActual, root, "-g", argument)
+	case prefs.CodeEditorVSCodium:
+		root := filepath.FromSlash(env.RootDir)
+		argument := path + ":" + fmt.Sprint(location.Line) + ":" + fmt.Sprint(location.Column)
+		command = exec.Command(prefs.CodeEditorVSCodiumActual, root, "-g", argument)
+	case prefs.CodeEditorDM:
+		// No line/col support until https://www.byond.com/forum/post/2970625
+		command = exec.Command(prefs.CodeEditorDMActual, path)
+	case prefs.CodeEditorNPP:
+		lineArg := "-n" + fmt.Sprint(location.Line)
+		colArg := "-c" + fmt.Sprint(location.Column)
+		command = exec.Command(prefs.CodeEditorNPPActual, path, lineArg, colArg)
+	case prefs.CodeEditorDefault:
+		return open.Start(path)
+	default:
+		return fmt.Errorf("unsupported code editor preference %q", codeEditor)
+	}
+	return command.Start()
+}
+
+// APHELION EDIT ADDITION END
+
+/* APHELION EDIT REMOVAL START - MAP GO TO DEFINITION
 		location := n.orig.Location
 		path := filepath.FromSlash(e.app.LoadedEnvironment().RootDir + "/" + location.File)
 		editorPrefs := e.app.Prefs().Editor
@@ -105,3 +169,4 @@ func (e *Environment) doGoToDefinition(n *treeNode) func() {
 		}
 	}
 }
+APHELION EDIT REMOVAL END */

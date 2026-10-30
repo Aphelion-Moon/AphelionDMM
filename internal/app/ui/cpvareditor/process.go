@@ -33,6 +33,10 @@ func (v *VarEditor) Process(int32) {
 
 	v.showEditModeToggle()
 	v.showControls()
+	// APHELION EDIT ADDITION START - VARIABLE CLIPBOARD
+	v.showClipboardControls()
+	v.showNotice()
+	// APHELION EDIT ADDITION END
 	imgui.BeginChild("variables")
 	v.showVariables()
 	imgui.EndChild()
@@ -306,6 +310,9 @@ func (v *VarEditor) showVarInput(varName string) {
 		}).Tooltip(initialValue).Style(style.ButtonFrame{})
 	}
 
+	// APHELION EDIT ADDITION START - VARIABLE CLIPBOARD
+	v.showVarClipboardButtons(varName, varValue)
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COLOR PICKER
 	if colorvar.IsColorVar(varName) {
 		v.showColorSwatch(varName, varValue)

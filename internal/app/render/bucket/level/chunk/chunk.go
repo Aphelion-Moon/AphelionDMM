@@ -111,10 +111,35 @@ func inGameUnits(m ingame.Map, x, y, level int, i *dmminstance.Instance, mapper 
 		}
 		return units
 	}
+	units := mapper
 	if icon, state, dir, ok := inGameAppearance(m, x, y, level, i); ok {
-		return []unit.Unit{unit.MakeWithAppearance(x, y, i, dmmap.WorldIconSize, icon, state, dir)}
+		units = []unit.Unit{unit.MakeWithAppearance(x, y, i, dmmap.WorldIconSize, icon, state, dir)}
 	}
-	return mapper
+	// Overlays such as a neon carpet's pattern draw after the atom itself.
+	for _, part := range inGameOverlays(m, x, y, level, i) {
+		units = append(units[:len(units):len(units)], unit.MakePart(x, y, i, part.Prefab, dmmap.WorldIconSize, part.Override.Icon, part.Override.IconState, part.Override.Dir))
+	}
+	return units
+}
+
+// inGameOverlays returns the in-game overlays drawn over instance i, such as
+// a neon carpet's glowing pattern, leaving out states the icon does not have.
+func inGameOverlays(m ingame.Map, x, y, level int, i *dmminstance.Instance) []ingame.Part {
+	parts := ingame.Overlays(m, x, y, level, i.Prefab())
+	if len(parts) == 0 {
+		return nil
+	}
+	index := spritedirs.Active()
+	if index == nil {
+		return parts
+	}
+	kept := parts[:0:0]
+	for _, part := range parts {
+		if _, ok := index.Dirs(part.Override.Icon, part.Override.IconState); ok {
+			kept = append(kept, part)
+		}
+	}
+	return kept
 }
 
 // APHELION EDIT ADDITION END

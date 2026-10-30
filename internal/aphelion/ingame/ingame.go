@@ -10,7 +10,8 @@
 //     update_icon_state) and should_have_node overrides;
 //   - pipes: code/modules/atmospherics/machinery/atmosmachinery.dm
 //     (connection_check, is_connectable), each family's set_init_directions
-//     and pipes/smart.dm (update_pipe_icon).
+//     and pipes/smart.dm (update_pipe_icon);
+//   - neon carpets: the decal fancy_floor.dm adds at Initialize (see neon.go).
 //
 // It is display only: overrides never enter a map, history entry or
 // collaboration message. Atoms whose appearance depends on procs this package
@@ -156,6 +157,9 @@ type atom struct {
 
 	// structure spawners: what Initialize creates on the tile
 	spawned []*dmmprefab.Prefab
+
+	// neon carpets: the glowing decal added at Initialize
+	neon *neonDecal
 }
 
 var (
@@ -227,6 +231,7 @@ func readFacts(p *dmmprefab.Prefab) *atom {
 	a.nodeSource = givesCableNode(path, num)
 
 	a.spawned = spawnedPrefabs(path, vars)
+	a.neon = readNeon(path, vars)
 
 	a.atmos = isType(path, "/obj/machinery/atmospherics")
 	if a.atmos {

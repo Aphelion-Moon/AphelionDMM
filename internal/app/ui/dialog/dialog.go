@@ -23,7 +23,17 @@ var opened []Type
 
 func Process() {
 	var closedDialogs []Type
+	// APHELION EDIT ADDITION START - SAME NAME DIALOGS
+	// Same-name dialogs share one popup ID; a later one waits for the first.
+	shown := map[string]bool{}
+	// APHELION EDIT ADDITION END
 	for _, dialog := range opened {
+		// APHELION EDIT ADDITION START - SAME NAME DIALOGS
+		if shown[dialog.Name()] {
+			continue
+		}
+		shown[dialog.Name()] = true
+		// APHELION EDIT ADDITION END
 		if !imgui.IsPopupOpen(dialog.Name()) {
 			imgui.OpenPopup(dialog.Name())
 		}
@@ -59,6 +69,28 @@ func Open(t Type) {
 	shortcut.SetModalOpen(true)
 	// APHELION EDIT ADDITION END
 }
+
+// APHELION EDIT ADDITION START - SAME NAME DIALOGS
+
+// IsOpen reports whether a dialog with the provided name is shown or queued.
+func IsOpen(name string) bool {
+	for _, t := range opened {
+		if t.Name() == name {
+			return true
+		}
+	}
+	return false
+}
+
+// Newest returns the name of the most recently opened dialog still registered.
+func Newest() (string, bool) {
+	if len(opened) == 0 {
+		return "", false
+	}
+	return opened[len(opened)-1].Name(), true
+}
+
+// APHELION EDIT ADDITION END
 
 // Close closed the application dialog.
 func Close(dialog Type) {

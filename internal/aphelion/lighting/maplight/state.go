@@ -1,6 +1,7 @@
 package maplight
 
 import (
+	"math"
 	"sort"
 	"time"
 
@@ -19,11 +20,13 @@ type SkipGroup struct {
 
 // Report summarises a computed level for the status line.
 type Report struct {
-	Sources   int  // explicit emitters used
-	Starlight int  // derived starlight emitters
-	Skipped   int  // atoms that look like lights but were not used
-	Capped    bool // explicit sources were truncated to SourceCap
-	Groups    []SkipGroup
+	Sources   int // explicit emitters used
+	Starlight int // derived starlight emitters
+	// EdgeLights counts turf lights switched on at their family border (lava).
+	EdgeLights int
+	Skipped    int  // atoms that look like lights but were not used
+	Capped     bool // explicit sources were truncated to SourceCap
+	Groups     []SkipGroup
 }
 
 const maxReportRows = 200
@@ -39,6 +42,9 @@ type levelState struct {
 	skipTotal   int
 	sourceCount int
 	maxSources  int
+	// edgeIndex maps each distinct edge light to its 1-based index in
+	// level.EdgeLights. The palette only grows; a rebuild starts a new one.
+	edgeIndex map[lighting.EdgeLight]uint16
 }
 
 func newLevelState(w, h int) *levelState {
@@ -46,12 +52,31 @@ func newLevelState(w, h int) *levelState {
 	lvl.Ambient = make([]lighting.RGB, w*h)
 	lvl.Unlit = make([]bool, w*h)
 	lvl.Space = make([]bool, w*h)
+	lvl.Edge = make([]uint16, w*h)
+	lvl.Emissive = make([]bool, w*h)
 	return &levelState{
 		w: w, h: h, level: lvl, maxSources: SourceCap,
 		tileSources: make(map[int32][]lighting.Source),
 		tileSkips:   make(map[int32][]skipKey),
 		skipCounts:  make(map[skipKey]int),
+		edgeIndex:   make(map[lighting.EdgeLight]uint16),
 	}
+}
+
+// edgeSlot returns the palette index of light, adding it when new. A full
+// palette (more distinct edge lights than uint16 can index) yields 0: the
+// tile is then treated as having none.
+func (s *levelState) edgeSlot(light lighting.EdgeLight) uint16 {
+	if k, ok := s.edgeIndex[light]; ok {
+		return k
+	}
+	if len(s.level.EdgeLights) >= math.MaxUint16 {
+		return 0
+	}
+	s.level.EdgeLights = append(s.level.EdgeLights, light)
+	k := uint16(len(s.level.EdgeLights))
+	s.edgeIndex[light] = k
+	return k
 }
 
 // captureTile reads one zero-based tile of dmm level z into the master level.
@@ -72,7 +97,8 @@ func (s *levelState) captureTile(d *dmmap.Dmm, z int, cls *Classifier, x, y int)
 		delete(s.tileSkips, key)
 	}
 
-	var opaque, space, hasArea bool
+	var opaque, space, hasArea, emissive bool
+	var edge uint16
 	base, static := lighting.AreaBase{Color: lighting.RGB{R: 1, G: 1, B: 1}}, true
 	var sources []lighting.Source
 	var skips []skipKey
@@ -88,6 +114,10 @@ func (s *levelState) captureTile(d *dmmap.Dmm, z int, cls *Classifier, x, y int)
 			}
 			opaque = opaque || info.opaque
 			space = space || info.space
+			if info.edge {
+				edge = s.edgeSlot(info.edgeLight)
+			}
+			emissive = emissive || info.emissive
 			if info.emits {
 				src := info.source
 				src.X, src.Y = x, y
@@ -98,6 +128,8 @@ func (s *levelState) captureTile(d *dmmap.Dmm, z int, cls *Classifier, x, y int)
 	}
 	s.level.SetOpaque(x, y, opaque)
 	s.level.Space[idx] = space
+	s.level.Edge[idx] = edge
+	s.level.Emissive[idx] = emissive
 	s.level.Unlit[idx] = !static
 	s.level.Ambient[idx] = lighting.ResolveAmbient(base, space, cls.set.starlight())
 	if len(sources) > 0 {

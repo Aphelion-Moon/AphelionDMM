@@ -120,6 +120,9 @@ type app struct {
 	// ...omae wa mou shindeiru...
 	// Should be modified only in the CloseCheck method. Ensures we made everything before the closing.
 	closed bool
+	// APHELION EDIT ADDITION START - CLOSE PROMPT
+	closePrompt closePrompt
+	// APHELION EDIT ADDITION END
 
 	shortcutsEnabled bool
 
@@ -210,6 +213,9 @@ func (a *app) Process() {
 	}
 	APHELION EDIT REMOVAL END */
 
+	// APHELION EDIT ADDITION START - DISABLED ALPHA
+	pushFrameAlpha()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - MERIDIAN THEME
 	// Theme spacing and radii apply to every panel and dialog this frame.
 	themeMetrics := window.PushThemeMetrics()
@@ -232,6 +238,9 @@ func (a *app) Process() {
 	// APHELION EDIT ADDITION START - MERIDIAN THEME
 	imgui.PopStyleVarV(themeMetrics)
 	// APHELION EDIT ADDITION END
+	// APHELION EDIT ADDITION START - DISABLED ALPHA
+	popFrameAlpha()
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - CURRENT FRAME INPUT
 	// Panels and dialogs establish this frame's text/modal/document ownership.
 	if a.shortcutsEnabled {
@@ -251,6 +260,13 @@ func (a *app) PostProcess() {
 
 func (a *app) CloseCheck() {
 	log.Print("run close check")
+	// APHELION EDIT ADDITION START - CLOSE PROMPT
+	// Each window close press calls this; answer the prompt already shown.
+	if a.closePrompt.pending() {
+		log.Print("close check skipped: save prompt already open:", a.closePrompt.name)
+		return
+	}
+	// APHELION EDIT ADDITION END
 	// APHELION EDIT ADDITION START - COLLABORATION
 	if a.HasActiveCollaboration() {
 		guard, err := a.collaborationProjectReplacementGuard()
@@ -260,15 +276,31 @@ func (a *app) CloseCheck() {
 			a.closed = false
 			return
 		}
+		/* APHELION EDIT REMOVAL START - CLOSE PROMPT
 		a.layout.WsArea.CloseAllMapsGuarded(guard, func(closed bool) {
 			a.closed = closed
 		})
+		APHELION EDIT REMOVAL END */
+		// APHELION EDIT ADDITION START - CLOSE PROMPT
+		a.closePrompt.track(func(done func(bool)) {
+			a.layout.WsArea.CloseAllMapsGuarded(guard, done)
+		}, func(closed bool) {
+			a.closed = closed
+		})
+		// APHELION EDIT ADDITION END
 		return
 	}
 	// APHELION EDIT ADDITION END
+	/* APHELION EDIT REMOVAL START - CLOSE PROMPT
 	a.layout.WsArea.CloseAllMaps(func(closed bool) {
 		a.closed = closed
 	})
+	APHELION EDIT REMOVAL END */
+	// APHELION EDIT ADDITION START - CLOSE PROMPT
+	a.closePrompt.track(a.layout.WsArea.CloseAllMaps, func(closed bool) {
+		a.closed = closed
+	})
+	// APHELION EDIT ADDITION END
 }
 
 func (a *app) IsClosed() bool {

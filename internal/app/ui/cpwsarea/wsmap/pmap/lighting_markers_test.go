@@ -65,6 +65,10 @@ func TestLightingStatusText(t *testing.T) {
 	if got != "Lighting (approximate): 12 sources, 3 skipped" {
 		t.Fatalf("got %q", got)
 	}
+	// Planet maps light up through runtime turf lights such as lava borders.
+	if got := lightingStatusText(maplight.Report{EdgeLights: 40}, false); got != "Lighting (approximate): 0 sources, 40 turf edge lights, 0 skipped" {
+		t.Fatalf("edge lights: %q", got)
+	}
 	if got := lightingStatusText(maplight.Report{Sources: 1}, true); !strings.HasSuffix(got, "updating...") {
 		t.Fatalf("busy suffix missing: %q", got)
 	}

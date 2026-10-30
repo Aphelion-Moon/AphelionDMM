@@ -485,6 +485,26 @@ func (o *Overrides) setRule(rule Rule) {
 	o.Rules = append(o.Rules, rule)
 }
 
+// supersede makes a subtree toggle the newest word on everything below it.
+// Exact rules otherwise outrank any subtree rule, so an earlier Alt-Pick hide
+// would stay hidden when its whole layer or tree branch is shown again.
+// Temporary rules at or below path are dropped; profile rules there are
+// overridden rather than edited, so the saved profile itself is unchanged.
+func (o *Overrides) supersede(profileRules []Rule, path string, visible bool) {
+	within := func(candidate string) bool {
+		return candidate == path || strings.HasPrefix(candidate, path+"/")
+	}
+	o.Rules = slices.DeleteFunc(o.Rules, func(rule Rule) bool { return within(rule.Path) })
+	if o.ReplaceProfile {
+		return
+	}
+	for _, rule := range profileRules {
+		if within(rule.Path) && rule.Visible != visible && !(rule.Path == path && rule.Scope == ScopeSubtree) {
+			o.setRule(Rule{Path: rule.Path, Scope: rule.Scope, Visible: visible})
+		}
+	}
+}
+
 type Session struct {
 	active         *Profile
 	overrides      Overrides
@@ -579,6 +599,9 @@ func (s *Session) SetVisibility(path string, scope Scope, visible bool, environm
 	}
 	next := cloneOverrides(s.overrides)
 	rule := Rule{Path: path, Scope: scope, Visible: visible}
+	if scope == ScopeSubtree {
+		next.supersede(profile.Rules, path, visible)
+	}
 	next.setRule(rule)
 	compiled, err := s.compile(profile, next, environment)
 	if err != nil {

@@ -59,7 +59,11 @@ func lightingMarkerFor(s lighting.Source, tile float64) lightingMarker {
 }
 
 func lightingStatusText(rep maplight.Report, busy bool) string {
-	text := fmt.Sprintf("Lighting (approximate): %d sources, %d skipped", rep.Sources, rep.Skipped)
+	text := fmt.Sprintf("Lighting (approximate): %d sources, ", rep.Sources)
+	if rep.EdgeLights > 0 {
+		text += fmt.Sprintf("%d turf edge lights, ", rep.EdgeLights)
+	}
+	text += fmt.Sprintf("%d skipped", rep.Skipped)
 	if rep.Capped {
 		text += fmt.Sprintf(" (capped at %d)", maplight.SourceCap)
 	}
